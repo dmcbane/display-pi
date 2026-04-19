@@ -51,26 +51,14 @@ check_ip() {
 }
 
 check_gateway() {
+    # Many home routers drop ICMP — presence of a default route is what
+    # matters for RTMP ingest (ATEM on same LAN).
     if ip route show default 2>/dev/null | grep -q default; then
         local gw
         gw=$(ip route show default | awk '{print $3; exit}')
-        if ping -c1 -W2 "$gw" &>/dev/null; then
-            echo "OK|Gateway|${gw} (reachable)"
-        else
-            echo "WARN|Gateway|${gw} (unreachable)"
-        fi
+        echo "OK|Gateway|${gw}"
     else
         echo "FAIL|Gateway|No default route"
-    fi
-}
-
-check_dns() {
-    if host -W2 google.com &>/dev/null 2>&1; then
-        echo "OK|DNS|Resolving"
-    elif command -v host &>/dev/null; then
-        echo "WARN|DNS|Resolution failed"
-    else
-        echo "WARN|DNS|host command not available"
     fi
 }
 
@@ -198,7 +186,6 @@ CHECKS=(
     check_hostname
     check_ip
     check_gateway
-    check_dns
     check_nginx
     check_rtmp_stream
     check_disk
