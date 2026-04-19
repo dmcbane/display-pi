@@ -1,0 +1,16 @@
+[Unit]
+Description=Worship stream kiosk display
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+Environment=XDG_RUNTIME_DIR=/run/user/%U
+Environment=WLR_LIBINPUT_NO_DEVICES=1
+ExecStart=/usr/bin/cage -s -- /home/kiosk/bin/player.sh
+Restart=always
+RestartSec=3
+StartLimitIntervalSec=0
+
+[Install]
+WantedBy=default.target
