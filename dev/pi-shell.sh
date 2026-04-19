@@ -13,7 +13,6 @@ set -euo pipefail
 
 HOST="${1:-${KIOSK_HOST:-displaypi}}"
 ACTION="${1:-shell}"
-SSH_USER="${SSH_USER:-$(whoami)}"
 KIOSK_USER="${KIOSK_USER:-kiosk}"
 
 # If first arg looks like a hostname (contains no spaces, no known action),
@@ -32,11 +31,11 @@ esac
 case "$ACTION" in
     logs)
         echo "=== Tailing kiosk player log and nginx error log ==="
-        ssh -t "${SSH_USER}@${HOST}" \
+        ssh -t "${HOST}" \
             "sudo tail -f /tmp/player.log /var/log/nginx/error.log"
         ;;
     status)
-        ssh "${SSH_USER}@${HOST}" bash <<REMOTE
+        ssh "${HOST}" bash <<REMOTE
 echo "=== Kiosk Service ==="
 KIOSK_UID=\$(id -u ${KIOSK_USER})
 sudo -u ${KIOSK_USER} XDG_RUNTIME_DIR="/run/user/\${KIOSK_UID}" \
@@ -63,14 +62,14 @@ echo "Memory: \$(free -h | awk '/^Mem:/ {printf "%s/%s (%s free)", \$3, \$2, \$4
 REMOTE
         ;;
     diag)
-        ssh "${SSH_USER}@${HOST}" \
+        ssh "${HOST}" \
             "sudo -u ${KIOSK_USER} /home/${KIOSK_USER}/display-pi/diagnostics/render-status.sh /tmp/kiosk-status.png"
         ;;
     cmd)
         shift
-        ssh "${SSH_USER}@${HOST}" "$@"
+        ssh "${HOST}" "$@"
         ;;
     shell|*)
-        ssh -t "${SSH_USER}@${HOST}"
+        ssh -t "${HOST}"
         ;;
 esac

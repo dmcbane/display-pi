@@ -10,7 +10,6 @@ set -euo pipefail
 HOST="${1:-${KIOSK_HOST:-displaypi}}"
 KIOSK_USER="${KIOSK_USER:-kiosk}"
 REMOTE_DIR="/home/${KIOSK_USER}/display-pi"
-SSH_USER="${SSH_USER:-$(whoami)}"
 
 log() { printf '\033[1;34m[deploy]\033[0m %s\n' "$*"; }
 die() { printf '\033[1;31m[deploy]\033[0m %s\n' "$*" >&2; exit 1; }
@@ -18,28 +17,26 @@ die() { printf '\033[1;31m[deploy]\033[0m %s\n' "$*" >&2; exit 1; }
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 
-# Verify we can reach the Pi
-log "Testing SSH to ${SSH_USER}@${HOST}..."
-ssh -o ConnectTimeout=5 "${SSH_USER}@${HOST}" true || die "Cannot reach ${HOST}"
+# Verify we can reach the Pi (user comes from ssh config)
+log "Testing SSH to ${HOST}..."
+ssh -o ConnectTimeout=5 "${HOST}" true || die "Cannot reach ${HOST}"
 
 # Sync files (exclude .git and dev/ — dev tools stay on workstation)
 log "Syncing to ${HOST}:${REMOTE_DIR}..."
 rsync -avz --delete \
+    --rsync-path="sudo -u ${KIOSK_USER} rsync" \
     --exclude='.git/' \
+    --exclude='.claude/' \
     --exclude='dev/' \
     --exclude='tests/' \
     --exclude='*.swp' \
     --exclude='*.swo' \
     --exclude='__pycache__/' \
-    "${REPO_ROOT}/" "${SSH_USER}@${HOST}:${REMOTE_DIR}/"
-
-# Fix ownership if deploying as non-kiosk user
-log "Fixing ownership..."
-ssh "${SSH_USER}@${HOST}" "sudo chown -R ${KIOSK_USER}:${KIOSK_USER} ${REMOTE_DIR}/"
+    "${REPO_ROOT}/" "${HOST}:${REMOTE_DIR}/"
 
 # Symlink install files into expected locations
 log "Installing files..."
-ssh "${SSH_USER}@${HOST}" bash <<REMOTE
+ssh "${HOST}" bash <<REMOTE
 set -euo pipefail
 
 # Ensure bin directory exists
@@ -80,7 +77,7 @@ REMOTE
 
 # Reload kiosk service
 log "Reloading kiosk service..."
-ssh "${SSH_USER}@${HOST}" bash <<REMOTE
+ssh "${HOST}" bash <<REMOTE
 KIOSK_UID=\$(id -u ${KIOSK_USER})
 sudo -u ${KIOSK_USER} XDG_RUNTIME_DIR="/run/user/\${KIOSK_UID}" \
     systemctl --user daemon-reload

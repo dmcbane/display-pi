@@ -17,7 +17,7 @@
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 KIOSK_DIR="${KIOSK_DIR:-$(dirname "$SCRIPT_DIR")}"
 DIAG_SCRIPT="${KIOSK_DIR}/diagnostics/render-status.sh"
 STATUS_PNG="/tmp/kiosk-status.png"

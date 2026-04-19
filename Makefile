@@ -14,12 +14,10 @@
 #   make deploy HOST=192.168.0.106
 
 HOST       ?= displaypi
-SSH_USER   ?= $(shell whoami)
 KIOSK_USER ?= kiosk
 STREAM_KEY ?= church242
 
 export KIOSK_HOST  := $(HOST)
-export SSH_USER
 export KIOSK_USER
 export STREAM_KEY
 
@@ -69,5 +67,5 @@ ping:
 
 reboot:
 	@echo "Rebooting $(HOST)..."
-	@ssh $(SSH_USER)@$(HOST) "sudo reboot" || true
+	@ssh $(HOST) "sudo reboot" || true
 	@echo "Reboot command sent. Pi will come back in ~30s."

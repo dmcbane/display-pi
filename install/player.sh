@@ -17,7 +17,7 @@ exec >> "$LOG" 2>&1
 STREAM_URL="rtmp://127.0.0.1/live/church242"
 SPLASH_IMAGE="/home/kiosk/splash.png"
 VOLUME=80
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 ASSESS_SCRIPT="${SCRIPT_DIR}/assess.sh"
 DIAG_SCRIPT="$(dirname "$SCRIPT_DIR")/diagnostics/render-status.sh"
 
