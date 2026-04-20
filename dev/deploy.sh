@@ -50,6 +50,47 @@ sudo chown -h ${KIOSK_USER}:${KIOSK_USER} /home/${KIOSK_USER}/bin/player.sh
 sudo ln -sf ${REMOTE_DIR}/install/assess.sh /home/${KIOSK_USER}/bin/assess.sh
 sudo chown -h ${KIOSK_USER}:${KIOSK_USER} /home/${KIOSK_USER}/bin/assess.sh
 
+# Link healthcheck.sh
+sudo ln -sf ${REMOTE_DIR}/install/healthcheck.sh /home/${KIOSK_USER}/bin/healthcheck.sh
+sudo chown -h ${KIOSK_USER}:${KIOSK_USER} /home/${KIOSK_USER}/bin/healthcheck.sh
+
+# Install logrotate config if changed
+if ! diff -q ${REMOTE_DIR}/install/logrotate-kiosk /etc/logrotate.d/kiosk-player &>/dev/null 2>&1; then
+    sudo cp ${REMOTE_DIR}/install/logrotate-kiosk /etc/logrotate.d/kiosk-player
+    sudo chmod 644 /etc/logrotate.d/kiosk-player
+    echo "logrotate config updated"
+fi
+
+# Install PipeWire client.conf for kiosk user if missing
+if [[ ! -f /home/${KIOSK_USER}/.config/pipewire/client.conf ]] && [[ -f /usr/share/pipewire/client.conf ]]; then
+    sudo -u ${KIOSK_USER} mkdir -p /home/${KIOSK_USER}/.config/pipewire
+    sudo cp /usr/share/pipewire/client.conf /home/${KIOSK_USER}/.config/pipewire/client.conf
+    sudo chown ${KIOSK_USER}:${KIOSK_USER} /home/${KIOSK_USER}/.config/pipewire/client.conf
+    echo "PipeWire client.conf installed"
+fi
+
+# Install healthcheck cron entry if changed
+HEALTHCHECK_CRON="# Kiosk healthcheck — pings HEALTHCHECK_URL every 5 min.
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+*/5 * * * * ${KIOSK_USER} /home/${KIOSK_USER}/bin/healthcheck.sh"
+if ! echo "\$HEALTHCHECK_CRON" | sudo diff -q - /etc/cron.d/kiosk-healthcheck &>/dev/null; then
+    echo "\$HEALTHCHECK_CRON" | sudo tee /etc/cron.d/kiosk-healthcheck > /dev/null
+    sudo chmod 644 /etc/cron.d/kiosk-healthcheck
+    echo "healthcheck cron updated"
+fi
+
+# Create healthcheck config placeholder if missing
+if [[ ! -f /etc/kiosk-healthcheck.conf ]]; then
+    sudo tee /etc/kiosk-healthcheck.conf > /dev/null <<'CONF'
+# Kiosk healthcheck config. Fill in the URL from healthchecks.io (or similar).
+HEALTHCHECK_URL=
+HEALTHCHECK_TIMEOUT=10
+CONF
+    sudo chmod 644 /etc/kiosk-healthcheck.conf
+    echo "healthcheck config placeholder created"
+fi
+
 # Install service file if changed
 if ! diff -q ${REMOTE_DIR}/install/kiosk.service /home/${KIOSK_USER}/.config/systemd/user/kiosk.service &>/dev/null 2>&1; then
     sudo -u ${KIOSK_USER} mkdir -p /home/${KIOSK_USER}/.config/systemd/user

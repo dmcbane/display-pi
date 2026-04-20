@@ -93,7 +93,8 @@ install_packages() {
         libnginx-mod-rtmp nginx \
         watchdog cec-utils \
         ffmpeg imagemagick fonts-dejavu-core \
-        ca-certificates
+        ca-certificates curl logrotate cron \
+        pipewire pipewire-audio wireplumber
     log "Packages installed."
 }
 
@@ -447,6 +448,106 @@ EOF
 }
 
 # =============================================================================
+# Step 10: PipeWire client config (eliminates runtime log noise)
+# =============================================================================
+configure_pipewire() {
+    local src="/usr/share/pipewire/client.conf"
+    local dst="/home/${KIOSK_USER}/.config/pipewire/client.conf"
+
+    if [[ -f "$src" ]]; then
+        if [[ ! -f "$dst" ]]; then
+            log "Installing PipeWire client.conf for kiosk user..."
+            sudo -u "$KIOSK_USER" mkdir -p "$(dirname "$dst")"
+            sudo cp "$src" "$dst"
+            sudo chown "$KIOSK_USER:$KIOSK_USER" "$dst"
+            log "PipeWire client.conf installed at $dst."
+        else
+            log "PipeWire client.conf already present at $dst."
+        fi
+    else
+        log "No system PipeWire client.conf at $src; skipping copy."
+    fi
+
+    # Ensure pipewire + wireplumber user services are enabled for the kiosk
+    # user so they start automatically alongside the lingering systemd user
+    # session. mpv's audio output (--audio-device=auto) requires pipewire to
+    # be running, and the default socket-activation sometimes doesn't fire
+    # from a headless kiosk session.
+    local kiosk_uid
+    kiosk_uid=$(id -u "$KIOSK_USER")
+    sudo -u "$KIOSK_USER" XDG_RUNTIME_DIR="/run/user/${kiosk_uid}" \
+        systemctl --user enable pipewire pipewire-pulse wireplumber 2>/dev/null || \
+        warn "Could not enable pipewire user services (will try on next reboot)."
+}
+
+# =============================================================================
+# Step 11: Log rotation for /tmp/player.log
+# =============================================================================
+configure_logrotate() {
+    local src
+    src="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/logrotate-kiosk"
+    local dst=/etc/logrotate.d/kiosk-player
+
+    if [[ ! -f "$src" ]]; then
+        warn "logrotate-kiosk template not found at $src; skipping."
+        return
+    fi
+
+    log "Installing logrotate config for player.log..."
+    backup_once "$dst"
+    sudo cp "$src" "$dst"
+    sudo chmod 644 "$dst"
+    log "logrotate config installed at $dst (1MB cap, 3 rotations)."
+}
+
+# =============================================================================
+# Step 12: Healthcheck cron (pings external monitor every 5 min)
+# =============================================================================
+configure_healthcheck() {
+    local src
+    src="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/healthcheck.sh"
+    local kiosk_bin="/home/${KIOSK_USER}/bin"
+    local installed="${kiosk_bin}/healthcheck.sh"
+    local conf=/etc/kiosk-healthcheck.conf
+    local cron=/etc/cron.d/kiosk-healthcheck
+
+    if [[ ! -x "$src" ]]; then
+        warn "healthcheck.sh not found at $src; skipping."
+        return
+    fi
+
+    log "Installing healthcheck.sh..."
+    sudo -u "$KIOSK_USER" mkdir -p "$kiosk_bin"
+    sudo cp "$src" "$installed"
+    sudo chown "$KIOSK_USER:$KIOSK_USER" "$installed"
+    sudo chmod +x "$installed"
+
+    if [[ ! -f "$conf" ]]; then
+        log "Creating placeholder $conf — fill in HEALTHCHECK_URL to activate."
+        sudo tee "$conf" > /dev/null <<'EOF'
+# Kiosk healthcheck config. Fill in the URL from healthchecks.io (or similar).
+# The URL is pinged every 5 min by /etc/cron.d/kiosk-healthcheck.
+# Empty URL = silently disabled.
+HEALTHCHECK_URL=
+HEALTHCHECK_TIMEOUT=10
+EOF
+        sudo chmod 644 "$conf"
+    else
+        log "$conf already exists; leaving it alone."
+    fi
+
+    log "Installing cron entry at $cron (every 5 min)..."
+    sudo tee "$cron" > /dev/null <<EOF
+# Kiosk healthcheck — pings HEALTHCHECK_URL every 5 min.
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+*/5 * * * * ${KIOSK_USER} ${installed}
+EOF
+    sudo chmod 644 "$cron"
+    log "Healthcheck cron installed."
+}
+
+# =============================================================================
 # Main
 # =============================================================================
 main() {
@@ -464,6 +565,9 @@ main() {
     create_player_script
     install_kiosk_service
     configure_watchdog
+    configure_pipewire
+    configure_logrotate
+    configure_healthcheck
 
     cat <<EOF
 

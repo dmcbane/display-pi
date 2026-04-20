@@ -1,0 +1,17 @@
+# logrotate config for the kiosk player log.
+# Installed to /etc/logrotate.d/kiosk-player by setup-kiosk.sh.
+#
+# The player uses `exec >> /tmp/player.log`, which keeps the file
+# descriptor open. copytruncate preserves the open fd by copying
+# contents to the rotated file and then truncating the original
+# in place — no need to restart the kiosk.
+
+/tmp/player.log {
+    size 1M
+    rotate 3
+    copytruncate
+    missingok
+    notifempty
+    compress
+    delaycompress
+}

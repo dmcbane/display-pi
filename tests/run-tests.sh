@@ -190,6 +190,38 @@ assert_contains "deploy.sh installs nginx config" "$REPO_ROOT/dev/deploy.sh" "ng
 
 # ============================================================================
 echo ""
+echo "=== PipeWire Tests ==="
+# ============================================================================
+
+assert_contains "setup-kiosk.sh installs PipeWire client.conf" "$REPO_ROOT/install/setup-kiosk.sh" "client.conf"
+assert_contains "setup-kiosk.sh creates kiosk pipewire config dir" "$REPO_ROOT/install/setup-kiosk.sh" ".config/pipewire"
+
+# ============================================================================
+echo ""
+echo "=== Log Rotation Tests ==="
+# ============================================================================
+
+assert_file_exists "install/logrotate-kiosk exists" "$REPO_ROOT/install/logrotate-kiosk"
+assert_contains "logrotate config targets /tmp/player.log" "$REPO_ROOT/install/logrotate-kiosk" "/tmp/player.log"
+assert_contains "logrotate config uses copytruncate" "$REPO_ROOT/install/logrotate-kiosk" "copytruncate"
+assert_contains "logrotate config has size cap" "$REPO_ROOT/install/logrotate-kiosk" "size "
+assert_contains "setup-kiosk.sh installs logrotate config" "$REPO_ROOT/install/setup-kiosk.sh" "logrotate-kiosk"
+
+# ============================================================================
+echo ""
+echo "=== Healthcheck Tests ==="
+# ============================================================================
+
+assert_file_exists "install/healthcheck.sh exists" "$REPO_ROOT/install/healthcheck.sh"
+assert_executable "install/healthcheck.sh is executable" "$REPO_ROOT/install/healthcheck.sh"
+assert_contains "healthcheck.sh has check_health function" "$REPO_ROOT/install/healthcheck.sh" "^check_health()"
+assert_contains "healthcheck.sh reads config from HEALTHCHECK_URL" "$REPO_ROOT/install/healthcheck.sh" "HEALTHCHECK_URL"
+assert_contains "healthcheck.sh pings on success" "$REPO_ROOT/install/healthcheck.sh" "curl"
+assert_contains "healthcheck.sh supports fail ping" "$REPO_ROOT/install/healthcheck.sh" "/fail"
+assert_contains "setup-kiosk.sh installs healthcheck cron" "$REPO_ROOT/install/setup-kiosk.sh" "healthcheck"
+
+# ============================================================================
+echo ""
 echo "=== Consistency Tests ==="
 # ============================================================================
 
