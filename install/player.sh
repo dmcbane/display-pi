@@ -39,11 +39,14 @@ fi
 # ---------------------------------------------------------------------------
 
 show_splash() {
+    # Redirect mpv's stdout/stderr to $LOG explicitly. Without this, mpv
+    # inherits the command-substitution pipe from SPLASH_PID=$(show_splash)
+    # and bash blocks on pipe_read waiting for EOF that never arrives.
     mpv --fullscreen --really-quiet --loop \
         --image-display-duration=inf \
         --no-input-default-bindings \
         --no-audio \
-        "$SPLASH_IMAGE" &
+        "$SPLASH_IMAGE" </dev/null >>"$LOG" 2>&1 &
     echo $!
 }
 

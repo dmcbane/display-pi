@@ -14,7 +14,16 @@ HOST="${1:-${KIOSK_HOST:-displaypi}}"
 DURATION="${2:-60}"
 STREAM_KEY="${STREAM_KEY:-church242}"
 RTMP_APP="${RTMP_APP:-live}"
-RTMP_URL="rtmp://${HOST}/${RTMP_APP}/${STREAM_KEY}"
+
+# Resolve via SSH config if possible (handles cases where the short name
+# is an SSH alias but DNS points elsewhere — e.g. AT&T attlocal.net).
+RTMP_TARGET="$HOST"
+if resolved=$(ssh -G "$HOST" 2>/dev/null | awk '/^hostname / {print $2}'); then
+    if [[ -n "$resolved" && "$resolved" != "$HOST" ]]; then
+        RTMP_TARGET="$resolved"
+    fi
+fi
+RTMP_URL="rtmp://${RTMP_TARGET}/${RTMP_APP}/${STREAM_KEY}"
 
 log() { printf '\033[1;34m[test-stream]\033[0m %s\n' "$*"; }
 
