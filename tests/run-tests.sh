@@ -164,6 +164,8 @@ assert_contains "nginx.conf allows LAN publish" "$REPO_ROOT/install/nginx.conf" 
 assert_contains "nginx.conf denies external publish" "$REPO_ROOT/install/nginx.conf" "deny publish all"
 assert_contains "nginx.conf allows local play only" "$REPO_ROOT/install/nginx.conf" "allow play 127.0.0.1"
 assert_contains "nginx.conf denies external play" "$REPO_ROOT/install/nginx.conf" "deny play all"
+assert_contains "nginx.conf drops subscribers on publisher disconnect" "$REPO_ROOT/install/nginx.conf" "idle_streams off"
+assert_contains "nginx.conf drops silent publisher" "$REPO_ROOT/install/nginx.conf" "drop_idle_publisher"
 
 # ============================================================================
 echo ""
