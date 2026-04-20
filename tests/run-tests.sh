@@ -197,9 +197,13 @@ echo "=== Health Overlay Tests ==="
 
 assert_file_exists "install/mpv-health-overlay.lua exists" "$REPO_ROOT/install/mpv-health-overlay.lua"
 assert_contains "overlay reads /tmp/kiosk-health.json" "$REPO_ROOT/install/mpv-health-overlay.lua" "/tmp/kiosk-health.json"
-assert_contains "overlay positions bottom-right" "$REPO_ROOT/install/mpv-health-overlay.lua" "\\\\an3"
-assert_contains "overlay hides when OK" "$REPO_ROOT/install/mpv-health-overlay.lua" "clear_overlay"
+assert_contains "overlay positions health bottom-right" "$REPO_ROOT/install/mpv-health-overlay.lua" "\\\\an3"
+assert_contains "overlay positions info bottom-left" "$REPO_ROOT/install/mpv-health-overlay.lua" "\\\\an1"
+assert_contains "overlay uses two independent OSD layers" "$REPO_ROOT/install/mpv-health-overlay.lua" "create_osd_overlay"
+assert_contains "overlay parses ip from json" "$REPO_ROOT/install/mpv-health-overlay.lua" "\"ip\""
 assert_contains "overlay detects stale data" "$REPO_ROOT/install/mpv-health-overlay.lua" "STALE_THRESHOLD"
+assert_contains "health-monitor writes ip field" "$REPO_ROOT/diagnostics/health-monitor.sh" '"ip"'
+assert_contains "health-monitor writes hostname field" "$REPO_ROOT/diagnostics/health-monitor.sh" '"hostname"'
 assert_file_exists "diagnostics/health-monitor.sh exists" "$REPO_ROOT/diagnostics/health-monitor.sh"
 assert_executable "diagnostics/health-monitor.sh is executable" "$REPO_ROOT/diagnostics/health-monitor.sh"
 assert_contains "health-monitor reuses check_health from healthcheck.sh" "$REPO_ROOT/diagnostics/health-monitor.sh" "healthcheck.sh"
