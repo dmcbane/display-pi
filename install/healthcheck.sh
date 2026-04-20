@@ -38,19 +38,55 @@ log() {
 # design guidance.
 # ---------------------------------------------------------------------------
 check_health() {
-    # TODO: implement the health policy.
-    # Available building blocks you can use:
-    #   - nc -z 127.0.0.1 1935          # nginx RTMP port open
-    #   - systemctl is-active nginx     # nginx service running
-    #   - pgrep -f 'bin/player.sh'      # player loop alive
-    #   - pgrep -f 'cage -s'            # kiosk compositor alive
-    #   - tail -c 512 /tmp/player.log   # recent log activity
-    #   - ffprobe ... rtmp://127.0.0.1/live/church242  # stream currently live
-    #
-    # Return 0 and echo a short reason string on healthy.
-    # Return non-zero and echo the problem on unhealthy.
-    echo "check_health() not implemented"
-    return 1
+    # Network: we have an IP, a default route, and a live physical link.
+    # Any of these failing means we cannot receive RTMP from the ATEM.
+    if ! hostname -I 2>/dev/null | grep -q '[0-9]'; then
+        echo "no IP address assigned"
+        return 1
+    fi
+    if ! ip -4 route show default 2>/dev/null | grep -q default; then
+        echo "no default route"
+        return 1
+    fi
+    local iface
+    iface=$(ip -4 route show default | awk '{print $5; exit}')
+    if [[ -n "$iface" ]]; then
+        local state
+        state=$(cat "/sys/class/net/${iface}/operstate" 2>/dev/null || echo unknown)
+        if [[ "$state" != "up" ]]; then
+            echo "${iface} operstate=${state}"
+            return 1
+        fi
+    fi
+
+    # Compositor: without cage, HDMI shows nothing.
+    if ! pgrep -f 'cage -s' >/dev/null; then
+        echo "cage compositor not running"
+        return 1
+    fi
+
+    # Player loop: without it, no splash/stream switching happens.
+    if ! pgrep -f 'bin/player.sh' >/dev/null; then
+        echo "player.sh not running"
+        return 1
+    fi
+
+    # nginx RTMP ingest: without it, ATEM cannot push.
+    if ! nc -z 127.0.0.1 1935 2>/dev/null; then
+        echo "nginx RTMP port 1935 not listening"
+        return 1
+    fi
+
+    # Log freshness: catches hangs where processes are alive but the loop
+    # is stuck (see the SPLASH_PID=$() pipe bug in git history).
+    # 15-min window tolerates quiet periods during stable streams.
+    if [[ -f /tmp/player.log ]] && [[ -z "$(find /tmp/player.log -mmin -15 2>/dev/null)" ]]; then
+        echo "player.log has had no writes in 15+ minutes"
+        return 1
+    fi
+
+    echo "ok ($(hostname -I | awk '{print $1}'), iface=${iface:-?})"
+    return 0
 }
 
 # ---------------------------------------------------------------------------
