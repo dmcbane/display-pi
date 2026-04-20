@@ -62,6 +62,62 @@ check_gateway() {
     fi
 }
 
+# Link quality: detects a long/bad cable negotiating down to 100Mb/s or
+# accumulating RX errors. Uses /sys/class/net (no root / ethtool needed).
+check_link() {
+    local iface speed duplex carrier
+    iface=$(ip -4 route show default 2>/dev/null | awk '{print $5; exit}')
+    if [[ -z "$iface" ]]; then
+        echo "WARN|Link|No active interface"
+        return
+    fi
+
+    carrier=$(cat "/sys/class/net/${iface}/carrier" 2>/dev/null || echo 0)
+    if [[ "$carrier" != "1" ]]; then
+        echo "FAIL|Link|${iface} carrier down"
+        return
+    fi
+
+    speed=$(cat "/sys/class/net/${iface}/speed" 2>/dev/null || echo "?")
+    duplex=$(cat "/sys/class/net/${iface}/duplex" 2>/dev/null || echo "?")
+
+    local status="OK"
+    local detail="${iface} @ ${speed}Mb/s ${duplex}"
+    # Gigabit interface that negotiated down suggests cable issues
+    if [[ "$speed" != "1000" && "$speed" != "?" ]]; then
+        status="WARN"
+        detail="${iface} @ ${speed}Mb/s (expected 1000)"
+    fi
+    echo "${status}|Link|${detail}"
+}
+
+check_link_errors() {
+    local iface rx_errors rx_dropped rx_packets
+    iface=$(ip -4 route show default 2>/dev/null | awk '{print $5; exit}')
+    if [[ -z "$iface" ]]; then
+        echo "WARN|Link Errors|No active interface"
+        return
+    fi
+
+    rx_errors=$(cat "/sys/class/net/${iface}/statistics/rx_errors" 2>/dev/null || echo 0)
+    rx_dropped=$(cat "/sys/class/net/${iface}/statistics/rx_dropped" 2>/dev/null || echo 0)
+    rx_packets=$(cat "/sys/class/net/${iface}/statistics/rx_packets" 2>/dev/null || echo 1)
+
+    local total=$((rx_errors + rx_dropped))
+    local detail="${rx_errors} err, ${rx_dropped} drop"
+
+    # Rate-based thresholds: any errors are mildly suspect; errors above
+    # 0.01% of RX packets indicate a real problem for wired LAN.
+    # (0.01% = total * 10000 / rx_packets > 1)
+    if [[ "$total" -eq 0 ]]; then
+        echo "OK|Link Errors|0 err, 0 drop"
+    elif [[ "$rx_packets" -gt 10000 && $((total * 10000 / rx_packets)) -gt 1 ]]; then
+        echo "WARN|Link Errors|${detail} of ${rx_packets} rx"
+    else
+        echo "OK|Link Errors|${detail}"
+    fi
+}
+
 check_nginx() {
     if systemctl is-active --quiet nginx 2>/dev/null; then
         if nc -z 127.0.0.1 1935 2>/dev/null; then
@@ -186,6 +242,8 @@ CHECKS=(
     check_hostname
     check_ip
     check_gateway
+    check_link
+    check_link_errors
     check_nginx
     check_rtmp_stream
     check_disk
