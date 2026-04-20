@@ -20,6 +20,8 @@ VOLUME=80
 SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 ASSESS_SCRIPT="${SCRIPT_DIR}/assess.sh"
 DIAG_SCRIPT="$(dirname "$SCRIPT_DIR")/diagnostics/render-status.sh"
+HEALTH_MONITOR="$(dirname "$SCRIPT_DIR")/diagnostics/health-monitor.sh"
+OVERLAY_SCRIPT="${SCRIPT_DIR}/mpv-health-overlay.lua"
 
 # ---------------------------------------------------------------------------
 # Boot-time assessment — shows diagnostics on HDMI, waits for critical
@@ -35,6 +37,22 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# Health monitor — writes /tmp/kiosk-health.json every 20s so the mpv
+# overlay script can show a status indicator in the bottom-right corner.
+# Started as a background child; dies with player.sh when systemd restarts us.
+# ---------------------------------------------------------------------------
+if [[ -x "$HEALTH_MONITOR" ]]; then
+    echo "[$(date)] starting health monitor"
+    "$HEALTH_MONITOR" </dev/null >>"$LOG" 2>&1 &
+fi
+
+# Compose the --script flag only if the overlay file exists.
+OVERLAY_FLAG=()
+if [[ -f "$OVERLAY_SCRIPT" ]]; then
+    OVERLAY_FLAG=(--script="$OVERLAY_SCRIPT")
+fi
+
+# ---------------------------------------------------------------------------
 # Helper functions
 # ---------------------------------------------------------------------------
 
@@ -46,6 +64,7 @@ show_splash() {
         --image-display-duration=inf \
         --no-input-default-bindings \
         --no-audio \
+        "${OVERLAY_FLAG[@]}" \
         "$SPLASH_IMAGE" </dev/null >>"$LOG" 2>&1 &
     echo $!
 }
@@ -117,6 +136,7 @@ while true; do
         --no-input-default-bindings \
         --really-quiet \
         --msg-level=all=warn \
+        "${OVERLAY_FLAG[@]}" \
         "$STREAM_URL" || mpv_exit=$?
 
     echo "[$(date)] mpv exited: $mpv_exit"

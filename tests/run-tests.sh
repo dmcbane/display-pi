@@ -192,6 +192,23 @@ assert_contains "deploy.sh installs nginx config" "$REPO_ROOT/dev/deploy.sh" "ng
 
 # ============================================================================
 echo ""
+echo "=== Health Overlay Tests ==="
+# ============================================================================
+
+assert_file_exists "install/mpv-health-overlay.lua exists" "$REPO_ROOT/install/mpv-health-overlay.lua"
+assert_contains "overlay reads /tmp/kiosk-health.json" "$REPO_ROOT/install/mpv-health-overlay.lua" "/tmp/kiosk-health.json"
+assert_contains "overlay positions bottom-right" "$REPO_ROOT/install/mpv-health-overlay.lua" "\\\\an3"
+assert_contains "overlay hides when OK" "$REPO_ROOT/install/mpv-health-overlay.lua" "clear_overlay"
+assert_contains "overlay detects stale data" "$REPO_ROOT/install/mpv-health-overlay.lua" "STALE_THRESHOLD"
+assert_file_exists "diagnostics/health-monitor.sh exists" "$REPO_ROOT/diagnostics/health-monitor.sh"
+assert_executable "diagnostics/health-monitor.sh is executable" "$REPO_ROOT/diagnostics/health-monitor.sh"
+assert_contains "health-monitor reuses check_health from healthcheck.sh" "$REPO_ROOT/diagnostics/health-monitor.sh" "healthcheck.sh"
+assert_contains "health-monitor writes atomic via tmp+rename" "$REPO_ROOT/diagnostics/health-monitor.sh" "mv -f"
+assert_contains "player.sh launches health monitor" "$REPO_ROOT/install/player.sh" "HEALTH_MONITOR"
+assert_contains "player.sh passes --script to mpv" "$REPO_ROOT/install/player.sh" "OVERLAY_FLAG"
+
+# ============================================================================
+echo ""
 echo "=== PipeWire Tests ==="
 # ============================================================================
 

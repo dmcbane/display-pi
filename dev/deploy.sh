@@ -54,6 +54,10 @@ sudo chown -h ${KIOSK_USER}:${KIOSK_USER} /home/${KIOSK_USER}/bin/assess.sh
 sudo ln -sf ${REMOTE_DIR}/install/healthcheck.sh /home/${KIOSK_USER}/bin/healthcheck.sh
 sudo chown -h ${KIOSK_USER}:${KIOSK_USER} /home/${KIOSK_USER}/bin/healthcheck.sh
 
+# Link health-monitor.sh (writes /tmp/kiosk-health.json for overlay)
+sudo ln -sf ${REMOTE_DIR}/diagnostics/health-monitor.sh /home/${KIOSK_USER}/bin/health-monitor.sh
+sudo chown -h ${KIOSK_USER}:${KIOSK_USER} /home/${KIOSK_USER}/bin/health-monitor.sh
+
 # Install logrotate config if changed
 if ! diff -q ${REMOTE_DIR}/install/logrotate-kiosk /etc/logrotate.d/kiosk-player &>/dev/null 2>&1; then
     sudo cp ${REMOTE_DIR}/install/logrotate-kiosk /etc/logrotate.d/kiosk-player
