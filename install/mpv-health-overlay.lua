@@ -69,11 +69,11 @@ local function render_overlay(color, text)
     --   \fs26       = font size
     --   \bord2      = 2px outline
     --   \3c&H...&   = outline color (black)
-    --   \alpha&H40& = ~75% opaque (0x00 = opaque, 0xFF = transparent)
+    --   \alpha&H60& = ~62% opaque (0x00 = opaque, 0xFF = transparent)
     --   \c<color>   = fill color
     local escaped = ass_escape(text)
     local ass = string.format(
-        '{\\an3\\pos(1900,1060)\\fs26\\bord2\\3c&H000000&\\alpha&H40&\\c%s}%s',
+        '{\\an3\\pos(1900,1060)\\fs26\\bord2\\3c&H000000&\\alpha&H60&\\c%s}%s',
         color, escaped)
     mp.set_osd_ass(1920, 1080, ass)
 end
