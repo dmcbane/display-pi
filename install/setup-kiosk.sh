@@ -17,7 +17,17 @@
 set -euo pipefail
 
 # =============================================================================
-# CONFIGURATION  -  edit these before running
+# CONFIGURATION — built-in defaults
+# =============================================================================
+#
+# These values are the starting point. They are overridden by:
+#   1. A config file (default: /etc/kiosk-setup.conf, override with --conf)
+#      sourced as bash syntax, e.g.:
+#          STREAM_KEY=mykey
+#          RTMP_ALLOW_PUBLISH_CIDRS=(192.168.1.0/24 10.0.0.0/8)
+#   2. Command-line flags (see --help)
+#
+# Later sources win over earlier ones.
 # =============================================================================
 
 # Network CIDRs allowed to push RTMP to this Pi. Tighten to the ATEM's IP
@@ -40,6 +50,9 @@ KIOSK_USER="kiosk"
 # mpv volume for the lobby/overflow display (0-100).
 PLAYBACK_VOLUME=80
 
+# Config file path. Override with --conf /path/to/file.
+CONF_FILE="/etc/kiosk-setup.conf"
+
 # =============================================================================
 # Below this line you shouldn't need to edit.
 # =============================================================================
@@ -51,6 +64,114 @@ readonly SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && p
 log()  { printf '\033[1;34m[%s]\033[0m %s\n' "$SCRIPT_NAME" "$*"; }
 warn() { printf '\033[1;33m[%s] WARN:\033[0m %s\n' "$SCRIPT_NAME" "$*" >&2; }
 die()  { printf '\033[1;31m[%s] ERROR:\033[0m %s\n' "$SCRIPT_NAME" "$*" >&2; exit 1; }
+
+usage() {
+    cat <<USAGE
+Usage: $SCRIPT_NAME [OPTIONS]
+
+Configure a Raspberry Pi kiosk that receives an RTMP stream and plays it
+fullscreen under cage. Idempotent: safe to re-run.
+
+Configuration is layered (later sources override earlier):
+  1. Built-in defaults
+  2. Config file (bash syntax, sourced if present)
+  3. Command-line options below
+
+Options:
+  --stream-key KEY     RTMP stream key the publisher will push with.
+                       Default: $STREAM_KEY
+  --rtmp-app NAME      RTMP application name (path component before the key).
+                       Default: $RTMP_APP
+  --allow-cidr CIDR    Allow RTMP publish from this CIDR. Repeatable; the
+                       first use clears the defaults, subsequent uses append.
+                       Defaults: ${RTMP_ALLOW_PUBLISH_CIDRS[*]}
+  --kiosk-user USER    Unix account for the kiosk. Created if missing.
+                       Default: $KIOSK_USER
+  --volume N           mpv playback volume, 0-100.
+                       Default: $PLAYBACK_VOLUME
+  --splash-text TEXT   Caption burned into the placeholder splash image.
+                       Default: "$SPLASH_TEXT"
+  --conf PATH          Config file path (sourced as bash if it exists).
+                       Default: $CONF_FILE
+  -h, --help           Show this help and exit.
+
+Config file example:
+    STREAM_KEY=mykey
+    RTMP_APP=live
+    RTMP_ALLOW_PUBLISH_CIDRS=(192.168.1.0/24 10.0.0.0/8)
+    KIOSK_USER=kiosk
+    PLAYBACK_VOLUME=75
+    SPLASH_TEXT="Be right back"
+USAGE
+}
+
+# Two-pass CLI parsing: we need to know --conf before we source it so the
+# config file can be loaded before the rest of the flags override it.
+# Pass 1 extracts only --conf and --help; pass 2 applies everything.
+parse_conf_path() {
+    local args=("$@")
+    local i=0
+    while (( i < ${#args[@]} )); do
+        case "${args[i]}" in
+            -h|--help) usage; exit 0 ;;
+            --conf)    CONF_FILE="${args[i+1]:?--conf requires a path}"; i+=2 ;;
+            --conf=*)  CONF_FILE="${args[i]#*=}"; i+=1 ;;
+            *)         i+=1 ;;
+        esac
+    done
+}
+
+load_conf_file() {
+    if [[ -f "$CONF_FILE" ]]; then
+        log "Loading config from $CONF_FILE"
+        # shellcheck source=/dev/null
+        source "$CONF_FILE"
+    fi
+}
+
+parse_args() {
+    local cidrs_reset=0
+    while (( $# > 0 )); do
+        case "$1" in
+            --stream-key)    STREAM_KEY="${2:?--stream-key requires a value}"; shift 2 ;;
+            --stream-key=*)  STREAM_KEY="${1#*=}"; shift ;;
+            --rtmp-app)      RTMP_APP="${2:?--rtmp-app requires a value}"; shift 2 ;;
+            --rtmp-app=*)    RTMP_APP="${1#*=}"; shift ;;
+            --allow-cidr)
+                (( cidrs_reset )) || { RTMP_ALLOW_PUBLISH_CIDRS=(); cidrs_reset=1; }
+                RTMP_ALLOW_PUBLISH_CIDRS+=("${2:?--allow-cidr requires a value}")
+                shift 2
+                ;;
+            --allow-cidr=*)
+                (( cidrs_reset )) || { RTMP_ALLOW_PUBLISH_CIDRS=(); cidrs_reset=1; }
+                RTMP_ALLOW_PUBLISH_CIDRS+=("${1#*=}")
+                shift
+                ;;
+            --kiosk-user)    KIOSK_USER="${2:?--kiosk-user requires a value}"; shift 2 ;;
+            --kiosk-user=*)  KIOSK_USER="${1#*=}"; shift ;;
+            --volume)        PLAYBACK_VOLUME="${2:?--volume requires a value}"; shift 2 ;;
+            --volume=*)      PLAYBACK_VOLUME="${1#*=}"; shift ;;
+            --splash-text)   SPLASH_TEXT="${2:?--splash-text requires a value}"; shift 2 ;;
+            --splash-text=*) SPLASH_TEXT="${1#*=}"; shift ;;
+            --conf)          shift 2 ;;  # already handled in parse_conf_path
+            --conf=*)        shift ;;
+            -h|--help)       usage; exit 0 ;;
+            *) die "Unknown option: $1 (try --help)" ;;
+        esac
+    done
+}
+
+validate_config() {
+    [[ -n "$STREAM_KEY" ]] || die "STREAM_KEY must not be empty"
+    [[ -n "$RTMP_APP"   ]] || die "RTMP_APP must not be empty"
+    [[ -n "$KIOSK_USER" ]] || die "KIOSK_USER must not be empty"
+    [[ "$KIOSK_USER" =~ ^[a-z_][a-z0-9_-]*$ ]] \
+        || die "KIOSK_USER '$KIOSK_USER' is not a valid Unix username"
+    [[ "$PLAYBACK_VOLUME" =~ ^[0-9]+$ ]] && (( PLAYBACK_VOLUME >= 0 && PLAYBACK_VOLUME <= 100 )) \
+        || die "PLAYBACK_VOLUME must be an integer 0-100 (got: $PLAYBACK_VOLUME)"
+    (( ${#RTMP_ALLOW_PUBLISH_CIDRS[@]} > 0 )) \
+        || die "At least one --allow-cidr is required"
+}
 
 # Back up a file before modifying, if it exists and we haven't backed it up yet
 # in this run.
@@ -485,10 +606,19 @@ EOF
 # Main
 # =============================================================================
 main() {
+    parse_conf_path "$@"
+    load_conf_file
+    parse_args "$@"
+    validate_config
+
     require_root_capable
     confirm_os
 
     log "Starting kiosk setup (backup suffix: .bak-${STAMP})"
+    log "  stream:     rtmp://<pi>/${RTMP_APP}/${STREAM_KEY}"
+    log "  allow cidr: ${RTMP_ALLOW_PUBLISH_CIDRS[*]}"
+    log "  kiosk user: ${KIOSK_USER}"
+    log "  volume:     ${PLAYBACK_VOLUME}"
 
     install_packages
     create_kiosk_user
