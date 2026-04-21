@@ -25,8 +25,8 @@ latency guidance, and firewall review — explicitly out of scope here).
 
 ## Assumptions
 
-- Single Pi 4 (2GB+) running the existing kiosk stack (Bookworm 64-bit Lite,
-  cage + mpv, nginx-rtmp). No second Pi.
+- Single Pi 4 (8 GB, already on hand) running the existing kiosk stack
+  (Bookworm 64-bit Lite, cage + mpv, nginx-rtmp). No second Pi.
 - ATEM Mini Pro continues to push RTMP once, to the display Pi, on port 1935.
 - Source is H.264 video + AAC audio (ATEM default). Consumers accept MPEG-TS
   over SRT.
@@ -311,6 +311,12 @@ history or Makefile variables.
   and loss is negligible, so no per-viewer latency tuning is required.
   Document the caller URL template once and move on.
 - **MediaMTX HTTP API — off by default.** Discussed below.
+- **Single `path: live`.** One path covers the single-camera ATEM model today.
+  Even the "dream" ceiling is one current stream plus at most two additional
+  concurrent streams, which stays well within MediaMTX's capabilities on this
+  hardware — adding more paths later is a config-only change, not a redesign.
+- **Pi 4 RAM floor — resolved.** Production Pis are 8 GB. The ~40 MB MediaMTX
+  footprint is a rounding error; no RAM-pressure concern.
 
 ### MediaMTX HTTP API discussion
 
@@ -360,12 +366,6 @@ script. That upgrade path stays cheap; no reason to pre-build it now.
 
 ## Open questions
 
-- **Single `path: live` vs. multiple.** Current design exposes one path
-  matching the existing single-stream model. If future multi-camera ATEM-less
-  use cases appear, paths become per-source.
-- **Pi 4 RAM floor.** 2GB is sufficient per the budget above, but the
-  existing kiosk already runs lean. Confirm on the current production Pi
-  before assuming headroom.
 - **Offsite viewers (deferred).** When/if LAN-only scope expands, revisit:
   public hostname, WAN port forward, per-viewer latency guidance (500–1000 ms
   is typical for residential links), and whether the LAN-CIDR allowlist in
