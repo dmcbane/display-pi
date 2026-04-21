@@ -53,6 +53,32 @@ if [[ -f "$OVERLAY_SCRIPT" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
+# Pi model detection — picks the right mpv decode flags.
+#
+# Pi 4 (BCM2711): hardware H.264 decoder available via V4L2 M2M.
+#   auto-safe finds it as /dev/video10.
+#
+# Pi 5 (BCM2712): no hardware H.264 decoder. Software decode on four
+#   Cortex-A76 cores at 2.4 GHz handles 1080p30 at ~30% of one core and
+#   1080p60 at ~50%. Spread across cores with --vd-lavc-threads=4.
+# ---------------------------------------------------------------------------
+PI_MODEL=unknown
+if [[ -r /proc/device-tree/model ]]; then
+    if grep -q "Raspberry Pi 5" /proc/device-tree/model; then
+        PI_MODEL=pi5
+    elif grep -q "Raspberry Pi 4" /proc/device-tree/model; then
+        PI_MODEL=pi4
+    fi
+fi
+
+case "$PI_MODEL" in
+    pi5) MPV_DECODE_FLAGS=(--hwdec=no --vd-lavc-threads=4) ;;
+    *)   MPV_DECODE_FLAGS=(--hwdec=auto-safe) ;;
+esac
+
+echo "[$(date)] detected pi model: $PI_MODEL; decode flags: ${MPV_DECODE_FLAGS[*]}"
+
+# ---------------------------------------------------------------------------
 # Helper functions
 # ---------------------------------------------------------------------------
 
@@ -123,7 +149,7 @@ while true; do
     echo "[$(date)] launching mpv"
     mpv_exit=0
     mpv --fullscreen \
-        --hwdec=auto-safe \
+        "${MPV_DECODE_FLAGS[@]}" \
         --cache=yes --demuxer-max-bytes=8MiB \
         --demuxer-readahead-secs=5 \
         --audio-device=auto \

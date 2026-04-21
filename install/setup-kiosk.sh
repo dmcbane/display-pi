@@ -1,9 +1,9 @@
 #!/bin/bash
 #
-# Raspberry Pi 4 Worship Stream Kiosk - Setup Script
+# Raspberry Pi 4/5 Worship Stream Kiosk - Setup Script
 #
-# Sets up a Pi 4 (Raspberry Pi OS Lite, Bookworm, 64-bit) as a lobby/overflow
-# display that:
+# Sets up a Pi 4 or Pi 5 (Raspberry Pi OS Lite, Bookworm, 64-bit) as a
+# lobby/overflow display that:
 #   - Receives an RTMP push from the ATEM Mini Pro
 #   - Shows a splash image when the stream is idle
 #   - Auto-switches to the live stream when it arrives
@@ -293,28 +293,31 @@ configure_nginx_rtmp() {
 }
 
 # =============================================================================
-# Step 5: Boot config  (KMS-correct, minimal, Bookworm-safe)
+# Step 5: Boot config  (KMS-correct, minimal, Bookworm-safe, Pi 4/5)
 # =============================================================================
 #
 # Bookworm uses the KMS graphics driver. Legacy firmware directives like
-# hdmi_force_hotplug, disable_overscan, and gpu_mem are ignored under KMS --
-# and hdmi_force_hotplug in particular can wedge the firmware boot stage
-# (rainbow screen hang). We therefore avoid them entirely.
+# disable_overscan and gpu_mem are ignored under KMS. For hotplug:
 #
-# Instead:
-#   - vc4.force_hotplug=1   goes in cmdline.txt (kernel parameter read by
-#                           the vc4-kms-v3d driver). Makes HDMI-0 always
-#                           appear connected, so a TV powered off at Pi boot
-#                           doesn't leave us with no display modes.
-#   - consoleblank=0        prevents the framebuffer console from blanking
-#                           before cage+mpv take over the display.
+#   - Pi 4: hdmi_force_hotplug in config.txt can wedge the firmware boot
+#           stage (rainbow screen hang) under KMS. We instead set
+#           vc4.force_hotplug=1 in cmdline.txt — the vc4-kms-v3d driver
+#           reads it and the firmware never sees it.
 #
-# In config.txt we add:
-#   - dtparam=watchdog=on   enables the hardware watchdog device used below.
-#   - dtoverlay=disable-bt  frees the primary UART and saves a little power
-#                           (this kiosk doesn't need Bluetooth).
+#   - Pi 5: the vc4.force_hotplug cmdline param is silently ignored
+#           (different KMS pipeline). The supported replacement is
+#           hdmi_force_hotplug:0=1 in config.txt, scoped to HDMI-0 via
+#           the `:0` suffix. We put it under a [pi5] filter so it
+#           applies to Pi 5 only.
 #
-# These additions are wrapped in marker comments so the script can remove
+# Universal (both models):
+#   - consoleblank=0        cmdline.txt — prevents framebuffer console
+#                           from blanking before cage+mpv take over.
+#   - dtparam=watchdog=on   config.txt — enables the hardware watchdog.
+#   - dtoverlay=disable-bt  config.txt — frees the primary UART; kiosk
+#                           doesn't need Bluetooth.
+#
+# Additions are wrapped in marker comments so the script can remove
 # and re-add them idempotently on re-runs.
 # =============================================================================
 configure_boot() {
@@ -349,10 +352,17 @@ configure_boot() {
 
     sudo tee -a "$config_file" > /dev/null <<EOF
 ${marker_start}
-# Hardware watchdog for auto-recovery from kernel hangs
+# Hardware watchdog for auto-recovery from kernel hangs (Pi 4 and Pi 5)
 dtparam=watchdog=on
 # Free the UART and save a little power; kiosk doesn't use Bluetooth
 dtoverlay=disable-bt
+
+# Pi 5 only: force HDMI-0 hotplug so a TV powered off at boot doesn't
+# leave the Pi with no display modes. (Pi 4 handles this via
+# vc4.force_hotplug=1 in cmdline.txt — see below.)
+[pi5]
+hdmi_force_hotplug:0=1
+[all]
 ${marker_end}
 EOF
 
@@ -669,6 +679,16 @@ Next steps:
 
 Replace /home/${KIOSK_USER}/splash.png with your own branded image
 whenever you like; the kiosk picks it up on the next idle period.
+
+Pi 5 notes:
+  - Pi 5 has no hardware H.264 decoder; playback is software-decoded
+    on the A76 cores. 1080p30 is comfortable (~30% of one core); for
+    1080p60 budget ~50%. 4Kp30 H.264 is not recommended.
+  - Use the official 27 W (5V/5A) USB-C PSU. A 3 A supply boots but
+    throttles USB to 600 mA and limits HAT power.
+  - Active cooling is required under sustained software decode. Use
+    the official Active Cooler or an equivalent case-with-fan; without
+    one, expect thermal throttling around 85 °C.
 
 EOF
 }
