@@ -1,0 +1,68 @@
+# MediaMTX config for display-pi SRT restream broker.
+#
+# THIS FILE IS A TEMPLATE. setup-kiosk.sh copies it to /etc/mediamtx.yml on
+# first run, substituting __PLACEHOLDERS__ with generated secrets and the
+# active STREAM_KEY. The live /etc/mediamtx.yml is never overwritten on
+# subsequent re-runs so credentials stay stable.
+#
+# Placeholders (all replaced by setup-kiosk.sh):
+#   __MEDIAMTX_PUBLISHER_PASS__   random 32-hex string; only nginx-rtmp
+#                                 uses it, never leaves the Pi.
+#   __MEDIAMTX_VIEWER_PASS__      random 32-hex string; shared with SRT
+#                                 consumers.
+#   __MEDIAMTX_STREAM_PATH__      mirrors STREAM_KEY (e.g. "church242");
+#                                 nginx-rtmp's push delivers the stream
+#                                 under this name.
+
+logLevel: info
+logDestinations: [stdout]
+
+# --- RTMP ingest from localhost nginx-rtmp ---
+# Non-default port (1935 is owned by nginx-rtmp for ATEM ingest).
+rtmp: yes
+rtmpAddress: 127.0.0.1:1936
+rtmpEncryption: "no"
+
+# --- SRT publish (LAN pullers connect here) ---
+srt: yes
+srtAddress: :8890
+
+# --- Everything else off ---
+# HLS / WebRTC / RTSP / HTTP API / Prometheus all disabled by default.
+# Turning the API on later is a two-line change; see
+# docs/srt-restreaming-design.md "MediaMTX HTTP API discussion".
+hls: no
+webrtc: no
+rtsp: no
+api: no
+metrics: no
+playback: no
+pprof: no
+
+# --- Auth ---
+authMethod: internal
+authInternalUsers:
+  # Localhost-only publisher. nginx-rtmp pushes here; the credential never
+  # leaves the Pi.
+  - user: publisher
+    pass: __MEDIAMTX_PUBLISHER_PASS__
+    ips: [127.0.0.1/32]
+    permissions:
+      - action: publish
+        path: __MEDIAMTX_STREAM_PATH__
+
+  # LAN-only viewer. Both the user:pass AND the source-IP allowlist must
+  # match. CIDRs mirror the nginx RTMP publish ACL.
+  - user: viewer
+    pass: __MEDIAMTX_VIEWER_PASS__
+    ips: [192.168.0.0/16, 10.0.0.0/8]
+    permissions:
+      - action: read
+        path: __MEDIAMTX_STREAM_PATH__
+
+# --- Paths ---
+# Path name matches STREAM_KEY so nginx-rtmp's push (which inherits the
+# source stream name) lands here without any URL rewriting.
+paths:
+  __MEDIAMTX_STREAM_PATH__:
+    source: publisher

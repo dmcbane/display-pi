@@ -168,6 +168,7 @@ assert_contains "nginx.conf allows local play only" "$REPO_ROOT/install/nginx.co
 assert_contains "nginx.conf denies external play" "$REPO_ROOT/install/nginx.conf" "deny play all"
 assert_contains "nginx.conf drops subscribers on publisher disconnect" "$REPO_ROOT/install/nginx.conf" "idle_streams off"
 assert_contains "nginx.conf drops silent publisher" "$REPO_ROOT/install/nginx.conf" "drop_idle_publisher"
+assert_contains "nginx.conf pushes to MediaMTX on :1936" "$REPO_ROOT/install/nginx.conf" "push rtmp://127.0.0.1:1936"
 
 # ============================================================================
 echo ""
@@ -242,6 +243,47 @@ assert_contains "healthcheck.sh reads config from HEALTHCHECK_URL" "$REPO_ROOT/i
 assert_contains "healthcheck.sh pings on success" "$REPO_ROOT/install/healthcheck.sh" "curl"
 assert_contains "healthcheck.sh supports fail ping" "$REPO_ROOT/install/healthcheck.sh" "/fail"
 assert_contains "setup-kiosk.sh installs healthcheck cron" "$REPO_ROOT/install/setup-kiosk.sh" "healthcheck"
+
+# ============================================================================
+echo ""
+echo "=== MediaMTX Tests ==="
+# ============================================================================
+
+assert_file_exists "install/mediamtx.yml template exists" "$REPO_ROOT/install/mediamtx.yml"
+assert_file_exists "install/mediamtx.service exists"     "$REPO_ROOT/install/mediamtx.service"
+
+assert_contains "mediamtx.yml has RTMP ingest on localhost :1936"   "$REPO_ROOT/install/mediamtx.yml" "rtmpAddress: 127.0.0.1:1936"
+assert_contains "mediamtx.yml listens SRT on :8890"                 "$REPO_ROOT/install/mediamtx.yml" "srtAddress: :8890"
+assert_contains "mediamtx.yml keeps HTTP API off by default"        "$REPO_ROOT/install/mediamtx.yml" "^api: no"
+assert_contains "mediamtx.yml keeps metrics off by default"         "$REPO_ROOT/install/mediamtx.yml" "^metrics: no"
+assert_contains "mediamtx.yml uses internal auth"                   "$REPO_ROOT/install/mediamtx.yml" "authMethod: internal"
+assert_contains "mediamtx.yml publisher restricted to 127.0.0.1/32" "$REPO_ROOT/install/mediamtx.yml" "127.0.0.1/32"
+assert_contains "mediamtx.yml viewer restricted to LAN CIDRs"       "$REPO_ROOT/install/mediamtx.yml" "192.168.0.0/16"
+assert_contains "mediamtx.yml has publisher placeholder"            "$REPO_ROOT/install/mediamtx.yml" "__MEDIAMTX_PUBLISHER_PASS__"
+assert_contains "mediamtx.yml has viewer placeholder"               "$REPO_ROOT/install/mediamtx.yml" "__MEDIAMTX_VIEWER_PASS__"
+assert_contains "mediamtx.yml has stream-path placeholder"          "$REPO_ROOT/install/mediamtx.yml" "__MEDIAMTX_STREAM_PATH__"
+
+assert_contains "mediamtx.service runs as mediamtx user"            "$REPO_ROOT/install/mediamtx.service" "^User=mediamtx"
+assert_contains "mediamtx.service execs installed binary"           "$REPO_ROOT/install/mediamtx.service" "ExecStart=/usr/local/bin/mediamtx"
+assert_contains "mediamtx.service restarts always"                  "$REPO_ROOT/install/mediamtx.service" "^Restart=always"
+assert_contains "mediamtx.service hardened: NoNewPrivileges"        "$REPO_ROOT/install/mediamtx.service" "NoNewPrivileges=true"
+assert_contains "mediamtx.service hardened: ProtectSystem=strict"   "$REPO_ROOT/install/mediamtx.service" "ProtectSystem=strict"
+assert_contains "mediamtx.service journal stdout"                   "$REPO_ROOT/install/mediamtx.service" "StandardOutput=journal"
+
+assert_contains "setup-kiosk.sh installs MediaMTX"                  "$REPO_ROOT/install/setup-kiosk.sh" "install_mediamtx"
+assert_contains "setup-kiosk.sh creates mediamtx user"              "$REPO_ROOT/install/setup-kiosk.sh" "create_mediamtx_user"
+assert_contains "setup-kiosk.sh configures mediamtx"                "$REPO_ROOT/install/setup-kiosk.sh" "configure_mediamtx"
+assert_contains "setup-kiosk.sh installs mediamtx service"          "$REPO_ROOT/install/setup-kiosk.sh" "install_mediamtx_service"
+assert_contains "setup-kiosk.sh verifies MediaMTX SHA256"           "$REPO_ROOT/install/setup-kiosk.sh" "sha256sum -c"
+assert_contains "setup-kiosk.sh writes credentials crib sheet"      "$REPO_ROOT/install/setup-kiosk.sh" "mediamtx-credentials.txt"
+assert_contains "setup-kiosk.sh preserves existing mediamtx config" "$REPO_ROOT/install/setup-kiosk.sh" "leaving it alone"
+assert_contains "setup-kiosk.sh nginx push points at MediaMTX"      "$REPO_ROOT/install/setup-kiosk.sh" "push rtmp://127.0.0.1:1936"
+
+assert_contains "deploy.sh installs mediamtx.service"               "$REPO_ROOT/dev/deploy.sh" "mediamtx.service"
+
+assert_contains "health-monitor reports mediamtx service state"     "$REPO_ROOT/diagnostics/health-monitor.sh" '"mediamtx_active"'
+assert_contains "health-monitor reports SRT listener state"         "$REPO_ROOT/diagnostics/health-monitor.sh" '"mediamtx_srt"'
+assert_contains "health-monitor probes port 8890"                   "$REPO_ROOT/diagnostics/health-monitor.sh" ":8890"
 
 # ============================================================================
 echo ""

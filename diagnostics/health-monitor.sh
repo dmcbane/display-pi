@@ -57,20 +57,41 @@ json_escape() {
     printf '%s' "$s"
 }
 
+# MediaMTX restream signals. Advisory only -- these do NOT feed into the
+# kiosk status/classify() decision, since the display pipeline is healthy
+# even if the SRT restream is down.
+mediamtx_active() {
+    local s
+    s=$(systemctl is-active mediamtx 2>/dev/null)
+    [[ "$s" == "active" ]] && echo yes || echo no
+}
+
+mediamtx_srt_listening() {
+    if ss -uln 2>/dev/null | grep -q ':8890 '; then
+        echo yes
+    else
+        echo no
+    fi
+}
+
 write_snapshot() {
-    local reason status_code level ip host
+    local reason status_code level ip host mmtx_active mmtx_srt
     reason=$(check_health 2>&1)
     status_code=$?
     level=$(classify "$reason" "$status_code")
     ip=$(hostname -I 2>/dev/null | awk '{print $1}')
     host=$(hostname 2>/dev/null)
+    mmtx_active=$(mediamtx_active)
+    mmtx_srt=$(mediamtx_srt_listening)
 
     local tmp="${HEALTH_FILE}.tmp"
-    printf '{"status":"%s","message":"%s","ip":"%s","hostname":"%s","updated":"%s"}\n' \
+    printf '{"status":"%s","message":"%s","ip":"%s","hostname":"%s","mediamtx_active":"%s","mediamtx_srt":"%s","updated":"%s"}\n' \
         "$level" \
         "$(json_escape "$reason")" \
         "$(json_escape "$ip")" \
         "$(json_escape "$host")" \
+        "$mmtx_active" \
+        "$mmtx_srt" \
         "$(date -Iseconds)" \
         > "$tmp"
     mv -f "$tmp" "$HEALTH_FILE"

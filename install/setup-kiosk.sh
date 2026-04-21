@@ -40,6 +40,13 @@ KIOSK_USER="kiosk"
 # mpv volume for the lobby/overflow display (0-100).
 PLAYBACK_VOLUME=80
 
+# MediaMTX (SRT restream broker) version + arch.
+# Release assets live at:
+#   https://github.com/bluenviron/mediamtx/releases/download/${MEDIAMTX_VERSION}/
+# The matching checksums.txt is fetched from the same release and used to
+# verify the tarball — no manual SHA256 pinning required here.
+MEDIAMTX_VERSION="${MEDIAMTX_VERSION:-v1.9.3}"
+
 # =============================================================================
 # Below this line you shouldn't need to edit.
 # =============================================================================
@@ -162,10 +169,25 @@ rtmp {
         application ${RTMP_APP} {
             live on;
             record off;
+
+            # When publisher disconnects, drop subscribers so mpv sees EOF
+            # and the player loop returns to splash.
+            idle_streams off;
+
+            # If publisher's connection is alive but silent for 10s (e.g.
+            # ATEM froze mid-stream), drop it -- combined with idle_streams
+            # off above, this cascades to dropping subscribers.
+            drop_idle_publisher 10s;
+
 ${allow_lines}            deny publish all;
 
             allow play 127.0.0.1;
             deny play all;
+
+            # Relay the ingested stream to the local MediaMTX instance for
+            # SRT fan-out. MediaMTX receives it on path=<STREAM_KEY>.
+            # Fire-and-retry: if MediaMTX is down, display path is unaffected.
+            push rtmp://127.0.0.1:1936/${RTMP_APP};
         }
     }
 }
@@ -186,6 +208,166 @@ EOF
     sudo systemctl enable nginx
     sudo systemctl restart nginx
     log "nginx RTMP listening on :1935 (app=${RTMP_APP}, key=${STREAM_KEY})"
+}
+
+# =============================================================================
+# Step 4b: MediaMTX SRT restream broker
+# =============================================================================
+#
+# nginx-rtmp pushes the ingested stream to MediaMTX on 127.0.0.1:1936, and
+# MediaMTX republishes it as SRT on :8890 (UDP, LAN only). Four functions:
+#   create_mediamtx_user     - dedicated unprivileged system user
+#   install_mediamtx         - download + verify binary via checksums.txt
+#   configure_mediamtx       - render /etc/mediamtx.yml from template with
+#                              generated credentials (idempotent: leaves an
+#                              existing config alone so creds stay stable)
+#   install_mediamtx_service - systemd unit, enable + start
+#
+# See docs/srt-restreaming-design.md for the full rationale.
+# =============================================================================
+
+MEDIAMTX_BIN=/usr/local/bin/mediamtx
+MEDIAMTX_CONF=/etc/mediamtx.yml
+MEDIAMTX_CREDS=/etc/mediamtx-credentials.txt
+MEDIAMTX_SERVICE=/etc/systemd/system/mediamtx.service
+
+create_mediamtx_user() {
+    if id mediamtx &>/dev/null; then
+        log "User 'mediamtx' already exists."
+        return
+    fi
+    log "Creating system user 'mediamtx'..."
+    sudo useradd --system --no-create-home --shell /usr/sbin/nologin mediamtx
+}
+
+install_mediamtx() {
+    # If the binary already exists and reports the expected version, skip.
+    if [[ -x "$MEDIAMTX_BIN" ]]; then
+        local installed
+        installed=$("$MEDIAMTX_BIN" --version 2>/dev/null || echo "")
+        if [[ "$installed" == *"${MEDIAMTX_VERSION#v}"* ]]; then
+            log "MediaMTX ${MEDIAMTX_VERSION} already installed at $MEDIAMTX_BIN."
+            return
+        fi
+        log "MediaMTX upgrade: installed='$installed' wanted='${MEDIAMTX_VERSION}'"
+    fi
+
+    local arch arch_suffix
+    arch=$(dpkg --print-architecture)
+    case "$arch" in
+        arm64) arch_suffix="linux_arm64v8" ;;
+        armhf) arch_suffix="linux_armv7"   ;;
+        amd64) arch_suffix="linux_amd64"   ;;
+        *) die "Unsupported dpkg arch for MediaMTX: $arch" ;;
+    esac
+
+    local base="https://github.com/bluenviron/mediamtx/releases/download/${MEDIAMTX_VERSION}"
+    local tarball="mediamtx_${MEDIAMTX_VERSION}_${arch_suffix}.tar.gz"
+    local checksums="checksums.sha256"
+
+    local tmp
+    tmp=$(mktemp -d)
+    trap 'rm -rf "$tmp"' RETURN
+
+    log "Downloading MediaMTX ${MEDIAMTX_VERSION} (${arch_suffix})..."
+    if ! curl -fsSL -o "${tmp}/${tarball}" "${base}/${tarball}"; then
+        die "Failed to download ${base}/${tarball}"
+    fi
+    if ! curl -fsSL -o "${tmp}/${checksums}" "${base}/${checksums}"; then
+        # Older releases used a different filename; try the alternate.
+        if ! curl -fsSL -o "${tmp}/${checksums}" "${base}/checksums.txt"; then
+            die "Failed to download checksums file from ${base}/"
+        fi
+    fi
+
+    log "Verifying SHA256..."
+    (cd "$tmp" && grep " ${tarball}\$" "${checksums}" \
+        | sha256sum -c --status) \
+        || die "SHA256 verification failed for ${tarball}"
+
+    log "Extracting and installing binary..."
+    tar -C "$tmp" -xzf "${tmp}/${tarball}" mediamtx
+    sudo install -o root -g root -m 0755 "${tmp}/mediamtx" "$MEDIAMTX_BIN"
+    log "MediaMTX installed at $MEDIAMTX_BIN."
+}
+
+# Generate an alphanumeric secret of given length, safe for YAML and URLs.
+_gen_secret() {
+    local n="$1"
+    LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c "$n"
+}
+
+configure_mediamtx() {
+    local template
+    template="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/mediamtx.yml"
+
+    if [[ ! -f "$template" ]]; then
+        die "MediaMTX template not found at $template"
+    fi
+
+    if [[ -f "$MEDIAMTX_CONF" ]]; then
+        log "MediaMTX config already exists at $MEDIAMTX_CONF; leaving it alone."
+        log "Existing credentials are in $MEDIAMTX_CREDS."
+        return
+    fi
+
+    log "Generating MediaMTX credentials..."
+    local pub_pass viewer_pass
+    pub_pass=$(_gen_secret 32)
+    viewer_pass=$(_gen_secret 32)
+
+    log "Rendering $MEDIAMTX_CONF from template..."
+    sudo install -o root -g mediamtx -m 0640 /dev/null "$MEDIAMTX_CONF"
+    sudo sed \
+        -e "s|__MEDIAMTX_PUBLISHER_PASS__|${pub_pass}|g" \
+        -e "s|__MEDIAMTX_VIEWER_PASS__|${viewer_pass}|g" \
+        -e "s|__MEDIAMTX_STREAM_PATH__|${STREAM_KEY}|g" \
+        "$template" \
+        | sudo tee "$MEDIAMTX_CONF" > /dev/null
+
+    # Also drop a root-only credentials crib sheet so the operator can
+    # share the viewer pass / URL template without hunting through the
+    # config file.
+    log "Writing credentials crib sheet to $MEDIAMTX_CREDS (root-only)..."
+    sudo install -o root -g root -m 0600 /dev/null "$MEDIAMTX_CREDS"
+    local pi_ip
+    pi_ip=$(hostname -I 2>/dev/null | awk '{print $1}')
+    sudo tee "$MEDIAMTX_CREDS" > /dev/null <<EOF
+# MediaMTX credentials for this Pi. KEEP THIS FILE SECRET.
+# Generated by setup-kiosk.sh on ${STAMP}.
+
+# --- Internal (do not share) ---
+MEDIAMTX_PUBLISHER_PASS=${pub_pass}
+
+# --- Share with SRT consumers ---
+MEDIAMTX_VIEWER_PASS=${viewer_pass}
+STREAM_PATH=${STREAM_KEY}
+
+# Pull URL template (LAN only):
+#   srt://${pi_ip:-<pi-ip>}:8890?streamid=read:viewer:${viewer_pass}:${STREAM_KEY}
+EOF
+    log "MediaMTX config written."
+}
+
+install_mediamtx_service() {
+    local src
+    src="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/mediamtx.service"
+
+    if [[ ! -f "$src" ]]; then
+        die "MediaMTX service file not found at $src"
+    fi
+
+    log "Installing $MEDIAMTX_SERVICE ..."
+    backup_once "$MEDIAMTX_SERVICE"
+    sudo install -o root -g root -m 0644 "$src" "$MEDIAMTX_SERVICE"
+
+    sudo systemctl daemon-reload
+    sudo systemctl enable mediamtx.service
+    if sudo systemctl restart mediamtx.service; then
+        log "mediamtx.service started. SRT listener on UDP :8890."
+    else
+        warn "mediamtx.service failed to start. Check: journalctl -u mediamtx"
+    fi
 }
 
 # =============================================================================
@@ -560,6 +742,10 @@ main() {
     create_kiosk_user
     enable_seatd
     configure_nginx_rtmp
+    create_mediamtx_user
+    install_mediamtx
+    configure_mediamtx
+    install_mediamtx_service
     configure_boot
     create_splash
     create_player_script
@@ -605,6 +791,14 @@ Next steps:
 
 Replace /home/${KIOSK_USER}/splash.png with your own branded image
 whenever you like; the kiosk picks it up on the next idle period.
+
+SRT restream (LAN only):
+  MediaMTX listens on UDP :8890. Credentials and the pull-URL template
+  are in ${MEDIAMTX_CREDS} (root-readable only):
+        sudo cat ${MEDIAMTX_CREDS}
+
+  From any LAN host with ffmpeg/ffplay/OBS/VLC, pull with:
+        srt://<PI_IP>:8890?streamid=read:viewer:<VIEWER_PASS>:${STREAM_KEY}
 
 EOF
 }

@@ -110,6 +110,21 @@ if ! diff -q ${REMOTE_DIR}/install/nginx.conf /etc/nginx/nginx.conf &>/dev/null 
     echo "nginx config updated and reloaded"
 fi
 
+# Install mediamtx.service if changed. The mediamtx.yml live config is NOT
+# touched here -- it holds generated secrets and is owned by setup-kiosk.sh.
+# If the template in install/mediamtx.yml has changed in ways that matter,
+# re-run setup-kiosk.sh on the Pi (existing /etc/mediamtx.yml is preserved).
+if [[ -f ${REMOTE_DIR}/install/mediamtx.service ]]; then
+    if ! diff -q ${REMOTE_DIR}/install/mediamtx.service /etc/systemd/system/mediamtx.service &>/dev/null 2>&1; then
+        sudo cp ${REMOTE_DIR}/install/mediamtx.service /etc/systemd/system/mediamtx.service
+        sudo systemctl daemon-reload
+        if systemctl list-unit-files mediamtx.service &>/dev/null; then
+            sudo systemctl restart mediamtx.service || echo "mediamtx restart failed; check: journalctl -u mediamtx"
+        fi
+        echo "mediamtx.service updated"
+    fi
+fi
+
 # Install splash image if present and different
 if [[ -f ${REMOTE_DIR}/images/splash.png ]]; then
     if ! diff -q ${REMOTE_DIR}/images/splash.png /home/${KIOSK_USER}/splash.png &>/dev/null 2>&1; then

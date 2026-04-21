@@ -1,0 +1,41 @@
+[Unit]
+Description=MediaMTX (SRT restream broker)
+Documentation=https://github.com/bluenviron/mediamtx
+After=network-online.target nginx.service
+Wants=network-online.target
+# Deliberately NOT Requires=nginx.service — MediaMTX should keep running
+# even if nginx is being restarted; the push publisher just reconnects.
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/mediamtx /etc/mediamtx.yml
+Restart=always
+RestartSec=2
+
+User=mediamtx
+Group=mediamtx
+
+# Hardening. MediaMTX only needs to read /etc/mediamtx.yml and bind UDP
+# :8890 + TCP :1936 (both unprivileged).
+AmbientCapabilities=
+CapabilityBoundingSet=
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6
+RestrictNamespaces=true
+RestrictRealtime=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

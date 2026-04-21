@@ -1,6 +1,7 @@
 # SRT Restreaming Design (MediaMTX)
 
-Status: proposal / not implemented
+Status: implemented on branch `claude/srt-restreaming-design-vcHO8` (not
+yet merged or deployed to production Pi).
 Branch: `claude/srt-restreaming-design-vcHO8`
 
 ## Goal
@@ -140,17 +141,17 @@ authInternalUsers:
     ips: [127.0.0.1/32]
     permissions:
       - action: publish
-        path: live
+        path: <STREAM_KEY>
   - user: viewer
     pass: <redacted-viewer-pass>
     ips: [192.168.0.0/16, 10.0.0.0/8]  # LAN only — mirrors nginx RTMP ACL
     permissions:
       - action: read
-        path: live
+        path: <STREAM_KEY>
 
 # --- Paths ---
 paths:
-  live:
+  <STREAM_KEY>:
     # Accept publishes from nginx-rtmp's push above.
     source: publisher
 ```
@@ -162,13 +163,16 @@ Key points:
 - `srtAddress: :8890` is UDP. Default MediaMTX SRT port; change per local
   convention.
 - No HLS / WebRTC / API / metrics by default. Enable deliberately later.
-- nginx-rtmp's `push` sends to `rtmp://127.0.0.1:1936/live` — no stream key
-  in URL. MediaMTX authenticates the publisher with user+pass.
+- **Path name equals `STREAM_KEY`.** nginx-rtmp's `push` inherits the source
+  stream name (e.g. `church242`) and publishes it to MediaMTX under that
+  name, so the MediaMTX path must match. `setup-kiosk.sh` substitutes
+  `__MEDIAMTX_STREAM_PATH__` in the template with the active `STREAM_KEY`
+  at first run.
 
 ## Auth model
 
-Two separate credentials, both managed like `STREAM_KEY` today (Makefile
-variable, injected into generated configs by `setup-kiosk.sh`):
+Two credentials, both generated on first run by `setup-kiosk.sh` and written
+to a root-only crib sheet at `/etc/mediamtx-credentials.txt`:
 
 1. **`MEDIAMTX_PUBLISHER_PASS`** — used by nginx-rtmp → MediaMTX push only.
    Never leaves the Pi.
@@ -177,16 +181,18 @@ variable, injected into generated configs by `setup-kiosk.sh`):
 SRT callers connect with a `streamid` of the form:
 
 ```
-srt://displaypi.local:8890?passphrase=<MEDIAMTX_SRT_PASSPHRASE>&streamid=read:viewer:<MEDIAMTX_VIEWER_PASS>:live
+srt://displaypi.local:8890?streamid=read:viewer:<MEDIAMTX_VIEWER_PASS>:<STREAM_KEY>
 ```
 
 Host resolution uses whatever already works on the LAN (mDNS `displaypi.local`,
 DHCP-assigned hostname, or a static IP). No DDNS / public hostname needed.
 
-- `passphrase` is SRT-level AES-128 encryption, orthogonal to MediaMTX auth.
-  Both are required.
 - `streamid` is parsed by MediaMTX as `<action>:<user>:<pass>:<path>`.
-- Rotating `MEDIAMTX_VIEWER_PASS` requires editing `mediamtx.yml` and
+- **No separate SRT transport passphrase.** MediaMTX internal auth
+  (user+pass via `streamid`) plus the LAN-CIDR `ips:` allowlist are
+  sufficient for the LAN-only scope. Adding `?passphrase=…` AES-128 on
+  top is a later hardening step if/when the scope expands offsite.
+- Rotating `MEDIAMTX_VIEWER_PASS` means editing `/etc/mediamtx.yml` and
   `systemctl restart mediamtx`; active callers will be kicked.
 
 ## systemd unit
@@ -266,41 +272,59 @@ No addition to `install/logrotate-kiosk` needed.
 
 ## Install-script integration
 
-`install/setup-kiosk.sh` changes (sketch only):
+Implemented in `install/setup-kiosk.sh`. Four new functions, called from
+`main()` immediately after `configure_nginx_rtmp`:
 
-1. Add a step `install_mediamtx()`:
-   - Detect arch (`dpkg --print-architecture` → `arm64`).
-   - Download pinned MediaMTX release from GitHub releases.
-   - Verify SHA256 against a hash pinned in this repo.
-   - Install binary to `/usr/local/bin/mediamtx`, owned root:root, mode 0755.
-2. Add `create_mediamtx_user()` — `useradd -r -s /usr/sbin/nologin mediamtx`.
-3. Generate `/etc/mediamtx.yml` from a template in `install/`, substituting
-   `MEDIAMTX_PUBLISHER_PASS`, `MEDIAMTX_VIEWER_PASS`, `MEDIAMTX_SRT_PASSPHRASE`.
-   These come from env / Makefile overrides, same pattern as `STREAM_KEY`.
-4. Install `install/mediamtx.service`, enable it.
-5. Patch `install/nginx.conf` template to include the `push` directive.
+1. `create_mediamtx_user` — `useradd --system --no-create-home
+   --shell /usr/sbin/nologin mediamtx`. Idempotent.
+2. `install_mediamtx` — detect arch via `dpkg --print-architecture`, map to
+   the MediaMTX release asset suffix, download the tarball and
+   `checksums.sha256` from the pinned release, verify with `sha256sum -c`,
+   install to `/usr/local/bin/mediamtx`. Skip if the installed binary
+   already reports the pinned version.
+3. `configure_mediamtx` — render `/etc/mediamtx.yml` from
+   `install/mediamtx.yml` template, substituting generated credentials and
+   the active `STREAM_KEY`. **Leaves an existing `/etc/mediamtx.yml`
+   untouched** so credentials stay stable across re-runs. Also writes the
+   crib sheet `/etc/mediamtx-credentials.txt` (root-only, 0600).
+4. `install_mediamtx_service` — drop `install/mediamtx.service` into
+   `/etc/systemd/system/`, `daemon-reload`, enable + start.
 
-Secrets handling: credentials must NOT be committed. Options:
+`install/nginx.conf` (and the heredoc in `configure_nginx_rtmp`) gained:
 
-- Env vars passed to `setup-kiosk.sh`, same as `STREAM_KEY` today.
-- Or: generate random values on first run, print once, store in
-  `/etc/mediamtx.yml` (root-readable only).
+```nginx
+push rtmp://127.0.0.1:1936/live;
+```
 
-Recommend generating on first run and printing — avoids secrets in shell
-history or Makefile variables.
+`dev/deploy.sh` copies `install/mediamtx.service` into place on each deploy
+(with `daemon-reload` + restart on change) but deliberately does NOT touch
+`/etc/mediamtx.yml` — the live config holds generated secrets and is
+owned by `setup-kiosk.sh`. Template changes are picked up only on the next
+setup-kiosk.sh re-run.
+
+Secrets handling: the crib sheet at `/etc/mediamtx-credentials.txt` is the
+canonical source for sharing the viewer pass + URL template. Credentials
+are generated with `tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 32`; no
+secrets are ever written to the repo.
 
 ## Rollout plan
 
-1. Implement in a feature branch. Keep nginx `push` behind an env toggle so
-   the same `setup-kiosk.sh` can deploy the display-only config.
-2. Stage on the dev Pi. Verify:
-   - mpv still displays without hitches.
-   - `ffplay 'srt://displaypi:8890?streamid=read:viewer:<pass>:live&passphrase=<pp>'`
+1. `make check` on workstation (tests verify config and templates).
+2. `make deploy` to dev Pi.
+3. SSH to dev Pi, run `install/setup-kiosk.sh` once to bootstrap MediaMTX +
+   generate credentials.
+4. Verify:
+   - `systemctl status mediamtx` shows active (running).
+   - `sudo cat /etc/mediamtx-credentials.txt` — grab viewer pass + URL.
+   - mpv still displays the ATEM stream without hitches.
+   - `ffplay 'srt://<pi-ip>:8890?streamid=read:viewer:<pass>:church242'`
      works from one LAN client.
-   - Two concurrent LAN clients work.
-   - Kill MediaMTX mid-stream — display unaffected; clients reconnect.
-   - Kill ATEM mid-stream — splash returns; MediaMTX logs publisher drop.
-3. Roll to production Pi during a non-service window.
+   - Two to four concurrent LAN clients work.
+   - Kill MediaMTX mid-stream — display unaffected; clients reconnect
+     when the service comes back.
+   - Kill ATEM mid-stream — splash returns; MediaMTX logs publisher drop,
+     SRT viewers see the connection close.
+5. Roll to production Pi during a non-service window.
 4. Share `streamid` + passphrase + URL template with the initial 3–4 viewers.
 
 ## Resolved decisions
