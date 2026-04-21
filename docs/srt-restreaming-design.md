@@ -6,16 +6,22 @@ Branch: `claude/srt-restreaming-design-vcHO8`
 ## Goal
 
 Make the ATEM-originated live feed available as a **pull** SRT stream from the
-display Pi, so 3–4 offsite consumers (with the expectation that the count may
-grow) can connect when they choose. The kiosk display pipeline must remain
+display Pi, so 3–4 on-site LAN consumers (with the expectation that the count
+may grow) can connect when they choose. The kiosk display pipeline must remain
 unaffected.
+
+## Scope
+
+**LAN only for the initial rollout.** No port forwards, no DDNS, no WAN-facing
+SRT listener. All pullers are on the same site network as the Pi. Extending
+to offsite viewers later is a follow-up change (adds public hostname, viewer
+latency guidance, and firewall review — explicitly out of scope here).
 
 ## Non-goals
 
 - Transcoding (bitrate/codec change). Passthrough only.
 - Outbound push to a specific destination. Consumers initiate.
-- Public Internet streaming to unknown clients. Authenticated pull from known
-  peers.
+- WAN / offsite / Internet access. LAN pullers only.
 
 ## Assumptions
 
@@ -24,8 +30,8 @@ unaffected.
 - ATEM Mini Pro continues to push RTMP once, to the display Pi, on port 1935.
 - Source is H.264 video + AAC audio (ATEM default). Consumers accept MPEG-TS
   over SRT.
-- Network ingress to the Pi for SRT is possible (LAN viewers, or a single
-  UDP port forwarded on the site router for offsite callers).
+- Pullers are on the site LAN — same IP range used by the existing RTMP
+  `allow publish` CIDRs (`192.168.0.0/16`, `10.0.0.0/8`).
 
 ## Architecture
 
@@ -43,7 +49,7 @@ unaffected.
                                  │                           (listener)    │
                                  └────────────────────────────┬───────────┘
                                                               │
-                                                     remote SRT callers
+                                                       LAN SRT callers
                                                      (up to N concurrent)
 ```
 
@@ -66,9 +72,9 @@ affect mpv; an mpv crash cannot affect MediaMTX.
 - **srt-live-server (SLS)** does fan-out but is less maintained and
   SRT-only — no future flexibility (HLS, WebRTC) if needs change.
 - **MediaMTX** is a single static Go binary, actively maintained, supports
-  SRT / RTMP / HLS / WebRTC publish + read, handles fan-out, has a readable
-  YAML config, and exposes optional Prometheus metrics that fit the existing
-  `/tmp/kiosk-health.json` model.
+  SRT / RTMP / HLS / WebRTC publish + read, handles fan-out, and has a
+  readable YAML config. Its optional HTTP API / Prometheus metrics are left
+  disabled (see MediaMTX HTTP API discussion below).
 
 ## Resource budget (Pi 4)
 
@@ -80,10 +86,9 @@ Passthrough remux only:
 | MediaMTX active | ~3–8%             | ~40 MB | RTMP demux + SRT mux, 4 readers    |
 | Per reader      | marginal          | ~5 MB  | Ring-buffer + SRT send socket      |
 
-Network: at 6 Mbps source, 4 readers = 24 Mbps egress. Well under the Pi 4's
-gigabit NIC and within typical church upload bandwidth **only if** the site
-has ≥25–30 Mbps upload. This is a site-networking precondition, not a Pi
-limitation.
+Network: at 6 Mbps source, 4 readers = 24 Mbps egress over the LAN. Trivial
+on the Pi 4's gigabit NIC; site WAN upload is irrelevant since viewers are
+on-LAN.
 
 Thermal: negligible. No encoding.
 
@@ -138,7 +143,7 @@ authInternalUsers:
         path: live
   - user: viewer
     pass: <redacted-viewer-pass>
-    ips: []                   # any source IP; rely on passphrase
+    ips: [192.168.0.0/16, 10.0.0.0/8]  # LAN only — mirrors nginx RTMP ACL
     permissions:
       - action: read
         path: live
@@ -172,8 +177,11 @@ variable, injected into generated configs by `setup-kiosk.sh`):
 SRT callers connect with a `streamid` of the form:
 
 ```
-srt://<pi-public-host>:8890?passphrase=<MEDIAMTX_SRT_PASSPHRASE>&streamid=read:viewer:<MEDIAMTX_VIEWER_PASS>:live
+srt://displaypi.local:8890?passphrase=<MEDIAMTX_SRT_PASSPHRASE>&streamid=read:viewer:<MEDIAMTX_VIEWER_PASS>:live
 ```
+
+Host resolution uses whatever already works on the LAN (mDNS `displaypi.local`,
+DHCP-assigned hostname, or a static IP). No DDNS / public hostname needed.
 
 - `passphrase` is SRT-level AES-128 encryption, orthogonal to MediaMTX auth.
   Both are required.
@@ -217,15 +225,17 @@ Run as a dedicated unprivileged `mediamtx` user (created by
 
 ## Firewall / network
 
-- **Inbound**: UDP 8890 from the Internet (or LAN) to the Pi. Requires one
-  port forward on the site router if offsite viewers are expected.
+- **Inbound**: UDP 8890 from LAN CIDRs only. No WAN port forward — this is
+  enforced both by the absence of a router rule and by MediaMTX's per-user
+  `ips:` allowlist in the config above.
 - **Inbound**: no change to RTMP 1935 exposure; ATEM continues to publish as
   today.
 - **Outbound**: none initiated by MediaMTX.
 
-`ufw` rules if/when ufw is adopted:
+If/when `ufw` is adopted on the Pi:
 ```
-ufw allow proto udp from <viewer-cidr> to any port 8890
+ufw allow proto udp from 192.168.0.0/16 to any port 8890
+ufw allow proto udp from 10.0.0.0/8    to any port 8890
 ```
 
 ## Failure modes and mitigations
@@ -235,23 +245,21 @@ ufw allow proto udp from <viewer-cidr> to any port 8890
 | MediaMTX crash / OOM                   | None                    | All viewers drop        | `Restart=always`; health check (below); review journald          |
 | nginx-rtmp `push` target unreachable   | None (push is fire-and-retry) | Restream silent until MediaMTX back | nginx-rtmp retries `push` every few seconds automatically        |
 | ATEM disconnects                       | Splash (existing)       | MediaMTX publisher disconnects; viewers drop | Existing `drop_idle_publisher 10s` propagates                     |
-| SRT caller on lossy link               | None                    | Their session may stall / reconnect | `latency` tuning in caller URL (e.g. `?latency=1000`)            |
+| SRT caller on flaky Wi-Fi              | None                    | Their session may stall / reconnect | Wired preferred; MediaMTX default latency (~200ms) is fine on LAN |
 | Port 8890 unreachable (firewall drift) | None                    | No viewer can connect   | Add reachability probe to `diagnostics/health-monitor.sh`         |
-| Upload bandwidth saturation            | None (RX unaffected)    | Viewers stutter         | Cap concurrent readers via MediaMTX `readUserLimit` if needed     |
+| LAN switch saturation                  | None (RX unaffected)    | Viewers stutter         | Cap concurrent readers via MediaMTX `readUserLimit` if needed     |
 
 ## Health / observability integration
 
 Extend `diagnostics/health-monitor.sh` to publish a `mediamtx` block in
 `/tmp/kiosk-health.json`:
 
-- `mediamtx.service_active` — systemd `is-active` result.
+- `mediamtx.service_active` — `systemctl is-active mediamtx`.
 - `mediamtx.srt_port_listening` — `ss -uln sport = :8890` probe.
-- `mediamtx.publisher_connected` — optional; requires enabling MediaMTX API
-  (local bind) and querying `/v3/paths/get/live`.
-- `mediamtx.readers` — optional; same API path returns reader count.
 
-The existing mpv overlay can then show a small "restream OK / N viewers"
-indicator if desired.
+That's the full default surface. Publisher-connected / reader-count fields
+are deferred along with the API (see "MediaMTX HTTP API discussion" below);
+if they're wanted later they become a two-line addition.
 
 Log rotation: MediaMTX logs via journald — rotation handled by systemd.
 No addition to `install/logrotate-kiosk` needed.
@@ -295,21 +303,74 @@ history or Makefile variables.
 3. Roll to production Pi during a non-service window.
 4. Share `streamid` + passphrase + URL template with the initial 3–4 viewers.
 
+## Resolved decisions
+
+- **Public hostname / DDNS — not needed.** LAN-only scope. Use existing LAN
+  name resolution (mDNS / DHCP hostname / static IP).
+- **SRT latency default — keep MediaMTX default (~200 ms).** LAN RTT is sub-ms
+  and loss is negligible, so no per-viewer latency tuning is required.
+  Document the caller URL template once and move on.
+- **MediaMTX HTTP API — off by default.** Discussed below.
+
+### MediaMTX HTTP API discussion
+
+MediaMTX can expose an HTTP API (default `127.0.0.1:9997`) that reports path
+state, connected publishers, and reader counts — plus `/metrics` in Prometheus
+format if `metrics: yes` is set.
+
+What it buys us:
+
+- A clean way for `diagnostics/health-monitor.sh` to answer "is the publisher
+  connected?" and "how many viewers are currently pulling?" without parsing
+  MediaMTX logs.
+- A natural hook for the mpv overlay to show "restream: N viewers" alongside
+  the existing status line.
+- Future-proofing if someone later wants a small status web page or Grafana
+  dashboard.
+
+What it costs:
+
+- One more HTTP listener on the Pi. Trivial CPU, but another moving part.
+- One more thing to get wrong in config (accidentally binding `0.0.0.0` and
+  exposing path/reader state to the LAN).
+- Slight config churn — `api:` and `metrics:` keys, a systemd check that the
+  bind address stays local.
+- If the API is wired into the health monitor, a MediaMTX upgrade that shifts
+  API routes (v3 → v4) becomes a correctness problem for the overlay.
+
+Given the user's stated expectation ("not likely to use"), the design defaults
+to **API off / metrics off**. The substitutes are:
+
+- `systemctl is-active mediamtx` — covers "is the broker alive".
+- `ss -uln sport = :8890` — covers "is the SRT port open".
+- `journalctl -u mediamtx --since ...` — covers publisher/reader events on
+  demand, since MediaMTX logs connect/disconnect at info level.
+
+That gives the health monitor enough signal for the existing overlay model
+without standing up another listener. If viewer-count visibility becomes
+interesting later, enabling the API is a two-line config change:
+
+```yaml
+api: yes
+apiAddress: 127.0.0.1:9997
+```
+
+and a `curl -s http://127.0.0.1:9997/v3/paths/get/live | jq …` in the health
+script. That upgrade path stays cheap; no reason to pre-build it now.
+
 ## Open questions
 
-- **SRT latency default.** MediaMTX defaults are reasonable (~200ms). Offsite
-  viewers on residential Internet may want to override to 500–1000ms in their
-  caller URL. Document in viewer instructions.
 - **Single `path: live` vs. multiple.** Current design exposes one path
   matching the existing single-stream model. If future multi-camera ATEM-less
   use cases appear, paths become per-source.
-- **Public hostname / DDNS.** Out of scope for this doc. Offsite pullers need
-  a stable address for the Pi's WAN IP.
-- **Metrics / API exposure.** Default off. If the health monitor wants path
-  state, enable `api: yes` bound to `127.0.0.1` only.
 - **Pi 4 RAM floor.** 2GB is sufficient per the budget above, but the
   existing kiosk already runs lean. Confirm on the current production Pi
   before assuming headroom.
+- **Offsite viewers (deferred).** When/if LAN-only scope expands, revisit:
+  public hostname, WAN port forward, per-viewer latency guidance (500–1000 ms
+  is typical for residential links), and whether the LAN-CIDR allowlist in
+  `ips:` should be replaced by per-user credentials scoped to specific peer
+  IPs.
 
 ## What this design does NOT do
 
