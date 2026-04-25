@@ -20,25 +20,33 @@ set -euo pipefail
 # CONFIGURATION  -  edit these before running
 # =============================================================================
 
+# All values below can be overridden by exporting the matching env var
+# before running this script (e.g. STREAM_KEY=foo bash setup-kiosk.sh).
+
 # Network CIDRs allowed to push RTMP to this Pi. Tighten to the ATEM's IP
-# (e.g. "192.168.1.42/32") once you know it's stable.
-RTMP_ALLOW_PUBLISH_CIDRS=("192.168.0.0/16" "10.0.0.0/8")
+# (e.g. "192.168.1.42/32") once you know it's stable. Pass as a
+# space-separated string when overriding via env.
+if [[ -n "${RTMP_ALLOW_PUBLISH_CIDRS:-}" ]]; then
+    read -r -a RTMP_ALLOW_PUBLISH_CIDRS <<< "$RTMP_ALLOW_PUBLISH_CIDRS"
+else
+    RTMP_ALLOW_PUBLISH_CIDRS=("192.168.0.0/16" "10.0.0.0/8")
+fi
 
 # The stream key the ATEM will push with. Must match ATEM's config.
-STREAM_KEY="church242"
+STREAM_KEY="${STREAM_KEY:-church242}"
 
 # The RTMP application name (the path component before the key).
-RTMP_APP="live"
+RTMP_APP="${RTMP_APP:-live}"
 
 # Splash image text (used to generate a placeholder PNG).
-# Replace /home/kiosk/splash.png with your branded image after setup.
-SPLASH_TEXT="Service will begin shortly"
+# Replace /home/<kiosk-user>/splash.png with your branded image after setup.
+SPLASH_TEXT="${SPLASH_TEXT:-Service will begin shortly}"
 
 # Kiosk user. Created if missing. Do not change after first run.
-KIOSK_USER="kiosk"
+KIOSK_USER="${KIOSK_USER:-kiosk}"
 
 # mpv volume for the lobby/overflow display (0-100).
-PLAYBACK_VOLUME=80
+PLAYBACK_VOLUME="${PLAYBACK_VOLUME:-80}"
 
 # =============================================================================
 # Below this line you shouldn't need to edit.
@@ -347,7 +355,13 @@ show_splash() {
 }
 
 stream_live() {
-    timeout 3 ffprobe -v quiet -show_streams "\$STREAM_URL" 2>/dev/null \\
+    # On the Pi, RTMP handshake + ffprobe analyzeduration commonly takes
+    # 3-6s before any codec_type line appears. Cap at 8s and tighten
+    # analyzeduration/probesize so the on-air case returns as soon as
+    # the first frame is parsed.
+    timeout 8 ffprobe -v quiet \\
+        -analyzeduration 1500000 -probesize 500000 \\
+        -show_streams "\$STREAM_URL" 2>/dev/null \\
         | grep -q codec_type
 }
 
