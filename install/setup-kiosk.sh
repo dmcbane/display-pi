@@ -1,9 +1,12 @@
 #!/bin/bash
 #
-# Raspberry Pi 4 Worship Stream Kiosk - Setup Script
+# Raspberry Pi Worship Stream Kiosk - Setup Script
 #
-# Sets up a Pi 4 (Raspberry Pi OS Lite, Bookworm, 64-bit) as a lobby/overflow
-# display that:
+# Sets up a Pi 4 or Pi 5 (Raspberry Pi OS Lite, Bookworm, 64-bit) as a
+# lobby/overflow display that:
+#
+# Pi 4 is the reference platform; Pi 5 is supported with caveats — see
+# docs/setup-guide.md ("Pi 4 vs Pi 5 — known differences").
 #   - Receives an RTMP push from the ATEM Mini Pro
 #   - Shows a splash image when the stream is idle
 #   - Auto-switches to the live stream when it arrives
