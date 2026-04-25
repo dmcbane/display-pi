@@ -37,6 +37,12 @@ SPLASH_TEXT="Service will begin shortly"
 # Kiosk user. Created if missing. Do not change after first run.
 KIOSK_USER="kiosk"
 
+# Deploy/SSH user — the account that runs `dev/deploy.sh` from the
+# workstation. Gets a narrow sudoers whitelist for the deploy operations.
+# Defaults to the user invoking this script (since you typically run
+# setup-kiosk.sh as the same user that will deploy from the workstation).
+DEPLOY_USER="${SUDO_USER:-$USER}"
+
 # mpv volume for the lobby/overflow display (0-100).
 PLAYBACK_VOLUME=80
 
@@ -366,7 +372,7 @@ while true; do
         --vo=gpu \\
         --profile=low-latency \\
         --cache=yes --demuxer-max-bytes=4MiB \\
-        --audio-device=auto \\
+        --audio-device=alsa/plughw:CARD=vc4hdmi0,DEV=0 \\
         --volume="\$VOLUME" \\
         --no-osc --no-osd-bar \\
         --no-input-default-bindings \\
@@ -468,16 +474,51 @@ configure_pipewire() {
         log "No system PipeWire client.conf at $src; skipping copy."
     fi
 
-    # Ensure pipewire + wireplumber user services are enabled for the kiosk
-    # user so they start automatically alongside the lingering systemd user
-    # session. mpv's audio output (--audio-device=auto) requires pipewire to
-    # be running, and the default socket-activation sometimes doesn't fire
-    # from a headless kiosk session.
+    # Enable PipeWire/WirePlumber for the kiosk user. mpv talks directly to
+    # ALSA (alsa/plughw:CARD=vc4hdmi0,DEV=0) so audio does not depend on
+    # PipeWire — but we keep the stack running for assess.sh's "PipeWire sink
+    # available" probe and to keep option B (default-sink rule) viable.
+    # See docs/journal/2026-04-25-hdmi-audio-routing.md.
     local kiosk_uid
     kiosk_uid=$(id -u "$KIOSK_USER")
     sudo -u "$KIOSK_USER" XDG_RUNTIME_DIR="/run/user/${kiosk_uid}" \
         systemctl --user enable pipewire pipewire-pulse wireplumber 2>/dev/null || \
         warn "Could not enable pipewire user services (will try on next reboot)."
+}
+
+# =============================================================================
+# Step 10b: Deploy sudoers whitelist
+# =============================================================================
+#
+# Installs /etc/sudoers.d/kiosk-deploy from install/kiosk-deploy.sudoers so
+# `dev/deploy.sh` can run its specific commands without prompting for a
+# password every time. Validates the file with `visudo -cf` before copying
+# into place — a syntax error in /etc/sudoers.d/ can lock the user out of
+# sudo entirely. See docs/journal/2026-04-25-hdmi-audio-routing.md.
+configure_deploy_sudoers() {
+    local src
+    src="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/kiosk-deploy.sudoers"
+    local dst=/etc/sudoers.d/kiosk-deploy
+
+    if [[ ! -f "$src" ]]; then
+        warn "kiosk-deploy.sudoers template not found at $src; skipping."
+        return
+    fi
+
+    log "Configuring deploy sudoers whitelist for user '$DEPLOY_USER'..."
+
+    # Substitute the deploy username into a temp file, validate, then install.
+    local tmp
+    tmp=$(mktemp)
+    trap "rm -f '$tmp'" RETURN
+    sed "s/__DEPLOY_USER__/${DEPLOY_USER}/g" "$src" > "$tmp"
+
+    if ! sudo visudo -cf "$tmp" >/dev/null; then
+        die "Generated sudoers fragment failed visudo validation. Refusing to install $dst."
+    fi
+
+    sudo install -o root -g root -m 0440 "$tmp" "$dst"
+    log "Installed $dst (deploy user: $DEPLOY_USER)."
 }
 
 # =============================================================================
@@ -566,6 +607,7 @@ main() {
     install_kiosk_service
     configure_watchdog
     configure_pipewire
+    configure_deploy_sudoers
     configure_logrotate
     configure_healthcheck
 

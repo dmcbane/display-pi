@@ -1,0 +1,55 @@
+# /etc/sudoers.d/kiosk-deploy — kiosk deploy whitelist
+#
+# Permits the deploy user (default: rpi) to run the specific commands
+# `dev/deploy.sh` issues without a password. Installed by:
+#   - install/setup-kiosk.sh on a fresh Pi (configure_deploy_sudoers)
+#   - `make sudoers` for an existing Pi (one-time interactive)
+#
+# The placeholder __DEPLOY_USER__ is substituted at install time with the
+# actual SSH/deploy username. This file is NOT a valid sudoers fragment
+# until that substitution happens — never copy it directly to
+# /etc/sudoers.d/.
+#
+# This is a UX shortcut, not a security boundary. The deploy user already
+# has SSH/shell on this Pi. The narrow whitelist limits which commands
+# skip the password prompt; it does not contain a compromised deploy
+# account. See docs/journal/2026-04-25-hdmi-audio-routing.md.
+
+# Becoming the (unprivileged) kiosk user — unrestricted, with SETENV so
+# the deploy can pass XDG_RUNTIME_DIR through to `systemctl --user`.
+__DEPLOY_USER__ ALL=(kiosk) NOPASSWD:SETENV: ALL
+
+# Specific root operations the deploy needs.
+Cmnd_Alias KIOSK_FILE_OPS = \
+    /usr/bin/rsync, \
+    /usr/bin/cp /home/kiosk/display-pi/install/logrotate-kiosk /etc/logrotate.d/kiosk-player, \
+    /usr/bin/cp /home/kiosk/display-pi/install/nginx.conf /etc/nginx/nginx.conf, \
+    /usr/bin/cp /home/kiosk/display-pi/images/splash.png /home/kiosk/splash.png, \
+    /usr/bin/cp /usr/share/pipewire/client.conf /home/kiosk/.config/pipewire/client.conf, \
+    /usr/bin/ln -sf /home/kiosk/display-pi/install/player.sh /home/kiosk/bin/player.sh, \
+    /usr/bin/ln -sf /home/kiosk/display-pi/install/assess.sh /home/kiosk/bin/assess.sh, \
+    /usr/bin/ln -sf /home/kiosk/display-pi/install/healthcheck.sh /home/kiosk/bin/healthcheck.sh, \
+    /usr/bin/ln -sf /home/kiosk/display-pi/diagnostics/health-monitor.sh /home/kiosk/bin/health-monitor.sh, \
+    /usr/bin/chown -h kiosk\:kiosk /home/kiosk/bin/player.sh, \
+    /usr/bin/chown -h kiosk\:kiosk /home/kiosk/bin/assess.sh, \
+    /usr/bin/chown -h kiosk\:kiosk /home/kiosk/bin/healthcheck.sh, \
+    /usr/bin/chown -h kiosk\:kiosk /home/kiosk/bin/health-monitor.sh, \
+    /usr/bin/chown kiosk\:kiosk /home/kiosk/.config/pipewire/client.conf, \
+    /usr/bin/chown kiosk\:kiosk /home/kiosk/.config/systemd/user/kiosk.service, \
+    /usr/bin/chown kiosk\:kiosk /home/kiosk/splash.png, \
+    /usr/bin/chmod 644 /etc/logrotate.d/kiosk-player, \
+    /usr/bin/chmod 644 /etc/cron.d/kiosk-healthcheck, \
+    /usr/bin/chmod 644 /etc/kiosk-healthcheck.conf, \
+    /usr/bin/tee /etc/cron.d/kiosk-healthcheck, \
+    /usr/bin/tee /etc/kiosk-healthcheck.conf, \
+    /usr/bin/diff -q /home/kiosk/display-pi/install/logrotate-kiosk /etc/logrotate.d/kiosk-player, \
+    /usr/bin/diff -q /home/kiosk/display-pi/install/kiosk.service /home/kiosk/.config/systemd/user/kiosk.service, \
+    /usr/bin/diff -q /home/kiosk/display-pi/install/nginx.conf /etc/nginx/nginx.conf, \
+    /usr/bin/diff -q /home/kiosk/display-pi/images/splash.png /home/kiosk/splash.png
+
+Cmnd_Alias KIOSK_SERVICE_OPS = \
+    /usr/sbin/nginx -t, \
+    /usr/bin/systemctl reload nginx, \
+    /usr/bin/systemctl restart nginx
+
+__DEPLOY_USER__ ALL=(root) NOPASSWD: KIOSK_FILE_OPS, KIOSK_SERVICE_OPS

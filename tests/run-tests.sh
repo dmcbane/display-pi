@@ -221,6 +221,66 @@ assert_contains "setup-kiosk.sh creates kiosk pipewire config dir" "$REPO_ROOT/i
 
 # ============================================================================
 echo ""
+echo "=== HDMI Audio Routing Tests ==="
+# ============================================================================
+# See docs/journal/2026-04-25-hdmi-audio-routing.md for context.
+# We bypass PipeWire's default-sink selection by pinning mpv directly to the
+# vc4-hdmi-0 ALSA card so audio always reaches HDMI port 0, regardless of how
+# WirePlumber decides to rank sinks at session start.
+
+assert_contains "player.sh pins audio to vc4hdmi0" \
+    "$REPO_ROOT/install/player.sh" "alsa/plughw:CARD=vc4hdmi0"
+assert_not_contains "player.sh does not use audio-device=auto (PipeWire default-sink trap)" \
+    "$REPO_ROOT/install/player.sh" "audio-device=auto"
+assert_contains "setup-kiosk.sh bootstrap player pins audio to vc4hdmi0" \
+    "$REPO_ROOT/install/setup-kiosk.sh" "alsa/plughw:CARD=vc4hdmi0"
+assert_not_contains "setup-kiosk.sh bootstrap player does not use audio-device=auto" \
+    "$REPO_ROOT/install/setup-kiosk.sh" "audio-device=auto"
+
+# Option B reference material — a WirePlumber rule that pins the system-wide
+# default sink to HDMI-0. Not auto-installed; kept for reference/escape hatch.
+assert_file_exists "wireplumber HDMI default-sink rule (option B reference)" \
+    "$REPO_ROOT/install/wireplumber-hdmi-default.conf"
+assert_contains "wireplumber rule matches by node.name (stable across reboots)" \
+    "$REPO_ROOT/install/wireplumber-hdmi-default.conf" "node.name"
+assert_contains "wireplumber rule targets vc4-hdmi-0 sink" \
+    "$REPO_ROOT/install/wireplumber-hdmi-default.conf" "hdmi"
+
+assert_file_exists "dev journal entry exists for HDMI audio routing" \
+    "$REPO_ROOT/docs/journal/2026-04-25-hdmi-audio-routing.md"
+
+# ============================================================================
+echo ""
+echo "=== Deploy Sudoers Tests ==="
+# ============================================================================
+# Narrow whitelist that lets the SSH user run the specific deploy commands
+# without a password. See docs/journal/2026-04-25-hdmi-audio-routing.md.
+
+assert_file_exists "install/kiosk-deploy.sudoers exists" \
+    "$REPO_ROOT/install/kiosk-deploy.sudoers"
+assert_contains "sudoers grants kiosk-as-target with SETENV (for XDG_RUNTIME_DIR)" \
+    "$REPO_ROOT/install/kiosk-deploy.sudoers" "(kiosk) NOPASSWD:SETENV: ALL"
+assert_contains "sudoers includes rsync (for --rsync-path)" \
+    "$REPO_ROOT/install/kiosk-deploy.sudoers" "/usr/bin/rsync"
+assert_contains "sudoers allows nginx test/reload" \
+    "$REPO_ROOT/install/kiosk-deploy.sudoers" "/usr/bin/systemctl reload nginx"
+assert_contains "sudoers uses templated deploy user placeholder" \
+    "$REPO_ROOT/install/kiosk-deploy.sudoers" "__DEPLOY_USER__"
+assert_contains "setup-kiosk.sh has configure_deploy_sudoers function" \
+    "$REPO_ROOT/install/setup-kiosk.sh" "^configure_deploy_sudoers()"
+assert_contains "setup-kiosk.sh validates sudoers with visudo before install" \
+    "$REPO_ROOT/install/setup-kiosk.sh" "visudo -cf"
+assert_contains "setup-kiosk.sh installs sudoers to /etc/sudoers.d/kiosk-deploy" \
+    "$REPO_ROOT/install/setup-kiosk.sh" "/etc/sudoers.d/kiosk-deploy"
+assert_contains "setup-kiosk.sh main() calls configure_deploy_sudoers" \
+    "$REPO_ROOT/install/setup-kiosk.sh" "    configure_deploy_sudoers"
+assert_contains "Makefile has sudoers target for one-time bootstrap" \
+    "$REPO_ROOT/Makefile" "^sudoers:"
+assert_not_contains "deploy.sh does not use sudo -A (option 2 makes askpass unnecessary)" \
+    "$REPO_ROOT/dev/deploy.sh" "sudo -A"
+
+# ============================================================================
+echo ""
 echo "=== Log Rotation Tests ==="
 # ============================================================================
 

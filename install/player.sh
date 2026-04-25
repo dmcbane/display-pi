@@ -126,7 +126,7 @@ while true; do
         --hwdec=auto-safe \
         --cache=yes --demuxer-max-bytes=8MiB \
         --demuxer-readahead-secs=5 \
-        --audio-device=auto \
+        --audio-device=alsa/plughw:CARD=vc4hdmi0,DEV=0 \
         --volume="$VOLUME" \
         --no-correct-pts \
         --hr-seek=no \
