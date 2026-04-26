@@ -190,6 +190,19 @@ assert_contains "deploy.sh excludes .git" "$REPO_ROOT/dev/deploy.sh" "exclude='.
 assert_contains "deploy.sh restarts kiosk service" "$REPO_ROOT/dev/deploy.sh" "systemctl --user restart"
 assert_contains "deploy.sh installs nginx config" "$REPO_ROOT/dev/deploy.sh" "nginx.conf"
 
+# Bug 2026-04-25: /home/kiosk is mode 0700, so the deploy user (rpi) cannot
+# read kiosk.service on either side of the diff. The bare `diff -q` always
+# exits 2, the script always falls into the cp branch, and `sudo cp ...
+# kiosk.service` was never in the sudoers whitelist → password prompt. Use
+# `sudo -u kiosk` for both diff and cp, leveraging the existing (kiosk)
+# NOPASSWD: ALL grant — kiosk owns these files, so root never needs to.
+assert_contains "deploy.sh uses 'sudo -u kiosk' for kiosk.service diff" \
+    "$REPO_ROOT/dev/deploy.sh" "sudo -u .* diff -q .*kiosk\\.service"
+assert_contains "deploy.sh uses 'sudo -u kiosk' for kiosk.service cp" \
+    "$REPO_ROOT/dev/deploy.sh" "sudo -u .* cp .*kiosk\\.service"
+assert_not_contains "deploy.sh does not bare 'sudo cp' kiosk.service (would prompt)" \
+    "$REPO_ROOT/dev/deploy.sh" "sudo cp .*install/kiosk\\.service"
+
 # ============================================================================
 echo ""
 echo "=== Health Overlay Tests ==="

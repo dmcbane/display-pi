@@ -4,6 +4,19 @@ All notable changes to display-pi are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.2] - 2026-04-25
+
+### Fixed
+- **`make deploy` password prompt.** `/home/kiosk` is mode 0700, so the
+  deploy user (rpi) could not read either side of the `kiosk.service`
+  diff in `dev/deploy.sh`. The diff always exited 2, the script always
+  fell through to `sudo cp …kiosk.service`, and that exact command was
+  never in the sudoers whitelist — sudo prompted and the deploy aborted.
+  Now runs both the diff and the cp via `sudo -u kiosk`, leveraging the
+  existing `(kiosk) NOPASSWD: ALL` grant. As a bonus the diff is finally
+  accurate, so the service file is only re-copied when it actually
+  changed. Tests added in `tests/run-tests.sh`.
+
 ## [0.1.1] - 2026-04-25
 
 ### Fixed

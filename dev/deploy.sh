@@ -95,11 +95,11 @@ CONF
     echo "healthcheck config placeholder created"
 fi
 
-# Install service file if changed
-if ! diff -q ${REMOTE_DIR}/install/kiosk.service /home/${KIOSK_USER}/.config/systemd/user/kiosk.service &>/dev/null 2>&1; then
+# Install service file if changed. Run diff/cp as kiosk: /home/kiosk is
+# mode 0700, so the deploy user cannot read either side of the diff.
+if ! sudo -u ${KIOSK_USER} diff -q ${REMOTE_DIR}/install/kiosk.service /home/${KIOSK_USER}/.config/systemd/user/kiosk.service &>/dev/null; then
     sudo -u ${KIOSK_USER} mkdir -p /home/${KIOSK_USER}/.config/systemd/user
-    sudo cp ${REMOTE_DIR}/install/kiosk.service /home/${KIOSK_USER}/.config/systemd/user/kiosk.service
-    sudo chown ${KIOSK_USER}:${KIOSK_USER} /home/${KIOSK_USER}/.config/systemd/user/kiosk.service
+    sudo -u ${KIOSK_USER} cp ${REMOTE_DIR}/install/kiosk.service /home/${KIOSK_USER}/.config/systemd/user/kiosk.service
     echo "Service file updated"
 fi
 
