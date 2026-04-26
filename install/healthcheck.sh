@@ -77,11 +77,13 @@ check_health() {
         return 1
     fi
 
-    # Log freshness: catches hangs where processes are alive but the loop
-    # is stuck (see the SPLASH_PID=$() pipe bug in git history).
-    # 15-min window tolerates quiet periods during stable streams.
-    if [[ -f /tmp/player.log ]] && [[ -z "$(find /tmp/player.log -mmin -15 2>/dev/null)" ]]; then
-        echo "player.log has had no writes in 15+ minutes"
+    # Heartbeat freshness: health-monitor.sh (child of player.sh) rewrites
+    # this file every 20s. If it goes stale, the player loop or monitor is
+    # stuck — catches hangs where processes are alive but unresponsive
+    # (see the SPLASH_PID=$() pipe bug in git history). player.log itself
+    # is silent during clean mpv playback so it can't be used here.
+    if [[ -f /tmp/kiosk-health.json ]] && [[ -z "$(find /tmp/kiosk-health.json -mmin -2 2>/dev/null)" ]]; then
+        echo "kiosk-health.json has had no writes in 2+ minutes"
         return 1
     fi
 
