@@ -125,12 +125,12 @@ while true; do
     mpv --fullscreen \
         --hwdec=auto-safe \
         --cache=yes --demuxer-max-bytes=8MiB \
-        --demuxer-readahead-secs=5 \
-        --audio-device=auto \
+        --demuxer-readahead-secs=2 \
+        --audio-device=alsa/plughw:CARD=vc4hdmi0,DEV=0 \
         --volume="$VOLUME" \
-        --no-correct-pts \
+        --video-sync=display-resample \
         --hr-seek=no \
-        --stream-lavf-o=fflags=+genpts+igndts+discardcorrupt \
+        --stream-lavf-o=fflags=+discardcorrupt \
         --stream-lavf-o=analyzeduration=5000000 \
         --no-osc --no-osd-bar \
         --no-input-default-bindings \

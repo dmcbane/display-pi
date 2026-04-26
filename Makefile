@@ -2,6 +2,8 @@
 #
 # Usage:
 #   make deploy              Deploy to Pi and restart kiosk
+#   make sudoers             One-time: install deploy sudoers whitelist on Pi
+#                            (interactive — prompts for sudo password once)
 #   make test-stream         Send 60s test pattern to Pi
 #   make test-stream-long    Send 5min test pattern to Pi
 #   make ssh                 Interactive shell on Pi
@@ -27,7 +29,7 @@ export KIOSK_HOST  := $(HOST)
 export KIOSK_USER
 export STREAM_KEY
 
-.PHONY: help setup deploy test-stream test-stream-long ssh logs status diag test lint check ping reboot
+.PHONY: help setup deploy sudoers test-stream test-stream-long ssh logs status diag test lint check ping reboot
 
 help:
 	@echo "display-pi — Church Worship Stream Kiosk"
@@ -102,6 +104,20 @@ setup:
 
 deploy:
 	@./dev/deploy.sh $(HOST)
+
+# One-time bootstrap: install the deploy sudoers whitelist on an existing
+# Pi. Interactive (prompts once for the Pi sudo password). After this
+# completes, `make deploy` runs without password prompts. New Pis get the
+# same whitelist automatically via setup-kiosk.sh.
+sudoers:
+	@DEPLOY_USER=$$(ssh $(HOST) whoami); \
+	echo "[sudoers] Installing /etc/sudoers.d/kiosk-deploy on $(HOST) for user $$DEPLOY_USER..."; \
+	scp install/kiosk-deploy.sudoers $(HOST):/tmp/kiosk-deploy.sudoers.in; \
+	ssh -t $(HOST) "sed 's/__DEPLOY_USER__/$$DEPLOY_USER/g' /tmp/kiosk-deploy.sudoers.in > /tmp/kiosk-deploy.sudoers \
+	    && sudo visudo -cf /tmp/kiosk-deploy.sudoers \
+	    && sudo install -o root -g root -m 0440 /tmp/kiosk-deploy.sudoers /etc/sudoers.d/kiosk-deploy \
+	    && rm -f /tmp/kiosk-deploy.sudoers /tmp/kiosk-deploy.sudoers.in"; \
+	echo "[sudoers] Done. Future deploys will not prompt for a password."
 
 # --- Testing ---
 
