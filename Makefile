@@ -29,7 +29,7 @@ export KIOSK_HOST  := $(HOST)
 export KIOSK_USER
 export STREAM_KEY
 
-.PHONY: help setup deploy sudoers test-stream test-stream-long ssh logs status diag test lint check ping reboot
+.PHONY: help setup deploy sudoers test-stream test-stream-long ssh logs status diag judder-tree judder-probe judder-monitor test lint check ping reboot
 
 help:
 	@echo "display-pi — Church Worship Stream Kiosk"
@@ -52,6 +52,9 @@ help:
 	@echo "  logs              Tail kiosk + nginx logs"
 	@echo "  status            Show kiosk service status"
 	@echo "  diag              Run diagnostics on Pi"
+	@echo "  judder-tree       Print judder decision tree (offline-friendly)"
+	@echo "  judder-probe      One-shot judder probe on Pi"
+	@echo "  judder-monitor    Rolling judder sampler on Pi (Ctrl-C to stop)"
 	@echo "  ping              Ping the Pi"
 	@echo "  reboot            Reboot the Pi"
 	@echo ""
@@ -150,6 +153,15 @@ status:
 
 diag:
 	@./dev/pi-shell.sh $(HOST) diag
+
+judder-tree:
+	@./diagnostics/judder.sh tree
+
+judder-probe:
+	@ssh $(HOST) "sudo -u $(KIOSK_USER) /home/$(KIOSK_USER)/display-pi/diagnostics/judder.sh probe"
+
+judder-monitor:
+	@ssh -t $(HOST) "sudo -u $(KIOSK_USER) /home/$(KIOSK_USER)/display-pi/diagnostics/judder.sh monitor"
 
 # --- Convenience ---
 
