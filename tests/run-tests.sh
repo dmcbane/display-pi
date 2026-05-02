@@ -236,7 +236,7 @@ assert_contains "setup-kiosk.sh creates kiosk pipewire config dir" "$REPO_ROOT/i
 echo ""
 echo "=== HDMI Audio Routing Tests ==="
 # ============================================================================
-# See docs/journal/2026-04-25-hdmi-audio-routing.md for context.
+# See docs/dev-journal/2026-04-25-hdmi-audio-routing.md for context.
 # We bypass PipeWire's default-sink selection by pinning mpv directly to the
 # vc4-hdmi-0 ALSA card so audio always reaches HDMI port 0, regardless of how
 # WirePlumber decides to rank sinks at session start.
@@ -260,14 +260,14 @@ assert_contains "wireplumber rule targets vc4-hdmi-0 sink" \
     "$REPO_ROOT/install/wireplumber-hdmi-default.conf" "hdmi"
 
 assert_file_exists "dev journal entry exists for HDMI audio routing" \
-    "$REPO_ROOT/docs/journal/2026-04-25-hdmi-audio-routing.md"
+    "$REPO_ROOT/docs/dev-journal/2026-04-25-hdmi-audio-routing.md"
 
 # ============================================================================
 echo ""
 echo "=== Deploy Sudoers Tests ==="
 # ============================================================================
 # Narrow whitelist that lets the SSH user run the specific deploy commands
-# without a password. See docs/journal/2026-04-25-hdmi-audio-routing.md.
+# without a password. See docs/dev-journal/2026-04-25-hdmi-audio-routing.md.
 
 assert_file_exists "install/kiosk-deploy.sudoers exists" \
     "$REPO_ROOT/install/kiosk-deploy.sudoers"
@@ -315,6 +315,36 @@ assert_contains "healthcheck.sh reads config from HEALTHCHECK_URL" "$REPO_ROOT/i
 assert_contains "healthcheck.sh pings on success" "$REPO_ROOT/install/healthcheck.sh" "curl"
 assert_contains "healthcheck.sh supports fail ping" "$REPO_ROOT/install/healthcheck.sh" "/fail"
 assert_contains "setup-kiosk.sh installs healthcheck cron" "$REPO_ROOT/install/setup-kiosk.sh" "healthcheck"
+
+# ============================================================================
+echo ""
+echo "=== Operations & Diagnostics Dependency Tests ==="
+# ============================================================================
+# These packages are required by scripts in install/ and diagnostics/ but
+# don't ship in the base Raspberry Pi OS Lite image. setup-kiosk.sh's
+# install_packages() must pin them so a fresh-Pi install is self-contained.
+
+# nc — used by player.sh wait_for_nginx, healthcheck.sh, assess.sh, render-status.sh.
+# Without it player.sh hangs forever on the nginx readiness gate.
+assert_contains "setup-kiosk.sh installs netcat-openbsd (provides nc)" \
+    "$REPO_ROOT/install/setup-kiosk.sh" "netcat-openbsd"
+
+# wlr-randr — used by judder.sh probe to read the active Wayland mode.
+assert_contains "setup-kiosk.sh installs wlr-randr (judder.sh probe)" \
+    "$REPO_ROOT/install/setup-kiosk.sh" "wlr-randr"
+
+# kmsprint — used by judder.sh probe to dump KMS connector/CRTC state.
+assert_contains "setup-kiosk.sh installs libdrm-tests (provides kmsprint)" \
+    "$REPO_ROOT/install/setup-kiosk.sh" "libdrm-tests"
+
+# vcgencmd — used by judder.sh probe + monitor for thermal/throttling readout.
+# Usually preinstalled on Raspberry Pi OS, but Lite images don't guarantee it.
+assert_contains "setup-kiosk.sh installs libraspberrypi-bin (provides vcgencmd)" \
+    "$REPO_ROOT/install/setup-kiosk.sh" "libraspberrypi-bin"
+
+# aplay — used by render-status.sh check_audio fallback when wpctl is absent.
+assert_contains "setup-kiosk.sh installs alsa-utils (provides aplay)" \
+    "$REPO_ROOT/install/setup-kiosk.sh" "alsa-utils"
 
 # ============================================================================
 echo ""

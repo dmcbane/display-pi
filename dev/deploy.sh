@@ -37,7 +37,7 @@ rsync -avz --delete \
 # Symlink install files into expected locations.
 # TODO: logrotate / PipeWire / splash.png blocks below silently re-copy on
 # every deploy because their diff/-f checks run as rpi and can't read
-# /home/kiosk (mode 0700). See docs/journal/2026-04-25-deploy-stale-diffs.md.
+# /home/kiosk (mode 0700). See docs/dev-journal/2026-04-25-deploy-stale-diffs.md.
 log "Installing files..."
 ssh "${HOST}" bash <<REMOTE
 set -euo pipefail

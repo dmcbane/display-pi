@@ -105,13 +105,31 @@ confirm_os() {
 install_packages() {
     log "Updating apt and installing packages..."
     sudo apt-get update
+    # Display + media stack
+    #   cage / mpv / seatd        — kiosk compositor + player + seat manager
+    #   nginx + libnginx-mod-rtmp — RTMP ingest from the ATEM
+    #   ffmpeg                    — provides ffprobe (stream liveness check)
+    #   imagemagick               — render-status.sh diagnostic PNGs
+    #   pipewire / wireplumber    — audio stack (mpv pins to ALSA, but
+    #                               assess.sh probes PipeWire sinks)
+    #   watchdog / cec-utils      — auto-recovery + HDMI-CEC TV control
+    # Operations + diagnostics tools used across install/ and diagnostics/
+    #   netcat-openbsd            — `nc` for nginx readiness gate (player.sh,
+    #                               healthcheck.sh, assess.sh, render-status.sh).
+    #                               Kiosk hangs at boot without it.
+    #   wlr-randr                 — judder.sh: read the active Wayland mode
+    #   libdrm-tests              — provides kmsprint (KMS connector dump)
+    #   libraspberrypi-bin        — provides vcgencmd (thermal/throttle readout)
+    #   alsa-utils                — provides aplay (audio fallback probe)
     sudo apt-get install -y --no-install-recommends \
         cage mpv seatd \
         libnginx-mod-rtmp nginx \
         watchdog cec-utils \
         ffmpeg imagemagick fonts-dejavu-core \
         ca-certificates curl logrotate cron \
-        pipewire pipewire-audio wireplumber
+        pipewire pipewire-audio wireplumber \
+        netcat-openbsd \
+        wlr-randr libdrm-tests libraspberrypi-bin alsa-utils
     log "Packages installed."
 }
 
@@ -495,7 +513,7 @@ configure_pipewire() {
     # ALSA (alsa/plughw:CARD=vc4hdmi0,DEV=0) so audio does not depend on
     # PipeWire — but we keep the stack running for assess.sh's "PipeWire sink
     # available" probe and to keep option B (default-sink rule) viable.
-    # See docs/journal/2026-04-25-hdmi-audio-routing.md.
+    # See docs/dev-journal/2026-04-25-hdmi-audio-routing.md.
     local kiosk_uid
     kiosk_uid=$(id -u "$KIOSK_USER")
     sudo -u "$KIOSK_USER" XDG_RUNTIME_DIR="/run/user/${kiosk_uid}" \
@@ -511,7 +529,7 @@ configure_pipewire() {
 # `dev/deploy.sh` can run its specific commands without prompting for a
 # password every time. Validates the file with `visudo -cf` before copying
 # into place — a syntax error in /etc/sudoers.d/ can lock the user out of
-# sudo entirely. See docs/journal/2026-04-25-hdmi-audio-routing.md.
+# sudo entirely. See docs/dev-journal/2026-04-25-hdmi-audio-routing.md.
 configure_deploy_sudoers() {
     local src
     src="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/kiosk-deploy.sudoers"

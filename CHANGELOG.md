@@ -4,6 +4,25 @@ All notable changes to display-pi are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.3] - 2026-05-02
+
+### Fixed
+- **Missing operational dependencies in `install_packages`.** Several
+  scripts in `install/` and `diagnostics/` shell out to commands that
+  Raspberry Pi OS Lite doesn't ship by default. `nc`
+  (`netcat-openbsd`) is the most critical: `player.sh`'s
+  `wait_for_nginx` gate, `healthcheck.sh`, `assess.sh`, and
+  `render-status.sh` all use it; without it the kiosk hangs at boot on
+  a fresh-`make setup` Pi. `wlr-randr`, `kmsprint`
+  (`libdrm-tests`), `vcgencmd` (`libraspberrypi-bin`), and `aplay`
+  (`alsa-utils`) are now also pinned for the on-Pi `judder.sh`
+  triage toolkit and audio fallbacks. Tests added in
+  `tests/run-tests.sh`.
+- **Stale `docs/journal/` path references.** Renamed dev-journal
+  directory to `docs/dev-journal/`; updated all references in
+  `tests/run-tests.sh`, `dev/deploy.sh`, `install/setup-kiosk.sh`
+  comments, `docs/setup-guide.md`, and `CHANGELOG.md`.
+
 ## [0.1.2] - 2026-04-25
 
 ### Fixed
@@ -25,7 +44,7 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   default-sink selection, which was picking the bcm2835 analog/mailbox
   fallback. Applies to both `install/player.sh` and the bootstrap heredoc
   in `install/setup-kiosk.sh`. See
-  `docs/journal/2026-04-25-hdmi-audio-routing.md`.
+  `docs/dev-journal/2026-04-25-hdmi-audio-routing.md`.
 
 ### Added
 - `install/wireplumber-hdmi-default.conf` — reference WirePlumber rule
@@ -36,7 +55,7 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   no longer needs a password every run. Bootstrap an existing Pi with
   `make sudoers` (one-time, interactive). Documented in the journal.
 - `make sudoers` Makefile target.
-- `docs/journal/` — first dev journal entry documenting the HDMI audio
+- `docs/dev-journal/` — first dev journal entry documenting the HDMI audio
   routing decision (option A vs B) and the deploy sudoers whitelist.
 - `CHANGELOG.md` and `VERSION` — versioning baseline.
 

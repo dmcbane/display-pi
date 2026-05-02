@@ -25,7 +25,7 @@ upstream is different.
 HDMI 0 is the **micro-HDMI port closer to the USB-C power input**. The
 script and player are pinned to `vc4hdmi0` (HDMI 0); use HDMI 1 only if
 you change the wiring documented in
-`docs/journal/2026-04-25-hdmi-audio-routing.md`.
+`docs/dev-journal/2026-04-25-hdmi-audio-routing.md`.
 
 ### Software you'll be installing
 
@@ -204,7 +204,7 @@ seconds, you should hear a 440 Hz tone, and `make test-stream-long`
 gives you 5 minutes if you need more time at the receiver.
 
 If you can't hear audio:
-[`docs/journal/2026-04-25-hdmi-audio-routing.md`](journal/2026-04-25-hdmi-audio-routing.md)
+[`docs/dev-journal/2026-04-25-hdmi-audio-routing.md`](dev-journal/2026-04-25-hdmi-audio-routing.md)
 walks through the diagnosis.
 
 ## Day-to-day operations
@@ -254,7 +254,7 @@ reference platform. The Pi 5 should work, with these caveats:
   `CARD=vc4hdmi0` works on both.
 
 If you're deploying a Pi 5 and hit something not covered here, please
-add a note to `docs/journal/`.
+add a note to `docs/dev-journal/`.
 
 ## Troubleshooting
 
@@ -271,7 +271,7 @@ add a note to `docs/journal/`.
 ### Stream is live but no audio on HDMI
 
 This was the original sin that started the journal. See
-`docs/journal/2026-04-25-hdmi-audio-routing.md`. Quick check:
+`docs/dev-journal/2026-04-25-hdmi-audio-routing.md`. Quick check:
 
 ```sh
 ssh displaypi 'sudo grep audio-device /home/kiosk/bin/player.sh'
@@ -332,7 +332,7 @@ so you can always restore.
 
 ## Where to look next
 
-- **Architecture decisions:** `docs/journal/`
+- **Architecture decisions:** `docs/dev-journal/`
 - **What changed when:** `CHANGELOG.md`
 - **Source of truth for the player loop:** `install/player.sh`
 - **All the install knobs:** the config block at the top of `install/setup-kiosk.sh`
