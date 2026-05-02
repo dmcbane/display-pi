@@ -4,6 +4,23 @@ All notable changes to display-pi are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.4] - 2026-05-02
+
+### Fixed
+- **mpv hwdec falling back to software decode.** `install/player.sh`
+  was passing `--hwdec=auto-safe`, which makes mpv walk the full
+  hwdec ladder on each startup: CUDA → Vulkan → VDPAU → software.
+  None of those exist on a Pi 4, so every probe failed noisily
+  (`AVHWDeviceContext: Cannot load libcuda.so.1`,
+  `VK_ERROR_INCOMPATIBLE_DRIVER`, `Failed to open VDPAU backend`)
+  before mpv settled — and on a 1080p test stream the actual
+  decode path landed in software, pegging mpv at 94% of one core
+  and pushing the SoC to 77 °C. Pinned to `--hwdec=v4l2m2m-copy`
+  (the Pi 4-native V4L2 H.264 decoder, already used by the
+  bootstrap heredoc in `install/setup-kiosk.sh`). Live test on
+  1080p30→1080p60 dropped mpv CPU to 36% and temp to 56 °C.
+  Tests added in `tests/run-tests.sh`.
+
 ## [0.1.3] - 2026-05-02
 
 ### Fixed

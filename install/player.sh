@@ -123,7 +123,7 @@ while true; do
     echo "[$(date)] launching mpv"
     mpv_exit=0
     mpv --fullscreen \
-        --hwdec=auto-safe \
+        --hwdec=v4l2m2m-copy \
         --cache=yes --demuxer-max-bytes=8MiB \
         --demuxer-readahead-secs=2 \
         --audio-device=alsa/plughw:CARD=vc4hdmi0,DEV=0 \

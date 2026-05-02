@@ -106,6 +106,10 @@ echo ""
 echo "=== Player Script Tests ==="
 # ============================================================================
 
+assert_contains "player.sh uses v4l2m2m-copy hwdec (Pi 4 native; avoids CUDA/Vulkan/VDPAU probes)" \
+    "$REPO_ROOT/install/player.sh" "hwdec=v4l2m2m-copy"
+assert_not_contains "player.sh does not use --hwdec=auto-safe (trips CUDA/Vulkan/VDPAU on Pi 4)" \
+    "$REPO_ROOT/install/player.sh" "hwdec=auto-safe"
 assert_contains "player.sh has shebang" "$REPO_ROOT/install/player.sh" "^#!/bin/bash"
 assert_contains "player.sh has set -u" "$REPO_ROOT/install/player.sh" "^set -u"
 assert_contains "player.sh references assess.sh" "$REPO_ROOT/install/player.sh" "assess.sh"
