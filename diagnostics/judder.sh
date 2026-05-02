@@ -407,14 +407,19 @@ FIX OPTIONS (pick the most achievable):
   1. Set ATEM to exactly 30.00 fps (not 29.97). ATEM Setup utility →
      Settings → Video Standard. "1080p30" on the ATEM is 29.97 by
      default in NTSC regions.
-  2. Force HDMI to 30 Hz to match. On the Pi:
-        sudoedit /boot/firmware/config.txt
-     Add (under [all]):
-        hdmi_group=1
-        hdmi_mode=39        # 1920x1080 @ 30 Hz CEA
-     Reboot. Verify with `./judder.sh probe`.
-     Other useful modes: hdmi_mode=32 (1080p25), 33 (1080p29.97 sf),
-     31 (1080p50), 34 (1080p59.94), 16 (1080p60).
+  2. Force HDMI to a specific mode (also fixes 4K-display preferred
+     mode pulling the Pi to 3840x2160@30 with 1080p source). Under
+     Bookworm KMS the legacy firmware knobs (hdmi_group, hdmi_mode,
+     hdmi_drive) are IGNORED — use the kernel video= parameter in
+     cmdline.txt instead. On the Pi:
+        sudoedit /boot/firmware/cmdline.txt
+     Append (one line, space-separated):
+        video=HDMI-A-1:1920x1080@30
+     Reboot. Verify with `./judder.sh probe` (kmsprint should show
+     the new mode under Crtc).
+     Other useful values: 1920x1080@60, 1920x1080@50, 1280x720@60.
+     Append D after the rate (e.g. @60D) for double-clock CEA modes
+     if the display gets confused; usually not needed.
   3. Run cameras/ATEM at 60p if your cameras support it — 60→60 is
      a clean 1:1 lock, no cadence at all.
 
