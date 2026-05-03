@@ -214,6 +214,20 @@ http {
     access_log /var/log/nginx/access.log;
     error_log  /var/log/nginx/error.log;
     gzip on;
+
+    # rtmp_stat — XML dump of active publishers/streams. Localhost-only.
+    # Lets diagnostics/judder.sh probe surface the real stream key when a
+    # publisher is connected to nginx but not to the key the player expects.
+    server {
+        listen 127.0.0.1:8080;
+        server_name localhost;
+
+        location /stat {
+            rtmp_stat all;
+            allow 127.0.0.1;
+            deny all;
+        }
+    }
 }
 EOF
 

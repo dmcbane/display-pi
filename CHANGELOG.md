@@ -4,6 +4,29 @@ All notable changes to display-pi are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.5] - 2026-05-03
+
+### Added
+- **nginx-rtmp HTTP stat endpoint** (`http://127.0.0.1:8080/stat`,
+  localhost-only) and an `ACTIVE PUBLISHERS` section in
+  `diagnostics/judder.sh probe` that parses it. When a publisher is
+  connected to nginx but the player is stuck on splash, the probe now
+  prints exactly which stream key is live and flags it
+  (`*** MISMATCH: player expects key=church242`). Closes the diagnostic
+  gap that left the 2026-05-02 venue probe ambiguous (ESTAB on :1935 +
+  `ffprobe: No such stream` — but no way to see which key was actually
+  in use). See `docs/dev-journal/2026-05-03-stream-key-mismatch.md`.
+  Tests added in `tests/run-tests.sh`. Requires `make deploy` to push
+  the updated `nginx.conf` to the Pi.
+
+### Fixed
+- **Stale test assertions** for `--no-correct-pts` and `+genpts` in
+  `tests/run-tests.sh`. Commit `26944db` ("trust source PTS")
+  intentionally removed those mpv flags because they regressed
+  smoothness on a clean 1080p30 ATEM feed; the asserts had been
+  failing ever since. Inverted to `assert_not_contains` so the test
+  suite captures the design decision instead of contradicting it.
+
 ## [0.1.4] - 2026-05-02
 
 ### Fixed

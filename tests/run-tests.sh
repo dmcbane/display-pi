@@ -116,8 +116,13 @@ assert_contains "player.sh references assess.sh" "$REPO_ROOT/install/player.sh" 
 assert_contains "player.sh has nginx readiness gate" "$REPO_ROOT/install/player.sh" "nc -z 127.0.0.1 1935"
 assert_contains "player.sh has stream_live function" "$REPO_ROOT/install/player.sh" "^stream_live()"
 assert_contains "player.sh uses ffprobe with timeout" "$REPO_ROOT/install/player.sh" "timeout.*ffprobe"
-assert_contains "player.sh has RTMP timestamp workaround" "$REPO_ROOT/install/player.sh" "no-correct-pts"
-assert_contains "player.sh has genpts flag" "$REPO_ROOT/install/player.sh" "genpts"
+# Commit 26944db ("trust source PTS") deliberately removed --no-correct-pts
+# and +genpts because they regenerated timestamps and broke smoothness on a
+# clean 1080p30 ATEM feed. Don't reintroduce them without revisiting that fix.
+assert_not_contains "player.sh does not regenerate PTS (--no-correct-pts; broke 1080p30, see 26944db)" \
+    "$REPO_ROOT/install/player.sh" "no-correct-pts"
+assert_not_contains "player.sh does not force genpts (broke 1080p30, see 26944db)" \
+    "$REPO_ROOT/install/player.sh" "genpts"
 assert_contains "player.sh captures mpv exit code" "$REPO_ROOT/install/player.sh" "mpv_exit"
 assert_contains "player.sh has consecutive failure tracking" "$REPO_ROOT/install/player.sh" "consecutive_failures"
 assert_contains "player.sh shows diagnostics on repeated failure" "$REPO_ROOT/install/player.sh" "show_error_diagnostics"
@@ -172,6 +177,18 @@ assert_contains "nginx.conf allows local play only" "$REPO_ROOT/install/nginx.co
 assert_contains "nginx.conf denies external play" "$REPO_ROOT/install/nginx.conf" "deny play all"
 assert_contains "nginx.conf drops subscribers on publisher disconnect" "$REPO_ROOT/install/nginx.conf" "idle_streams off"
 assert_contains "nginx.conf drops silent publisher" "$REPO_ROOT/install/nginx.conf" "drop_idle_publisher"
+
+# rtmp_stat — exposes active publishers/streams as XML on a localhost-only
+# HTTP endpoint. Without it, the only signal that a publisher is connected to
+# the *wrong* stream key is "ESTAB on :1935 + ffprobe says No such stream",
+# which is what bit us on 2026-05-02. The probe pulls /stat to surface the
+# actual key in use.
+assert_contains "nginx.conf exposes rtmp_stat HTTP endpoint" \
+    "$REPO_ROOT/install/nginx.conf" "rtmp_stat all"
+assert_contains "nginx.conf restricts rtmp_stat to localhost" \
+    "$REPO_ROOT/install/nginx.conf" "allow 127.0.0.1"
+assert_contains "setup-kiosk.sh nginx config exposes rtmp_stat" \
+    "$REPO_ROOT/install/setup-kiosk.sh" "rtmp_stat all"
 
 # ============================================================================
 echo ""
@@ -349,6 +366,19 @@ assert_contains "setup-kiosk.sh installs libraspberrypi-bin (provides vcgencmd)"
 # aplay — used by render-status.sh check_audio fallback when wpctl is absent.
 assert_contains "setup-kiosk.sh installs alsa-utils (provides aplay)" \
     "$REPO_ROOT/install/setup-kiosk.sh" "alsa-utils"
+
+# ============================================================================
+echo ""
+echo "=== judder.sh probe Tests ==="
+# ============================================================================
+
+# Probe must query the rtmp_stat endpoint so a probe captured during the
+# "splash showing but publisher connected" scenario reveals which stream
+# key the publisher is actually using. (Bug 2026-05-03.)
+assert_contains "judder.sh probe queries rtmp_stat endpoint" \
+    "$REPO_ROOT/diagnostics/judder.sh" "127\\.0\\.0\\.1:8080/stat"
+assert_contains "judder.sh probe has ACTIVE PUBLISHERS section" \
+    "$REPO_ROOT/diagnostics/judder.sh" "ACTIVE PUBLISHERS"
 
 # ============================================================================
 echo ""

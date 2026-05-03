@@ -79,6 +79,72 @@ cmd_probe() {
             echo "ffprobe not installed"
         fi
 
+        section "ACTIVE PUBLISHERS (nginx-rtmp stat)"
+        # The player hardcodes one stream key (church242). If a publisher is
+        # connected to a *different* key, ffprobe above will say "No such
+        # stream" while ss(8) shows an active TCP session on :1935 — exactly
+        # the splash-stuck-while-stream-live failure mode. /stat lists every
+        # active key and its publisher, so the mismatch is unambiguous.
+        local stat_url="http://127.0.0.1:8080/stat"
+        if have curl; then
+            local stat_xml
+            stat_xml=$(curl -fsS --max-time 3 "$stat_url" 2>&1) || {
+                echo "(stat endpoint not reachable — older nginx.conf?  re-run setup or 'make deploy')"
+                stat_xml=""
+            }
+            if [[ -n "$stat_xml" ]]; then
+                # Per-stream summary: name (key), publisher addr, bytes in,
+                # bw, # subscribers. One line per active stream.
+                if have python3; then
+                    EXPECTED_URL="$STREAM_URL" STAT_XML="$stat_xml" python3 <<'PY' || echo "(python3 parse failed)"
+import os, xml.etree.ElementTree as ET
+expected_url = os.environ['EXPECTED_URL']
+expected_key = expected_url.rsplit('/', 1)[-1]
+data = os.environ['STAT_XML']
+try:
+    root = ET.fromstring(data)
+except ET.ParseError as e:
+    print(f"(stat XML parse failed: {e})")
+    raise SystemExit(0)
+apps = root.findall('.//application')
+if not apps:
+    print("no <application> blocks (rtmp_stat returned empty)")
+    raise SystemExit(0)
+any_pub = False
+for app in apps:
+    app_name = (app.findtext('name') or '?').strip()
+    streams = app.findall('./live/stream')
+    if not streams:
+        print(f"app={app_name}: no active streams")
+        continue
+    for s in streams:
+        name = (s.findtext('name') or '?').strip()
+        clients = s.findall('client')
+        publisher = next((c for c in clients if c.find('publishing') is not None), None)
+        n_subs = sum(1 for c in clients if c.find('publishing') is None)
+        bw_in = (s.findtext('bw_in') or '0').strip()
+        if publisher is not None:
+            any_pub = True
+            paddr = (publisher.findtext('address') or '?').strip()
+            pflash = (publisher.findtext('flashver') or '').strip()
+            if name == expected_key:
+                tag = '  <-- matches player'
+            else:
+                tag = f'  *** MISMATCH: player expects key={expected_key}'
+            print(f"app={app_name} key={name} pub={paddr} flashver={pflash!r} bw_in={bw_in} subs={n_subs}{tag}")
+        else:
+            print(f"app={app_name} key={name} (no publisher) subs={n_subs}")
+if not any_pub:
+    print("(no active publishers on any stream)")
+PY
+                else
+                    echo "(python3 not available; raw XML at $stat_url)"
+                fi
+            fi
+        else
+            echo "curl not installed; cannot query $stat_url"
+        fi
+
         section "DISPLAY MODE (current)"
         # /sys/class/drm shows what the kernel knows about connected outputs.
         for c in /sys/class/drm/card*-HDMI-A-*; do
@@ -94,7 +160,7 @@ cmd_probe() {
         echo
         if have wlr-randr; then
             echo "--- wlr-randr (active mode) ---"
-            wlr-randr 2>&1 || echo "(wlr-randr failed — no Wayland session in this shell)"
+            XDG_RUNTIME_DIR="/run/user/$(id -u $KIOSK_USER)" wlr-randr 2>&1 || echo "(wlr-randr failed — no Wayland session in this shell)"
         else
             echo "wlr-randr not installed (cannot read active mode from outside the cage session)"
         fi
@@ -407,19 +473,14 @@ FIX OPTIONS (pick the most achievable):
   1. Set ATEM to exactly 30.00 fps (not 29.97). ATEM Setup utility →
      Settings → Video Standard. "1080p30" on the ATEM is 29.97 by
      default in NTSC regions.
-  2. Force HDMI to a specific mode (also fixes 4K-display preferred
-     mode pulling the Pi to 3840x2160@30 with 1080p source). Under
-     Bookworm KMS the legacy firmware knobs (hdmi_group, hdmi_mode,
-     hdmi_drive) are IGNORED — use the kernel video= parameter in
-     cmdline.txt instead. On the Pi:
-        sudoedit /boot/firmware/cmdline.txt
-     Append (one line, space-separated):
-        video=HDMI-A-1:1920x1080@30
-     Reboot. Verify with `./judder.sh probe` (kmsprint should show
-     the new mode under Crtc).
-     Other useful values: 1920x1080@60, 1920x1080@50, 1280x720@60.
-     Append D after the rate (e.g. @60D) for double-clock CEA modes
-     if the display gets confused; usually not needed.
+  2. Force HDMI to 30 Hz to match. On the Pi:
+        sudoedit /boot/firmware/config.txt
+     Add (under [all]):
+        hdmi_group=1
+        hdmi_mode=39        # 1920x1080 @ 30 Hz CEA
+     Reboot. Verify with `./judder.sh probe`.
+     Other useful modes: hdmi_mode=32 (1080p25), 33 (1080p29.97 sf),
+     31 (1080p50), 34 (1080p59.94), 16 (1080p60).
   3. Run cameras/ATEM at 60p if your cameras support it — 60→60 is
      a clean 1:1 lock, no cadence at all.
 
