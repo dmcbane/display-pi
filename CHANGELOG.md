@@ -4,6 +4,23 @@ All notable changes to display-pi are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.7] - 2026-05-09
+
+### Fixed
+- **`judder.sh tree` HDMI mode-forcing recipe regressed back to legacy
+  firmware knobs.** Commit `23c653c` (2026-05-02) had switched
+  Diagnosis A Option 2 to the KMS-correct kernel `video=HDMI-A-1:1920x1080@30`
+  parameter in `cmdline.txt`. Commit `6aa7d4e` (2026-05-03), which
+  added the rtmp_stat / stream-key diagnostic infra, regenerated
+  large parts of `judder.sh` and inadvertently reverted the recipe
+  back to `hdmi_group=1` / `hdmi_mode=39` in `config.txt` — which
+  Bookworm KMS silently ignores. Operator at venue followed the
+  stale recipe, rebooted, and the 4K display kept upscaling.
+  Recipe restored; two regression tests added (`assert_contains`
+  for the cmdline.txt form, `assert_not_contains` for `hdmi_mode=39`)
+  so the recipe can't silently revert again. See
+  `docs/dev-journal/2026-05-09-hdmi-mode-regression.md`.
+
 ## [0.1.6] - 2026-05-09
 
 ### Added

@@ -384,6 +384,16 @@ assert_contains "judder.sh has stream-key subcommand" \
 assert_contains "Makefile has stream-key target (fast publisher check during event)" \
     "$REPO_ROOT/Makefile" "^stream-key:"
 
+# HDMI mode-forcing recipe must use the KMS-correct kernel video= parameter
+# in cmdline.txt — NOT the legacy firmware hdmi_group/hdmi_mode keys, which
+# the vc4-kms-v3d driver silently ignores under Bookworm. Regressed in
+# 6aa7d4e (rtmp_stat work) — operators followed the stale recipe and the
+# 4K display kept upscaling. See dev journal 2026-05-09 entry.
+assert_contains "judder.sh tree teaches the KMS cmdline.txt video= recipe" \
+    "$REPO_ROOT/diagnostics/judder.sh" "video=HDMI-A-1:1920x1080@30"
+assert_not_contains "judder.sh tree does not teach the legacy firmware hdmi_mode recipe (KMS ignores it)" \
+    "$REPO_ROOT/diagnostics/judder.sh" "hdmi_mode=39"
+
 # ============================================================================
 echo ""
 echo "=== Consistency Tests ==="
