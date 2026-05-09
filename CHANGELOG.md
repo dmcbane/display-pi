@@ -4,6 +4,19 @@ All notable changes to display-pi are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.6] - 2026-05-09
+
+### Added
+- **`judder.sh stream-key` subcommand** and matching `make stream-key`
+  target. Fast one-shot equivalent of the `ACTIVE PUBLISHERS` section
+  from `probe`: prints one line per active publisher with the key,
+  source IP, flashver, and an explicit `*** MISMATCH` tag when the
+  publisher's key differs from the one the player subscribes to.
+  Targeted at day-of-event triage when the kiosk is on splash and the
+  operator needs a sub-second read on whether to fix the publisher or
+  hot-edit `STREAM_URL` on the Pi. No deploy required (the diagnostic
+  endpoint shipped in 0.1.5).
+
 ## [0.1.5] - 2026-05-03
 
 ### Added

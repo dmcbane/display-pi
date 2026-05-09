@@ -379,6 +379,10 @@ assert_contains "judder.sh probe queries rtmp_stat endpoint" \
     "$REPO_ROOT/diagnostics/judder.sh" "127\\.0\\.0\\.1:8080/stat"
 assert_contains "judder.sh probe has ACTIVE PUBLISHERS section" \
     "$REPO_ROOT/diagnostics/judder.sh" "ACTIVE PUBLISHERS"
+assert_contains "judder.sh has stream-key subcommand" \
+    "$REPO_ROOT/diagnostics/judder.sh" "^cmd_stream_key()"
+assert_contains "Makefile has stream-key target (fast publisher check during event)" \
+    "$REPO_ROOT/Makefile" "^stream-key:"
 
 # ============================================================================
 echo ""

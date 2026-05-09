@@ -163,6 +163,12 @@ judder-probe:
 judder-monitor:
 	@ssh -t $(HOST) "sudo -u $(KIOSK_USER) /home/$(KIOSK_USER)/display-pi/diagnostics/judder.sh monitor"
 
+# Fast one-shot lookup of what stream key the publisher is currently using.
+# Useful during a live event when the kiosk is on splash and you need to know
+# whether to fix the publisher or hot-edit STREAM_URL on the Pi.
+stream-key:
+	@ssh $(HOST) "sudo -u $(KIOSK_USER) /home/$(KIOSK_USER)/display-pi/diagnostics/judder.sh stream-key"
+
 # --- Convenience ---
 
 ping:

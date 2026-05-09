@@ -431,6 +431,54 @@ cmd_restore() {
 }
 
 # ---------------------------------------------------------------------------
+# stream-key — fast one-shot lookup of what stream key the publisher is
+# currently using. For day-of-event triage when the kiosk is on splash and
+# you need to decide: fix the publisher or hot-edit STREAM_URL on the Pi.
+# Reads the same /stat endpoint as `probe`, but no other I/O.
+# ---------------------------------------------------------------------------
+cmd_stream_key() {
+    local stat_url="http://127.0.0.1:8080/stat"
+    local stat_xml
+    stat_xml=$(curl -fsS --max-time 3 "$stat_url" 2>&1) || {
+        echo "ERROR: stat endpoint not reachable at $stat_url" >&2
+        echo "       (re-run setup or 'make deploy' to install nginx.conf with rtmp_stat)" >&2
+        exit 1
+    }
+    if ! have python3; then
+        echo "ERROR: python3 required to parse stat XML" >&2
+        exit 1
+    fi
+    local expected_key="${STREAM_URL##*/}"
+    EXPECTED_KEY="$expected_key" STAT_XML="$stat_xml" python3 <<'PY'
+import os, sys, xml.etree.ElementTree as ET
+expected = os.environ['EXPECTED_KEY']
+try:
+    root = ET.fromstring(os.environ['STAT_XML'])
+except ET.ParseError as e:
+    print(f"ERROR: stat XML parse failed: {e}", file=sys.stderr)
+    raise SystemExit(2)
+streams = root.findall('.//application/live/stream')
+any_pub = False
+for s in streams:
+    name = (s.findtext('name') or '?').strip()
+    bw_in = (s.findtext('bw_in') or '0').strip()
+    for c in s.findall('client'):
+        if c.find('publishing') is None:
+            continue
+        any_pub = True
+        addr = (c.findtext('address') or '?').strip()
+        flash = (c.findtext('flashver') or '').strip()
+        if name == expected:
+            tag = '  <-- matches player'
+        else:
+            tag = f'  *** MISMATCH: player expects key={expected}'
+        print(f'key={name} pub={addr} flashver={flash!r} bw_in={bw_in}{tag}')
+if not any_pub:
+    print(f'(no active publishers; player expects key={expected})')
+PY
+}
+
+# ---------------------------------------------------------------------------
 # tree — interpretation guide. Read this at the venue with `less` or just run.
 # ---------------------------------------------------------------------------
 cmd_tree() {
@@ -551,12 +599,13 @@ EOF
 # Dispatch
 # ---------------------------------------------------------------------------
 case "${1:-}" in
-    probe)    shift; cmd_probe "$@" ;;
-    monitor)  shift; cmd_monitor "$@" ;;
-    tree)     cmd_tree ;;
-    list)     cmd_list ;;
-    variant)  shift; cmd_variant "$@" ;;
-    restore)  shift; cmd_restore "$@" ;;
+    probe)      shift; cmd_probe "$@" ;;
+    monitor)    shift; cmd_monitor "$@" ;;
+    stream-key) cmd_stream_key ;;
+    tree)       cmd_tree ;;
+    list)       cmd_list ;;
+    variant)    shift; cmd_variant "$@" ;;
+    restore)    shift; cmd_restore "$@" ;;
     ""|-h|--help|help)
         cat <<EOF
 judder.sh — on-Pi judder diagnostic toolkit
@@ -564,6 +613,7 @@ judder.sh — on-Pi judder diagnostic toolkit
 Usage:
   $0 probe              One-shot diagnostic dump to /tmp/judder-probe-*.log
   $0 monitor [secs]     Rolling sampler (default 10s interval)
+  $0 stream-key         Fast: print the stream key any active publisher is using
   $0 tree               Print the decision tree (read at the venue)
   $0 list               List available player variants
   $0 variant <name>     Swap player to a variant; Ctrl-C restores
