@@ -4,6 +4,50 @@ All notable changes to display-pi are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-05-09
+
+### Added
+- **`HDMI_MODE` is now a single source of truth.** `install/setup-kiosk.sh`
+  reads the `HDMI_MODE` env var (e.g. `1920x1080@30`) and writes
+  `video=HDMI-A-1:<MODE>` into `/boot/firmware/cmdline.txt` — the
+  KMS-correct HDMI mode-forcing knob. `setup-kiosk.sh` is idempotent on
+  re-runs: any prior `video=HDMI-A-1:*` token is stripped before the
+  new one is added, so changing modes is a clean replace.
+- **`dev/set-hdmi-mode.sh`** — new fix-script for an already-deployed
+  Pi. SSHes in, backs up `cmdline.txt`, applies the same idempotent
+  edit `setup-kiosk.sh` would, sanity-checks the file is exactly one
+  non-empty line (cmdline.txt format errors brick boot), and prompts
+  for reboot. Also warns if `config.txt` still contains inert legacy
+  `hdmi_*` keys (it does not auto-edit them — the operator may have
+  intentional non-kiosk config in there).
+- **`make hdmi-mode HDMI_MODE=…`** target wraps the script. Examples:
+  `make hdmi-mode HDMI_MODE=1920x1080@30`,
+  `make hdmi-mode HDMI_MODE=none` to clear forcing.
+- **`make setup` forwards `HDMI_MODE`** to the bootstrap, so a fresh
+  Pi can be brought up with the right mode in one command:
+  `make setup HDMI_MODE=1920x1080@30`.
+
+### Changed
+- **`judder.sh tree` Diagnosis A Option 2** now references the
+  canonical mechanism (`make hdmi-mode HDMI_MODE=…`) instead of
+  free-form recipe text. The manual `sudoedit cmdline.txt` recipe
+  is kept as a fallback. This collapses the previous duplication
+  between the tree text and the actual setup logic — no more
+  recipe-drift regressions like 6aa7d4e.
+
+### Operator notes
+- Any Pi already deployed before 0.2.0 should run
+  `make hdmi-mode HDMI_MODE=1920x1080@30` (or the appropriate mode
+  for its display) once. This is non-destructive and idempotent.
+- Inert `hdmi_group=`, `hdmi_mode=`, `hdmi_drive=`, `hdmi_enable_4kp60=`
+  lines in `config.txt` are not auto-removed; remove them manually
+  if they're confusing future readers. The repo-root `config.txt`
+  (a snapshot from a deployed Pi) has been corrected as a reference.
+
+### Versioning
+- Minor bump (0.1.7 → 0.2.0): new public API surface (`HDMI_MODE`
+  env var, `make hdmi-mode` target, `dev/set-hdmi-mode.sh` script).
+
 ## [0.1.7] - 2026-05-09
 
 ### Fixed

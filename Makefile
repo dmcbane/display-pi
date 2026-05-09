@@ -25,11 +25,16 @@ PLAYBACK_VOLUME          ?= 80
 SPLASH_TEXT              ?= Service will begin shortly
 RTMP_ALLOW_PUBLISH_CIDRS ?= 192.168.0.0/16 10.0.0.0/8
 
+# HDMI mode forced via the kernel video= parameter in cmdline.txt.
+# Empty/unset = let EDID pick. Use `make hdmi-mode HDMI_MODE=...` after
+# initial setup to change it without re-running full setup.
+HDMI_MODE                ?=
+
 export KIOSK_HOST  := $(HOST)
 export KIOSK_USER
 export STREAM_KEY
 
-.PHONY: help setup deploy sudoers test-stream test-stream-long ssh logs status diag judder-tree judder-probe judder-monitor test lint check ping reboot
+.PHONY: help setup deploy sudoers test-stream test-stream-long ssh logs status diag judder-tree judder-probe judder-monitor stream-key hdmi-mode test lint check ping reboot
 
 help:
 	@echo "display-pi — Church Worship Stream Kiosk"
@@ -55,6 +60,8 @@ help:
 	@echo "  judder-tree       Print judder decision tree (offline-friendly)"
 	@echo "  judder-probe      One-shot judder probe on Pi"
 	@echo "  judder-monitor    Rolling judder sampler on Pi (Ctrl-C to stop)"
+	@echo "  stream-key        Print stream key any active publisher is using"
+	@echo "  hdmi-mode         Set/clear HDMI mode (HDMI_MODE=1920x1080@30 or 'none')"
 	@echo "  ping              Ping the Pi"
 	@echo "  reboot            Reboot the Pi"
 	@echo ""
@@ -73,10 +80,14 @@ help:
 	@echo "      Text on the placeholder splash image (setup only)"
 	@echo "  RTMP_ALLOW_PUBLISH_CIDRS='$(RTMP_ALLOW_PUBLISH_CIDRS)'"
 	@echo "      Space-separated CIDRs allowed to push RTMP (setup only)"
+	@echo "  HDMI_MODE='$(HDMI_MODE)'"
+	@echo "      Force HDMI mode via cmdline.txt video= (e.g. 1920x1080@30)."
+	@echo "      Empty = let display pick. Used by 'setup' and 'hdmi-mode'."
 	@echo ""
 	@echo "Examples:"
 	@echo "  make deploy HOST=192.168.0.106"
 	@echo "  make setup STREAM_KEY=mykey RTMP_ALLOW_PUBLISH_CIDRS='192.168.1.42/32'"
+	@echo "  make hdmi-mode HDMI_MODE=1920x1080@30"
 
 # --- Bootstrap ---
 
@@ -101,6 +112,7 @@ setup:
 	    PLAYBACK_VOLUME='$(PLAYBACK_VOLUME)' \
 	    SPLASH_TEXT='$(SPLASH_TEXT)' \
 	    RTMP_ALLOW_PUBLISH_CIDRS='$(RTMP_ALLOW_PUBLISH_CIDRS)' \
+	    HDMI_MODE='$(HDMI_MODE)' \
 	    bash install/setup-kiosk.sh"
 
 # --- Deployment ---
@@ -168,6 +180,19 @@ judder-monitor:
 # whether to fix the publisher or hot-edit STREAM_URL on the Pi.
 stream-key:
 	@ssh $(HOST) "sudo -u $(KIOSK_USER) /home/$(KIOSK_USER)/display-pi/diagnostics/judder.sh stream-key"
+
+# Apply (or clear) an HDMI mode on an already-deployed Pi. KMS-correct
+# path: edits cmdline.txt, idempotent, prompts for reboot.
+#   make hdmi-mode HDMI_MODE=1920x1080@30
+#   make hdmi-mode HDMI_MODE=none           # clear forcing
+hdmi-mode:
+	@if [ -z "$(HDMI_MODE)" ]; then \
+	    echo "ERROR: HDMI_MODE not set. Examples:"; \
+	    echo "  make hdmi-mode HDMI_MODE=1920x1080@30"; \
+	    echo "  make hdmi-mode HDMI_MODE=none"; \
+	    exit 2; \
+	fi
+	@./dev/set-hdmi-mode.sh $(HOST) $(HDMI_MODE)
 
 # --- Convenience ---
 

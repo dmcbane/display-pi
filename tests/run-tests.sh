@@ -396,6 +396,48 @@ assert_not_contains "judder.sh tree does not teach the legacy firmware hdmi_mode
 
 # ============================================================================
 echo ""
+echo "=== HDMI mode single-source-of-truth Tests ==="
+# ============================================================================
+# Goal: HDMI mode lives in setup-kiosk.sh's cmdline.txt edits. dev/set-hdmi-mode.sh
+# applies it to an already-running Pi without re-running full setup. judder.sh
+# tree references the canonical mechanism instead of free-form recipe text that
+# can drift.
+
+# setup-kiosk.sh accepts HDMI_MODE env var
+assert_contains "setup-kiosk.sh accepts HDMI_MODE env var" \
+    "$REPO_ROOT/install/setup-kiosk.sh" "HDMI_MODE="
+assert_contains "setup-kiosk.sh adds video=HDMI-A-1: to cmdline.txt when HDMI_MODE set" \
+    "$REPO_ROOT/install/setup-kiosk.sh" 'video=HDMI-A-1:'
+# Idempotence: must strip any prior video=HDMI-A-1:* before adding
+assert_contains "setup-kiosk.sh strips prior video=HDMI-A-1: token (idempotent)" \
+    "$REPO_ROOT/install/setup-kiosk.sh" "video=HDMI-A-1:"
+
+# Standalone fix-script for an already-deployed Pi
+assert_file_exists "dev/set-hdmi-mode.sh exists" "$REPO_ROOT/dev/set-hdmi-mode.sh"
+assert_executable  "dev/set-hdmi-mode.sh is executable" "$REPO_ROOT/dev/set-hdmi-mode.sh"
+assert_contains "set-hdmi-mode.sh edits cmdline.txt (KMS-correct path)" \
+    "$REPO_ROOT/dev/set-hdmi-mode.sh" "cmdline.txt"
+# config.txt may be *read* (to warn about inert legacy keys) but must never
+# be written by this script — the KMS-correct path lives in cmdline.txt.
+assert_not_contains "set-hdmi-mode.sh does not write to config.txt (sudo tee/sed -i CONFIG)" \
+    "$REPO_ROOT/dev/set-hdmi-mode.sh" 'sudo tee.*\$CONFIG\|sed -i.*\$CONFIG\|> *\$CONFIG'
+assert_contains "set-hdmi-mode.sh writes video=HDMI-A-1 token" \
+    "$REPO_ROOT/dev/set-hdmi-mode.sh" "video=HDMI-A-1:"
+assert_contains "set-hdmi-mode.sh validates cmdline.txt is one non-empty line" \
+    "$REPO_ROOT/dev/set-hdmi-mode.sh" "grep -c"
+
+# Makefile exposes the mechanism
+assert_contains "Makefile has hdmi-mode target" \
+    "$REPO_ROOT/Makefile" "^hdmi-mode:"
+assert_contains "Makefile setup target forwards HDMI_MODE" \
+    "$REPO_ROOT/Makefile" "HDMI_MODE="
+
+# judder.sh tree points at the canonical mechanism (single source of truth)
+assert_contains "judder.sh tree references make hdmi-mode (canonical mechanism)" \
+    "$REPO_ROOT/diagnostics/judder.sh" "make hdmi-mode"
+
+# ============================================================================
+echo ""
 echo "=== Consistency Tests ==="
 # ============================================================================
 

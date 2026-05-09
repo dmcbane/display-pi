@@ -524,13 +524,23 @@ FIX OPTIONS (pick the most achievable):
   2. Force HDMI to a specific mode (also fixes 4K-display preferred
      mode pulling the Pi to 3840x2160@30 with 1080p source). Under
      Bookworm KMS the legacy firmware knobs (hdmi_group, hdmi_mode,
-     hdmi_drive) are IGNORED — use the kernel video= parameter in
-     cmdline.txt instead. On the Pi:
+     hdmi_drive) are IGNORED — the working knob is the kernel
+     video= parameter in cmdline.txt.
+
+     CANONICAL MECHANISM (single source of truth — use this):
+        # From your dev workstation:
+        make hdmi-mode HDMI_MODE=1920x1080@30
+        # The Pi will prompt-reboot. Verify with `make judder-probe`.
+
+     To clear forcing:
+        make hdmi-mode HDMI_MODE=none
+
+     Manual edit (only if `make hdmi-mode` is unavailable):
         sudoedit /boot/firmware/cmdline.txt
-     Append (one line, space-separated):
+        # append, on the same single line (space-separated):
         video=HDMI-A-1:1920x1080@30
-     Reboot. Verify with `./judder.sh probe` (kmsprint should show
-     the new mode under Crtc).
+        # then: sudo reboot
+
      Other useful values: 1920x1080@60, 1920x1080@50, 1280x720@60.
      Append D after the rate (e.g. @60D) for double-clock CEA modes
      if the display gets confused; usually not needed.

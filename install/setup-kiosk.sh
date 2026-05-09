@@ -57,6 +57,20 @@ DEPLOY_USER="${SUDO_USER:-$USER}"
 # mpv volume for the lobby/overflow display (0-100).
 PLAYBACK_VOLUME="${PLAYBACK_VOLUME:-80}"
 
+# HDMI mode to force at boot. Under Bookworm KMS the legacy firmware
+# knobs (hdmi_group, hdmi_mode, hdmi_drive) in config.txt are silently
+# ignored — the working knob is the kernel `video=` parameter in
+# cmdline.txt, and this script owns it.
+#
+# Format: "<width>x<height>@<refresh>", e.g. "1920x1080@30".
+# Special value "none" removes any prior video=HDMI-A-1: token.
+# Unset / empty leaves cmdline.txt untouched (lets EDID pick).
+#
+# Re-running setup with a different HDMI_MODE rewrites the token
+# idempotently. Use dev/set-hdmi-mode.sh (or `make hdmi-mode`) to
+# apply this to an already-deployed Pi without re-running full setup.
+HDMI_MODE="${HDMI_MODE:-}"
+
 # =============================================================================
 # Below this line you shouldn't need to edit.
 # =============================================================================
@@ -322,10 +336,33 @@ EOF
         tokens_to_add+=("vc4.force_hotplug=1")
     fi
 
+    # HDMI_MODE handling: idempotent strip-then-add. A prior video=HDMI-A-1:*
+    # token is always stripped first so re-runs replace cleanly.
+    local new="$current"
+    local hdmi_changed=0
+    if [[ -n "$HDMI_MODE" ]]; then
+        # Strip any existing video=HDMI-A-1:... token, normalize whitespace
+        local stripped
+        stripped=$(printf '%s' "$new" | sed -E 's/( |^)video=HDMI-A-1:[^ ]+//g; s/  +/ /g; s/^ //; s/ $//')
+        if [[ "$HDMI_MODE" == "none" ]]; then
+            new="$stripped"
+            log "Removing video=HDMI-A-1: from cmdline.txt (HDMI_MODE=none)"
+        else
+            new="${stripped} video=HDMI-A-1:${HDMI_MODE}"
+            log "Setting cmdline.txt video=HDMI-A-1:${HDMI_MODE}"
+        fi
+        hdmi_changed=1
+    fi
+
     if (( ${#tokens_to_add[@]} > 0 )); then
-        local new="${current} ${tokens_to_add[*]}"
-        echo "$new" | sudo tee "$cmdline_file" > /dev/null
+        new="${new} ${tokens_to_add[*]}"
         log "Added to cmdline.txt: ${tokens_to_add[*]}"
+    fi
+
+    if (( ${#tokens_to_add[@]} > 0 )) || (( hdmi_changed )); then
+        # Normalize whitespace before writing
+        new=$(echo "$new" | tr -s '[:space:]' ' ' | sed 's/^ //;s/ $//')
+        echo "$new" | sudo tee "$cmdline_file" > /dev/null
     else
         log "cmdline.txt already has required kernel params."
     fi
