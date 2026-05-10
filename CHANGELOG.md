@@ -4,6 +4,23 @@ All notable changes to display-pi are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] - 2026-05-10
+
+### Fixed
+- **`judder.sh monitor` drops counter crashed on a fresh/empty player log.**
+  The previous `drops=$(grep -ci 'drop' "$PLAYER_LOG" 2>/dev/null || echo 0)`
+  hit a GNU-grep quirk: `grep -c` on a no-match (incl. empty) file outputs
+  `0` AND exits 1, so the `|| echo 0` fallback fired *in addition to* grep's
+  own `0`, yielding a two-line `"0\n0"` value. The next line's arithmetic
+  (`$((drops - start_drops))`) then failed with
+  `syntax error in expression (error token is "0")` and aborted the monitor.
+  Reproduced reliably on the Pi (GNU grep 3.x); not on the laptop (ugrep)
+  — which is why the bug only showed up in venue use.
+  Fix: assign the substitution unconditionally and fall back to `0` only when
+  grep failed (missing file): `drops=$(grep -ci 'drop' "$PLAYER_LOG" 2>/dev/null) || drops=0`.
+  Static + behavioral regression tests added in `tests/run-tests.sh` covering
+  the three real input states (empty log, missing log, log with matches).
+
 ## [0.2.0] - 2026-05-09
 
 ### Added

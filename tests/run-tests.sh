@@ -394,6 +394,65 @@ assert_contains "judder.sh tree teaches the KMS cmdline.txt video= recipe" \
 assert_not_contains "judder.sh tree does not teach the legacy firmware hdmi_mode recipe (KMS ignores it)" \
     "$REPO_ROOT/diagnostics/judder.sh" "hdmi_mode=39"
 
+# judder.sh monitor: the drops counter must produce a single-line value.
+# GNU grep -c on an empty file outputs "0" AND exits 1, so `grep -c … || echo 0`
+# concatenates "0\n0" — the next arithmetic line (`$((drops - start_drops))`)
+# then chokes with "syntax error in expression". Captured in TODO.txt, 2026-05-09.
+assert_not_contains "judder.sh monitor drops counter avoids 'grep -c … || echo' (2-line bug)" \
+    "$REPO_ROOT/diagnostics/judder.sh" "grep -ci 'drop' \"\$PLAYER_LOG\" 2>/dev/null || echo"
+
+# Behavioral check: simulate the (fixed) drops snippet against the three real
+# inputs we see at the venue — empty log, missing log, log with matches — and
+# verify that arithmetic on the result works. Run as a sub-shell so the
+# assertion failure mode is "this script chokes on a real log".
+drops_behavior_test() {
+    local desc tmp
+    tmp=$(mktemp -d)
+    trap "rm -rf '$tmp'" RETURN
+
+    # Extract every line that assigns `drops=…` from the script and run it.
+    # The fixed snippet must yield a single-line numeric value for all three
+    # log states. We re-use the same shell logic the script uses.
+    local snippet
+    snippet=$(grep -E '^\s*drops=' "$REPO_ROOT/diagnostics/judder.sh" | head -2)
+    if [[ -z "$snippet" ]]; then
+        FAIL=$((FAIL + 1)); ERRORS+=("drops snippet not found in judder.sh")
+        printf "${RED}  FAIL${RESET} drops snippet not found in judder.sh\n"
+        return
+    fi
+
+    local empty="$tmp/empty.log"
+    local missing="$tmp/no-such.log"
+    local hits="$tmp/hits.log"
+    : > "$empty"
+    printf 'frame drop\nanother drop\n' > "$hits"
+
+    for case in empty:"$empty":0 missing:"$missing":0 hits:"$hits":2; do
+        local name="${case%%:*}"
+        local rest="${case#*:}"
+        local path="${rest%:*}"
+        local want="${rest##*:}"
+        local actual
+        actual=$(PLAYER_LOG="$path" bash -c "$snippet"$'\necho "$drops"')
+        local lines; lines=$(printf '%s' "$actual" | grep -c '' || true)
+        if [[ "$lines" -ne 1 ]]; then
+            FAIL=$((FAIL + 1))
+            ERRORS+=("drops counter ($name log): expected 1-line output, got $lines lines: $(printf %q "$actual")")
+            printf "${RED}  FAIL${RESET} drops counter (%s log) is single-line\n" "$name"
+            continue
+        fi
+        if ! (( actual - 0 == want )) 2>/dev/null; then
+            FAIL=$((FAIL + 1))
+            ERRORS+=("drops counter ($name log): expected $want, got '$actual'")
+            printf "${RED}  FAIL${RESET} drops counter (%s log) value: expected %s, got %s\n" "$name" "$want" "$actual"
+            continue
+        fi
+        PASS=$((PASS + 1))
+        printf "${GREEN}  PASS${RESET} drops counter (%s log) produces single-line numeric value\n" "$name"
+    done
+}
+drops_behavior_test
+
 # ============================================================================
 echo ""
 echo "=== HDMI mode single-source-of-truth Tests ==="

@@ -271,7 +271,10 @@ cmd_monitor() {
         arm=$(($(vcgencmd measure_clock arm 2>/dev/null | awk -F= '{print $2}') / 1000000))
 
         # Count "drop" mentions in player.log as a cheap drop counter.
-        drops=$(grep -ci 'drop' "$PLAYER_LOG" 2>/dev/null || echo 0)
+        # GNU grep -c on a no-match (empty) log outputs "0" AND exits 1; a naive
+        # `grep -c … || echo 0` therefore produces a 2-line "0\n0" that breaks
+        # the arithmetic below. Set drops only on grep failure (missing file).
+        drops=$(grep -ci 'drop' "$PLAYER_LOG" 2>/dev/null) || drops=0
         [[ -z "$start_drops" ]] && start_drops=$drops
         local delta=$((drops - start_drops))
 
