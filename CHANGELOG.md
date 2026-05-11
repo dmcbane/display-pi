@@ -4,6 +4,23 @@ All notable changes to display-pi are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.2] - 2026-05-10
+
+### Fixed
+- **`make hdmi-mode` failed with `sudo: a terminal is required to read the
+  password`.** `dev/set-hdmi-mode.sh` SSH-ed without `-t`, so the remote
+  `sudo cp/tee` (writing `/boot/firmware/cmdline.txt`) had no `/dev/tty` to
+  prompt against. Those writes are not in `install/kiosk-deploy.sudoers`
+  (and shouldn't be — they're rare, root-level, and worth a password gate),
+  so a real prompt is unavoidable. Two-part fix:
+    1. `ssh -t` to allocate the remote PTY.
+    2. Send the remote script as a base64-encoded command argument instead
+       of via `bash -s <<<…`. Otherwise the here-string consumes local
+       stdin (the user's keyboard) and the password prompt has no input
+       source even with the PTY present.
+  Regression tests in `tests/run-tests.sh`. See
+  `docs/dev-journal/2026-05-10-set-hdmi-mode-sudo-tty.md`.
+
 ## [0.2.1] - 2026-05-10
 
 ### Fixed

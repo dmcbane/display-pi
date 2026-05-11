@@ -107,7 +107,16 @@ fi
 '
 
 log "Connecting to $HOST..."
-ssh "$HOST" "bash -s -- '$MODE'" <<<"$REMOTE_SCRIPT"
+# /boot/firmware/cmdline.txt writes aren't in kiosk-deploy.sudoers (and
+# shouldn't be — they're rare, root-level, and only sane to gate on a
+# password), so the remote `sudo cp/tee` must be able to prompt. Two pieces:
+#   1. `ssh -t` allocates a remote PTY (sudo reads passwords from /dev/tty,
+#      not stdin), so the local terminal can talk to the prompt.
+#   2. Don't feed the script via stdin (`bash -s <<<…`); base64 it into the
+#      command argument instead. Otherwise the local stdin is closed once
+#      the here-string is sent and the user can't type the password.
+script_b64=$(printf '%s' "$REMOTE_SCRIPT" | base64 -w0)
+ssh -t "$HOST" "echo $script_b64 | base64 -d | bash -s -- '$MODE'"
 
 echo
 read -r -p "Reboot $HOST now to apply? [y/N] " ans

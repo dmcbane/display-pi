@@ -485,6 +485,19 @@ assert_contains "set-hdmi-mode.sh writes video=HDMI-A-1 token" \
 assert_contains "set-hdmi-mode.sh validates cmdline.txt is one non-empty line" \
     "$REPO_ROOT/dev/set-hdmi-mode.sh" "grep -c"
 
+# `/boot/firmware/cmdline.txt` writes aren't (and shouldn't be) in the deploy
+# NOPASSWD list, so the remote `sudo cp/tee` must be able to prompt for a
+# password. That requires:
+#   1. A PTY on the remote: `ssh -t` (or -tt).
+#   2. The remote stdin NOT consumed by the script payload (otherwise the
+#      password prompt has nowhere to read from). The script must be sent
+#      as a command argument, not via stdin-fed `bash -s <<<…`.
+# Captured 2026-05-10: `sudo: a terminal is required to read the password`.
+assert_contains "set-hdmi-mode.sh allocates a remote TTY for the sudo prompt" \
+    "$REPO_ROOT/dev/set-hdmi-mode.sh" "ssh -t"
+assert_not_contains "set-hdmi-mode.sh does not feed bash -s via stdin (blocks sudo prompt)" \
+    "$REPO_ROOT/dev/set-hdmi-mode.sh" 'ssh "\$HOST" "bash -s'
+
 # Makefile exposes the mechanism
 assert_contains "Makefile has hdmi-mode target" \
     "$REPO_ROOT/Makefile" "^hdmi-mode:"
