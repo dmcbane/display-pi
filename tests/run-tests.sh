@@ -510,6 +510,100 @@ assert_contains "judder.sh tree references make hdmi-mode (canonical mechanism)"
 
 # ============================================================================
 echo ""
+echo "=== set-pi-time Tests ==="
+# ============================================================================
+# `make set-time` pushes the laptop's clock to the Pi over SSH. Primary use
+# case: offline venue where systemd-timesyncd has no upstream and the Pi
+# (no RTC) has drifted. Optional OFFSET seconds to anticipate SSH round-trip
+# lag so the clock lands on the intended wall time.
+#
+# Same sudo-TTY constraints as set-hdmi-mode.sh: `date -s` is intentionally
+# NOT in install/kiosk-deploy.sudoers (rare + root-level → worth a password),
+# so the remote sudo must be able to prompt. That requires `ssh -t` AND the
+# remote script delivered as a command arg (not via `bash -s <<<…`, which
+# closes local stdin and blocks the password prompt).
+
+assert_file_exists "dev/set-pi-time.sh exists" "$REPO_ROOT/dev/set-pi-time.sh"
+assert_executable  "dev/set-pi-time.sh is executable" "$REPO_ROOT/dev/set-pi-time.sh"
+assert_contains "set-pi-time.sh has shebang" \
+    "$REPO_ROOT/dev/set-pi-time.sh" "^#!/bin/bash"
+assert_contains "set-pi-time.sh has set -euo pipefail" \
+    "$REPO_ROOT/dev/set-pi-time.sh" "^set -euo pipefail"
+
+# Epoch form: timezone-independent. Sending a formatted wall-clock string
+# would require the Pi's TZ to match the laptop's; @<epoch> avoids that.
+assert_contains "set-pi-time.sh sends epoch (date -s @<seconds>)" \
+    "$REPO_ROOT/dev/set-pi-time.sh" 'date -s @'
+
+# Numeric offset validation — reject non-numeric to avoid wedging cmdline.
+assert_contains "set-pi-time.sh rejects non-numeric OFFSET" \
+    "$REPO_ROOT/dev/set-pi-time.sh" "OFFSET must be numeric"
+
+# Sudo-prompt plumbing (see comment block above).
+assert_contains "set-pi-time.sh allocates a remote TTY for the sudo prompt" \
+    "$REPO_ROOT/dev/set-pi-time.sh" "ssh -t"
+assert_not_contains "set-pi-time.sh does not feed bash -s via stdin (blocks sudo prompt)" \
+    "$REPO_ROOT/dev/set-pi-time.sh" 'ssh "\$HOST" "bash -s'
+
+# Behavioral check: the offset arithmetic must produce a sane epoch value.
+# Run the (fixed) snippet against a known-now and verify offset is applied.
+offset_math_test() {
+    local snippet result
+    # Extract the line that computes TARGET from EPOCH+OFFSET.
+    snippet=$(grep -E '^\s*TARGET=' "$REPO_ROOT/dev/set-pi-time.sh" | head -1)
+    if [[ -z "$snippet" ]]; then
+        FAIL=$((FAIL + 1)); ERRORS+=("TARGET computation not found in set-pi-time.sh")
+        printf "${RED}  FAIL${RESET} TARGET computation snippet present\n"
+        return
+    fi
+    # Feed a fixed EPOCH and known OFFSET; expect EPOCH+OFFSET to within 1us.
+    result=$(EPOCH=1700000000.000000 OFFSET=1.5 bash -c "$snippet"$'\necho "$TARGET"')
+    if [[ "$result" != "1700000001.500000" ]]; then
+        FAIL=$((FAIL + 1))
+        ERRORS+=("offset arithmetic: expected 1700000001.500000, got '$result'")
+        printf "${RED}  FAIL${RESET} OFFSET=1.5 added to EPOCH (got '%s')\n" "$result"
+        return
+    fi
+    PASS=$((PASS + 1))
+    printf "${GREEN}  PASS${RESET} OFFSET arithmetic applies seconds correctly\n"
+}
+offset_math_test
+
+# Behavioral check: non-numeric OFFSET must exit non-zero before touching SSH.
+offset_reject_test() {
+    local out rc
+    out=$("$REPO_ROOT/dev/set-pi-time.sh" displaypi notanumber 2>&1) && rc=0 || rc=$?
+    if [[ "$rc" -eq 0 ]]; then
+        FAIL=$((FAIL + 1))
+        ERRORS+=("OFFSET=notanumber should exit non-zero; got rc=0 out='$out'")
+        printf "${RED}  FAIL${RESET} non-numeric OFFSET is rejected (exits non-zero)\n"
+        return
+    fi
+    if ! grep -q "OFFSET must be numeric" <<<"$out"; then
+        FAIL=$((FAIL + 1))
+        ERRORS+=("OFFSET=notanumber: expected error message; got '$out'")
+        printf "${RED}  FAIL${RESET} non-numeric OFFSET prints helpful error\n"
+        return
+    fi
+    PASS=$((PASS + 1))
+    printf "${GREEN}  PASS${RESET} non-numeric OFFSET is rejected with helpful error\n"
+}
+offset_reject_test
+
+# Makefile exposes the mechanism.
+assert_contains "Makefile has set-time target" \
+    "$REPO_ROOT/Makefile" "^set-time:"
+assert_contains "Makefile set-time target invokes dev/set-pi-time.sh" \
+    "$REPO_ROOT/Makefile" "set-pi-time.sh"
+assert_contains "Makefile declares TIME_OFFSET variable (default 0)" \
+    "$REPO_ROOT/Makefile" "^TIME_OFFSET"
+assert_contains "Makefile help mentions set-time" \
+    "$REPO_ROOT/Makefile" "set-time "
+assert_contains "Makefile .PHONY includes set-time" \
+    "$REPO_ROOT/Makefile" '\.PHONY:.* set-time'
+
+# ============================================================================
+echo ""
 echo "=== Consistency Tests ==="
 # ============================================================================
 

@@ -30,11 +30,15 @@ RTMP_ALLOW_PUBLISH_CIDRS ?= 192.168.0.0/16 10.0.0.0/8
 # initial setup to change it without re-running full setup.
 HDMI_MODE                ?=
 
+# Optional seconds-of-offset added to the laptop clock when pushing time
+# to the Pi (consumed by `make set-time`). Positive = anticipate SSH lag.
+TIME_OFFSET              ?= 0
+
 export KIOSK_HOST  := $(HOST)
 export KIOSK_USER
 export STREAM_KEY
 
-.PHONY: help setup deploy sudoers test-stream test-stream-long ssh logs status diag judder-tree judder-probe judder-monitor stream-key hdmi-mode test lint check ping reboot
+.PHONY: help setup deploy sudoers test-stream test-stream-long ssh logs status diag judder-tree judder-probe judder-monitor stream-key hdmi-mode set-time test lint check ping reboot
 
 help:
 	@echo "display-pi — Church Worship Stream Kiosk"
@@ -62,6 +66,7 @@ help:
 	@echo "  judder-monitor    Rolling judder sampler on Pi (Ctrl-C to stop)"
 	@echo "  stream-key        Print stream key any active publisher is using"
 	@echo "  hdmi-mode         Set/clear HDMI mode (HDMI_MODE=1920x1080@30 or 'none')"
+	@echo "  set-time          Push laptop clock to Pi (optional TIME_OFFSET=<sec>)"
 	@echo "  ping              Ping the Pi"
 	@echo "  reboot            Reboot the Pi"
 	@echo ""
@@ -83,11 +88,15 @@ help:
 	@echo "  HDMI_MODE='$(HDMI_MODE)'"
 	@echo "      Force HDMI mode via cmdline.txt video= (e.g. 1920x1080@30)."
 	@echo "      Empty = let display pick. Used by 'setup' and 'hdmi-mode'."
+	@echo "  TIME_OFFSET=$(TIME_OFFSET)"
+	@echo "      Seconds to add to the laptop clock when running 'set-time'."
+	@echo "      Use a small positive value (e.g. 1.0) to compensate for SSH lag."
 	@echo ""
 	@echo "Examples:"
 	@echo "  make deploy HOST=192.168.0.106"
 	@echo "  make setup STREAM_KEY=mykey RTMP_ALLOW_PUBLISH_CIDRS='192.168.1.42/32'"
 	@echo "  make hdmi-mode HDMI_MODE=1920x1080@30"
+	@echo "  make set-time TIME_OFFSET=1.0"
 
 # --- Bootstrap ---
 
@@ -193,6 +202,17 @@ hdmi-mode:
 	    exit 2; \
 	fi
 	@./dev/set-hdmi-mode.sh $(HOST) $(HDMI_MODE)
+
+# Push the laptop's clock to the Pi over SSH. Handy at offline venues
+# where the Pi (no RTC) has drifted and systemd-timesyncd has no upstream.
+# TIME_OFFSET (seconds) is added to the laptop clock to anticipate the SSH
+# round-trip lag so the Pi's wall clock lands on the intended time, not
+# OFFSET-seconds behind it. Requires the Pi's sudo password (intentional —
+# `date -s` is not in the deploy sudoers whitelist).
+#   make set-time
+#   make set-time TIME_OFFSET=1.0
+set-time:
+	@./dev/set-pi-time.sh $(HOST) $(TIME_OFFSET)
 
 # --- Convenience ---
 

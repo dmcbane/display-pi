@@ -4,6 +4,22 @@ All notable changes to display-pi are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-05-10
+
+### Added
+- **`make set-time` — push the laptop's clock to the Pi over SSH.** Primary
+  use case: offline venue where `systemd-timesyncd` has no upstream and the
+  Pi (no RTC battery) has drifted off after a power cycle. Sends the laptop's
+  Unix epoch (timezone-independent) so the Pi's wall clock reflects its own
+  configured TZ correctly. Optional `TIME_OFFSET=<sec>` (decimal seconds
+  accepted) adds to the laptop time to anticipate the SSH round-trip lag so
+  the Pi's clock lands on the intended wall time, not OFFSET-seconds behind
+  it. `date -s` is intentionally not in `install/kiosk-deploy.sudoers` (rare,
+  root-level, worth a password gate); script reuses the
+  `ssh -t` + command-arg recipe from `dev/set-hdmi-mode.sh` so the sudo
+  prompt has a working PTY. Static and behavioral regression tests in
+  `tests/run-tests.sh`.
+
 ## [0.2.2] - 2026-05-10
 
 ### Fixed
