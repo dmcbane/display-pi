@@ -216,6 +216,59 @@ check_watchdog() {
     fi
 }
 
+check_display_mode() {
+    local expected="${KIOSK_MODE:-}"
+    local output="${KIOSK_OUTPUT:-HDMI-A-1}"
+
+    if [[ -z "$expected" ]]; then
+        echo "OK|Display Mode|KIOSK_MODE unset (EDID picks)"
+        return
+    fi
+    if ! command -v wlr-randr >/dev/null 2>&1; then
+        echo "WARN|Display Mode|wlr-randr not installed"
+        return
+    fi
+
+    local wlr_out
+    if ! wlr_out=$(wlr-randr 2>/dev/null); then
+        echo "WARN|Display Mode|wlr-randr failed (no Wayland session?)"
+        return
+    fi
+
+    # Find the "(current)" mode line under the expected output block.
+    # wlr-randr indents mode rows; the output header is unindented.
+    local active_line
+    active_line=$(printf '%s\n' "$wlr_out" | awk -v out="$output" '
+        $0 ~ "^" out " " { in_blk = 1; next }
+        in_blk && /^\S/  { in_blk = 0 }
+        in_blk && (/\(current\)/ || /, current\)/) { print; exit }
+    ')
+    if [[ -z "$active_line" ]]; then
+        echo "WARN|Display Mode|no (current) mode found for $output"
+        return
+    fi
+
+    # Parse "1920x1080 px, 30.000000 Hz (current)" → WxH + integer Hz.
+    local actual_wh actual_hz_int
+    actual_wh=$(awk '{print $1}' <<<"$active_line")
+    actual_hz_int=$(awk '{
+        for (i=1; i<=NF; i++)
+            if ($i ~ /^[0-9.]+$/ && $(i+1) ~ /^Hz/) { printf("%.0f", $i); exit }
+    }' <<<"$active_line")
+
+    # Parse expected "WxH@RATE[Hz|D]" → WxH + integer Hz.
+    local exp_wh exp_hz exp_hz_int
+    exp_wh="${expected%@*}"
+    exp_hz="${expected#*@}"
+    exp_hz_int=$(awk -v h="$exp_hz" 'BEGIN{ printf("%.0f", h+0) }')
+
+    if [[ "$actual_wh" == "$exp_wh" && "$actual_hz_int" == "$exp_hz_int" ]]; then
+        echo "OK|Display Mode|${actual_wh}@${actual_hz_int}Hz"
+    else
+        echo "WARN|Display Mode|active ${actual_wh}@${actual_hz_int}Hz, expected ${exp_wh}@${exp_hz_int}Hz"
+    fi
+}
+
 check_audio() {
     if command -v wpctl &>/dev/null; then
         if wpctl status 2>/dev/null | grep -qi 'sink'; then
@@ -252,6 +305,7 @@ CHECKS=(
     check_uptime
     check_time_sync
     check_watchdog
+    check_display_mode
     check_audio
 )
 

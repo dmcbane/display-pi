@@ -96,6 +96,34 @@ echo "cmdline.txt updated:"
 echo "  $new"
 echo "Backup: $BACKUP"
 
+# Runtime mode-enforcement layer: /etc/default/kiosk is read by
+# kiosk.service (EnvironmentFile=-) and consumed by player.sh
+# (force_display_mode runs wlr-randr inside the cage session). Keeping
+# this in sync with cmdline.txt is the whole point of this script.
+ENV_FILE=/etc/default/kiosk
+MARKER_START="# === kiosk-setup BEGIN ==="
+MARKER_END="# === kiosk-setup END ==="
+
+if [ "$MODE" = "none" ]; then
+    KIOSK_MODE_VALUE=""
+else
+    KIOSK_MODE_VALUE="$MODE"
+fi
+
+if [ -f "$ENV_FILE" ]; then
+    sudo cp -a "$ENV_FILE" "${ENV_FILE}.bak-${STAMP}"
+    sudo sed -i "/${MARKER_START}/,/${MARKER_END}/d" "$ENV_FILE"
+fi
+sudo tee -a "$ENV_FILE" > /dev/null <<ENVEOF
+${MARKER_START}
+# Runtime HDMI mode (set by dev/set-hdmi-mode.sh on ${STAMP}).
+KIOSK_MODE=${KIOSK_MODE_VALUE}
+KIOSK_OUTPUT=HDMI-A-1
+${MARKER_END}
+ENVEOF
+sudo chmod 644 "$ENV_FILE"
+echo "$ENV_FILE updated (KIOSK_MODE=${KIOSK_MODE_VALUE})"
+
 # Inert-key warning on config.txt (do not auto-edit; the operator may have
 # intentional non-kiosk config in there).
 CONFIG=/boot/firmware/config.txt

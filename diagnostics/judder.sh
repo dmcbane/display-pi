@@ -527,26 +527,46 @@ FIX OPTIONS (pick the most achievable):
   2. Force HDMI to a specific mode (also fixes 4K-display preferred
      mode pulling the Pi to 3840x2160@30 with 1080p source). Under
      Bookworm KMS the legacy firmware knobs (hdmi_group, hdmi_mode,
-     hdmi_drive) are IGNORED — the working knob is the kernel
-     video= parameter in cmdline.txt.
+     hdmi_drive) are IGNORED. Two cooperating layers do the work:
+       - Kernel cmdline `video=HDMI-A-1:<mode>` in /boot/firmware/cmdline.txt
+         (boot-time hint to DRM/KMS — best-effort).
+       - Runtime `wlr-randr --output HDMI-A-1 --mode <mode>` invoked by
+         player.sh's force_display_mode() — authoritative inside cage.
+     Both read the same value: KIOSK_MODE in /etc/default/kiosk.
 
      CANONICAL MECHANISM (single source of truth — use this):
         # From your dev workstation:
         make hdmi-mode HDMI_MODE=1920x1080@30
+        # Updates both cmdline.txt AND /etc/default/kiosk on the Pi.
         # The Pi will prompt-reboot. Verify with `make judder-probe`.
 
      To clear forcing:
         make hdmi-mode HDMI_MODE=none
 
+     Verify the runtime layer landed:
+        ssh kiosk@<pi> 'cat /etc/default/kiosk'   # KIOSK_MODE=... line
+        ssh kiosk@<pi> 'wlr-randr'                # "(current)" mode
+
      Manual edit (only if `make hdmi-mode` is unavailable):
         sudoedit /boot/firmware/cmdline.txt
         # append, on the same single line (space-separated):
         video=HDMI-A-1:1920x1080@30
+        sudoedit /etc/default/kiosk
+        # add or replace inside the kiosk-setup marker block:
+        KIOSK_MODE=1920x1080@30
+        KIOSK_OUTPUT=HDMI-A-1
         # then: sudo reboot
 
      Other useful values: 1920x1080@60, 1920x1080@50, 1280x720@60.
      Append D after the rate (e.g. @60D) for double-clock CEA modes
      if the display gets confused; usually not needed.
+
+     LAST-RESORT (only if both layers above can't pin the mode — e.g.
+     panel ignores wlr-output-management): inject a custom EDID via
+     `drm.edid_firmware=HDMI-A-1:edid/1080p.bin` on the kernel cmdline,
+     with the blob installed at /lib/firmware/edid/1080p.bin. This
+     bypasses TV EDID entirely. Document any use of this in the
+     dev-journal so the next operator knows what's going on.
   3. Run cameras/ATEM at 60p if your cameras support it — 60→60 is
      a clean 1:1 lock, no cadence at all.
 

@@ -604,6 +604,149 @@ assert_contains "Makefile .PHONY includes set-time" \
 
 # ============================================================================
 echo ""
+echo "=== Runtime mode enforcement (wlr-randr layer) Tests ==="
+# ============================================================================
+# Goal: the kernel `video=HDMI-A-1:<mode>` cmdline parameter is a best-effort
+# hint that some panels' EDID override. A second authoritative layer runs
+# inside the cage session: `wlr-randr --output $KIOSK_OUTPUT --mode $KIOSK_MODE`
+# before mpv launches. The mode string lives in /etc/default/kiosk (sourced
+# by kiosk.service via EnvironmentFile=) so both setup-kiosk.sh and
+# dev/set-hdmi-mode.sh write the same source of truth.
+
+# kiosk.service pulls in /etc/default/kiosk
+assert_contains "kiosk.service sources /etc/default/kiosk (EnvironmentFile)" \
+    "$REPO_ROOT/install/kiosk.service" 'EnvironmentFile=-/etc/default/kiosk'
+
+# player.sh calls wlr-randr before mpv to force the active mode
+assert_contains "player.sh invokes wlr-randr to enforce KIOSK_MODE" \
+    "$REPO_ROOT/install/player.sh" "wlr-randr"
+assert_contains "player.sh references KIOSK_MODE env var" \
+    "$REPO_ROOT/install/player.sh" "KIOSK_MODE"
+assert_contains "player.sh references KIOSK_OUTPUT env var (default HDMI-A-1)" \
+    "$REPO_ROOT/install/player.sh" "KIOSK_OUTPUT"
+# Defensive: wlr-randr failures must not abort the player loop — better
+# to show the wrong size than not display at all.
+assert_contains "player.sh tolerates wlr-randr failure (no hard exit)" \
+    "$REPO_ROOT/install/player.sh" 'wlr-randr.*|| '
+
+# setup-kiosk.sh writes /etc/default/kiosk when HDMI_MODE is set
+assert_contains "setup-kiosk.sh writes /etc/default/kiosk" \
+    "$REPO_ROOT/install/setup-kiosk.sh" '/etc/default/kiosk'
+assert_contains "setup-kiosk.sh writes KIOSK_MODE= into /etc/default/kiosk" \
+    "$REPO_ROOT/install/setup-kiosk.sh" 'KIOSK_MODE='
+# Apt list must include wlr-randr (cage stack uses it for runtime mode setting)
+assert_contains "setup-kiosk.sh installs wlr-randr" \
+    "$REPO_ROOT/install/setup-kiosk.sh" 'wlr-randr'
+
+# set-hdmi-mode.sh writes both layers in one shot
+assert_contains "set-hdmi-mode.sh writes /etc/default/kiosk (runtime layer)" \
+    "$REPO_ROOT/dev/set-hdmi-mode.sh" '/etc/default/kiosk'
+assert_contains "set-hdmi-mode.sh writes KIOSK_MODE= token" \
+    "$REPO_ROOT/dev/set-hdmi-mode.sh" 'KIOSK_MODE='
+
+# render-status.sh has the new display-mode check
+assert_contains "render-status.sh defines check_display_mode" \
+    "$REPO_ROOT/diagnostics/render-status.sh" '^check_display_mode()'
+assert_contains "render-status.sh check_display_mode invokes wlr-randr" \
+    "$REPO_ROOT/diagnostics/render-status.sh" 'wlr-randr'
+assert_contains "render-status.sh CHECKS list includes check_display_mode" \
+    "$REPO_ROOT/diagnostics/render-status.sh" '    check_display_mode'
+
+# Behavioral test: stub wlr-randr to return a chosen active mode, run
+# check_display_mode in isolation, confirm it emits the right status row.
+display_mode_check_behavior_test() {
+    local tmpdir stub out status
+    tmpdir=$(mktemp -d)
+    # Stub: print canonical wlr-randr output where the "(current)" mode is
+    # 3840x2160 @ 30Hz — the bug we're guarding against.
+    cat >"$tmpdir/wlr-randr" <<'EOF'
+#!/bin/bash
+cat <<'OUT'
+HDMI-A-1 "ONN 100012587 (HDMI-A-1)"
+  Modes:
+    3840x2160 px, 30.000000 Hz (preferred, current)
+    1920x1080 px, 60.000000 Hz
+    1920x1080 px, 30.000000 Hz
+OUT
+EOF
+    chmod +x "$tmpdir/wlr-randr"
+
+    # Source render-status.sh up to (and including) check_display_mode without
+    # running the bottom-of-file render logic. Extract just the function body
+    # and call it with the stub on PATH.
+    if ! grep -q '^check_display_mode()' "$REPO_ROOT/diagnostics/render-status.sh"; then
+        FAIL=$((FAIL + 1))
+        ERRORS+=("check_display_mode not yet defined in render-status.sh")
+        printf "${RED}  FAIL${RESET} check_display_mode behavior test (function missing)\n"
+        rm -rf "$tmpdir"
+        return
+    fi
+
+    # Extract the function: from "check_display_mode()" through the matching
+    # closing brace at column 1. Bash functions in this repo are written one
+    # per top-level block, so a simple awk slice works.
+    local fn_src
+    fn_src=$(awk '
+        /^check_display_mode\(\)/ { in_fn = 1 }
+        in_fn { print }
+        in_fn && /^\}/ { exit }
+    ' "$REPO_ROOT/diagnostics/render-status.sh")
+
+    # Mismatch case: KIOSK_MODE asks for 1920x1080@30Hz, stub says 3840x2160 — WARN
+    out=$(PATH="$tmpdir:$PATH" KIOSK_MODE="1920x1080@30Hz" KIOSK_OUTPUT="HDMI-A-1" \
+        bash -c "$fn_src; check_display_mode" 2>/dev/null)
+    status="${out%%|*}"
+    if [[ "$status" != "WARN" && "$status" != "FAIL" ]]; then
+        FAIL=$((FAIL + 1))
+        ERRORS+=("check_display_mode mismatch case: expected WARN/FAIL, got '$status' (full='$out')")
+        printf "${RED}  FAIL${RESET} check_display_mode emits WARN when active mode differs from KIOSK_MODE (got '%s')\n" "$status"
+    else
+        PASS=$((PASS + 1))
+        printf "${GREEN}  PASS${RESET} check_display_mode emits %s when active mode differs from KIOSK_MODE\n" "$status"
+    fi
+
+    # Match case: stub already says 1920x1080@30 is current — flip it
+    cat >"$tmpdir/wlr-randr" <<'EOF'
+#!/bin/bash
+cat <<'OUT'
+HDMI-A-1 "ONN 100012587 (HDMI-A-1)"
+  Modes:
+    3840x2160 px, 30.000000 Hz (preferred)
+    1920x1080 px, 60.000000 Hz
+    1920x1080 px, 30.000000 Hz (current)
+OUT
+EOF
+    out=$(PATH="$tmpdir:$PATH" KIOSK_MODE="1920x1080@30Hz" KIOSK_OUTPUT="HDMI-A-1" \
+        bash -c "$fn_src; check_display_mode" 2>/dev/null)
+    status="${out%%|*}"
+    if [[ "$status" != "OK" ]]; then
+        FAIL=$((FAIL + 1))
+        ERRORS+=("check_display_mode match case: expected OK, got '$status' (full='$out')")
+        printf "${RED}  FAIL${RESET} check_display_mode emits OK when active mode matches KIOSK_MODE (got '%s')\n" "$status"
+    else
+        PASS=$((PASS + 1))
+        printf "${GREEN}  PASS${RESET} check_display_mode emits OK when active mode matches KIOSK_MODE\n"
+    fi
+
+    rm -rf "$tmpdir"
+}
+display_mode_check_behavior_test
+
+# Behavioral: setup-kiosk.sh /etc/default/kiosk writer should use a marker
+# block (consistent with how it brackets config.txt edits) so re-runs replace
+# cleanly. Loose check — just that BOTH the marker pattern and the
+# /etc/default/kiosk path appear in the same function/block.
+assert_contains "setup-kiosk.sh /etc/default/kiosk uses kiosk-setup marker block" \
+    "$REPO_ROOT/install/setup-kiosk.sh" 'kiosk-setup BEGIN'
+
+# judder.sh playbook documents the dual-layer mechanism
+assert_contains "judder.sh tree mentions /etc/default/kiosk (runtime mode source)" \
+    "$REPO_ROOT/diagnostics/judder.sh" '/etc/default/kiosk'
+assert_contains "judder.sh tree mentions wlr-randr (runtime enforcement)" \
+    "$REPO_ROOT/diagnostics/judder.sh" 'wlr-randr'
+
+# ============================================================================
+echo ""
 echo "=== Consistency Tests ==="
 # ============================================================================
 

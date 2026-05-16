@@ -4,6 +4,33 @@ All notable changes to display-pi are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-05-16
+
+### Added
+- **Runtime HDMI mode enforcement via `wlr-randr`.** The boot-time kernel
+  `video=HDMI-A-1:<mode>` parameter remains, but is now backed by a second
+  authoritative layer running inside the cage session. `install/player.sh`'s
+  new `force_display_mode()` reads `KIOSK_MODE`/`KIOSK_OUTPUT` from
+  `/etc/default/kiosk` (sourced by `install/kiosk.service` via
+  `EnvironmentFile=-`) and runs `wlr-randr --output … --mode …` before mpv
+  launches. Fixes panels (e.g. cheap 4K TVs that advertise 3840x2160@30 as
+  preferred) whose EDID overrides the kernel cmdline hint, causing 1080p
+  sources to play back at 30Hz 4K with visible judder. See
+  `docs/dev-journal/2026-05-16-judder-runtime-mode-enforcement.md`.
+- **`/etc/default/kiosk` as the single source of truth for runtime mode.**
+  `install/setup-kiosk.sh` (new `configure_runtime_mode()`) and
+  `dev/set-hdmi-mode.sh` write `KIOSK_MODE=<value>` inside a
+  `# === kiosk-setup BEGIN/END ===` marker block so re-runs replace cleanly.
+  Operator entry points (`make setup HDMI_MODE=…`, `make hdmi-mode HDMI_MODE=…`)
+  now update both `/boot/firmware/cmdline.txt` and `/etc/default/kiosk` in
+  one shot.
+- **`check_display_mode` row in `diagnostics/render-status.sh`.** Parses
+  `wlr-randr`'s "(current)" line, compares against `KIOSK_MODE`, and emits
+  `OK`/`WARN` so a mode mismatch surfaces on the kiosk status overlay
+  without needing a probe run.
+- Regression tests (static + behavioral wlr-randr stub) and operator
+  playbook updates in `diagnostics/judder.sh tree` (Diagnosis A Option 2).
+
 ## [0.3.0] - 2026-05-10
 
 ### Added

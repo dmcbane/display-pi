@@ -7,6 +7,9 @@ Wants=network-online.target
 Type=simple
 Environment=XDG_RUNTIME_DIR=/run/user/%U
 Environment=WLR_LIBINPUT_NO_DEVICES=1
+# Optional runtime tunables (KIOSK_MODE, KIOSK_OUTPUT) — leading dash makes
+# the file optional so absence does not block kiosk startup.
+EnvironmentFile=-/etc/default/kiosk
 ExecStart=/usr/bin/cage -s -- /home/kiosk/bin/player.sh
 Restart=always
 RestartSec=3

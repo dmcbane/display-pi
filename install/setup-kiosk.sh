@@ -378,6 +378,54 @@ EOF
     fi
 }
 
+# Runtime mode-enforcement layer: write /etc/default/kiosk so kiosk.service
+# (via EnvironmentFile=-) and player.sh (force_display_mode) can run
+# `wlr-randr --output $KIOSK_OUTPUT --mode $KIOSK_MODE` inside the cage
+# session. This is the authoritative layer; the kernel `video=` cmdline
+# parameter is only a boot-time hint.
+configure_runtime_mode() {
+    local env_file=/etc/default/kiosk
+    local marker_start="# === kiosk-setup BEGIN ==="
+    local marker_end="# === kiosk-setup END ==="
+
+    if [[ -z "$HDMI_MODE" ]]; then
+        log "HDMI_MODE unset; leaving $env_file alone (EDID picks mode)."
+        return
+    fi
+
+    log "Writing $env_file (KIOSK_MODE=${HDMI_MODE})..."
+    if [[ -f "$env_file" ]]; then
+        backup_once "$env_file"
+        # Strip any prior kiosk-setup block (idempotent re-runs).
+        sudo sed -i "/${marker_start}/,/${marker_end}/d" "$env_file"
+    fi
+
+    if [[ "$HDMI_MODE" == "none" ]]; then
+        log "HDMI_MODE=none — clearing KIOSK_MODE."
+        sudo tee -a "$env_file" > /dev/null <<EOF
+${marker_start}
+# Runtime HDMI mode enforcement (cleared by setup-kiosk.sh on ${STAMP}).
+# Leave KIOSK_MODE empty to let EDID pick the active mode.
+KIOSK_MODE=
+KIOSK_OUTPUT=HDMI-A-1
+${marker_end}
+EOF
+    else
+        sudo tee -a "$env_file" > /dev/null <<EOF
+${marker_start}
+# Runtime HDMI mode enforcement (written by setup-kiosk.sh on ${STAMP}).
+# Consumed by kiosk.service (EnvironmentFile=) and player.sh
+# (force_display_mode runs wlr-randr before mpv). Change with
+# \`make hdmi-mode HDMI_MODE=…\` so both this file and cmdline.txt
+# stay in sync.
+KIOSK_MODE=${HDMI_MODE}
+KIOSK_OUTPUT=HDMI-A-1
+${marker_end}
+EOF
+    fi
+    sudo chmod 644 "$env_file"
+}
+
 # =============================================================================
 # Step 6: Splash image
 # =============================================================================
@@ -688,6 +736,7 @@ main() {
     enable_seatd
     configure_nginx_rtmp
     configure_boot
+    configure_runtime_mode
     create_splash
     create_player_script
     install_kiosk_service
