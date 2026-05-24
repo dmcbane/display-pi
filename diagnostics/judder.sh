@@ -290,6 +290,8 @@ cmd_monitor() {
             "$now" "${temp}C" "$thr" "$arm" "$delta" "$mpv_cpu")
         echo "$line"
         echo "$line" >> "$out"
+	local probe_output=$(cmd_probe)
+	echo "$probe_output"
         sleep "$interval"
     done
 }
