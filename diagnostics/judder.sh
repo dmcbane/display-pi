@@ -256,7 +256,8 @@ PY
 # monitor — sample state every N seconds for trend-watching during a service.
 # ---------------------------------------------------------------------------
 cmd_monitor() {
-    local interval="${1:-10}"
+    local rprobe="${1}"
+    local interval="${2:-10}"
     local out="/tmp/judder-monitor-${TS}.log"
     echo "Monitoring every ${interval}s; Ctrl-C to stop. Output: $out"
     echo "time              temp   throttled  arm-mhz  drops-since-start  mpv-cpu%"
@@ -290,8 +291,12 @@ cmd_monitor() {
             "$now" "${temp}C" "$thr" "$arm" "$delta" "$mpv_cpu")
         echo "$line"
         echo "$line" >> "$out"
-	local probe_output=$(cmd_probe)
-	echo "$probe_output"
+	if [[ "$rprobe" == "PROBE" ]]; then
+	    local probe_output
+	    probe_output=$(cmd_probe)
+	    echo "$probe_output"
+	    echo "$probe_output" >> "$out"
+	fi
         sleep "$interval"
     done
 }
@@ -640,7 +645,8 @@ EOF
 # ---------------------------------------------------------------------------
 case "${1:-}" in
     probe)      shift; cmd_probe "$@" ;;
-    monitor)    shift; cmd_monitor "$@" ;;
+    monitor)    shift; cmd_monitor BRIEF "$@" ;;
+    rprobe)     shift; cmd_monitor PROBE "$@" ;;
     stream-key) cmd_stream_key ;;
     tree)       cmd_tree ;;
     list)       cmd_list ;;
@@ -653,6 +659,7 @@ judder.sh — on-Pi judder diagnostic toolkit
 Usage:
   $0 probe              One-shot diagnostic dump to /tmp/judder-probe-*.log
   $0 monitor [secs]     Rolling sampler (default 10s interval)
+  $0 rprobe [secs]      Rolling probe (default 10s interval)
   $0 stream-key         Fast: print the stream key any active publisher is using
   $0 tree               Print the decision tree (read at the venue)
   $0 list               List available player variants

@@ -4,6 +4,32 @@ All notable changes to display-pi are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-05-24
+
+### Added
+- **`judder.sh rprobe` subcommand.** Rolling probe — the heavy `cmd_probe`
+  dump is now opt-in via a separate subcommand instead of running
+  unconditionally inside `monitor`'s loop. `monitor` keeps the original
+  terse one-line-per-interval table; `rprobe` runs the same loop and
+  appends a full probe dump after each tabular line, to both stdout and
+  `/tmp/judder-monitor-<ts>.log`.
+
+### Fixed
+- **`judder.sh monitor` loop crashed silently on first iteration.** WIP
+  changes parsed `vcgencmd get_throttled` and `vcgencmd measure_clock arm`
+  at awk field `$3` (empty), so `arm=$((<empty>/1000000))` raised a bash
+  arithmetic syntax error and `set -u` killed the loop before any data
+  row was written — producing the header-only
+  `/tmp/judder-monitor-<ts>.log` files seen on 2026-05-24. Reverted to
+  field `$2` to match real `vcgencmd` output (`throttled=0xN`,
+  `frequency(N)=<hz>`). Added a behavioral regression test that drives
+  the parsing pipeline with shimmed device output.
+- **`judder.sh` monitor/rprobe dispatch dropped the interval argument.**
+  Dispatching as `cmd_monitor "BRIEF $@"` collapsed the mode flag and any
+  trailing interval into a single quoted positional, so `./judder.sh
+  monitor 5` always slept the 10s default. Now passes the flag as a
+  separate arg (`cmd_monitor BRIEF "$@"`).
+
 ## [0.4.0] - 2026-05-16
 
 ### Added

@@ -453,6 +453,56 @@ drops_behavior_test() {
 }
 drops_behavior_test
 
+# judder.sh rprobe: separate subcommand for the rolling probe (heavy variant of
+# monitor). The original `output full probe results when monitoring` commit
+# (705c935) ran cmd_probe unconditionally inside monitor's loop, making the
+# light-weight tabular view unusable. rprobe gates the heavy probe behind an
+# opt-in subcommand; monitor stays terse. Both must pass their flag as a
+# SEPARATE positional arg — quoting "BRIEF $@" / "PROBE $@" collapses the
+# flag and the interval into a single arg, silently dropping the interval.
+assert_contains "judder.sh has rprobe subcommand (rolling probe)" \
+    "$REPO_ROOT/diagnostics/judder.sh" "^    rprobe)"
+assert_contains "judder.sh monitor dispatch passes BRIEF as a separate arg" \
+    "$REPO_ROOT/diagnostics/judder.sh" "cmd_monitor BRIEF \"\\\$@\""
+assert_contains "judder.sh rprobe dispatch passes PROBE as a separate arg" \
+    "$REPO_ROOT/diagnostics/judder.sh" "cmd_monitor PROBE \"\\\$@\""
+assert_not_contains "judder.sh monitor dispatch does not collapse flag+args into one quoted string" \
+    "$REPO_ROOT/diagnostics/judder.sh" "cmd_monitor \"BRIEF \\\$@\""
+assert_not_contains "judder.sh rprobe dispatch does not collapse flag+args into one quoted string" \
+    "$REPO_ROOT/diagnostics/judder.sh" "cmd_monitor \"PROBE \\\$@\""
+assert_contains "judder.sh usage documents rprobe subcommand" \
+    "$REPO_ROOT/diagnostics/judder.sh" "rprobe \\[secs\\]"
+
+# vcgencmd parsing: `vcgencmd get_throttled` emits `throttled=0x0` and
+# `vcgencmd measure_clock arm` emits `frequency(N)=1800000000`. Splitting on
+# `=` puts the value in field $2. A regression to $3 yields an empty value,
+# and `arm=$((<empty>/1000000))` then fails as a bash arithmetic syntax
+# error — under `set -u` the loop dies on first iteration, leaving
+# /tmp/judder-monitor-*.log header-only. (Seen 2026-05-24.)
+assert_contains "judder.sh monitor parses vcgencmd get_throttled at field \$2" \
+    "$REPO_ROOT/diagnostics/judder.sh" "vcgencmd get_throttled 2>/dev/null | awk -F= '{print \\\$2}'"
+assert_contains "judder.sh monitor parses vcgencmd measure_clock arm at field \$2" \
+    "$REPO_ROOT/diagnostics/judder.sh" "vcgencmd measure_clock arm 2>/dev/null | awk -F= '{print \\\$2}'"
+
+# Behavioral check: drive cmd_monitor's parsing pipeline with shimmed vcgencmd
+# outputs matching the real device, confirm the values land in `thr` / `arm`
+# as the tabular line expects (0x0 and 1800), and that the arithmetic on `arm`
+# doesn't fault. This is the assertion that would have caught the $3 mistake.
+vcgencmd_parse_behavior_test() {
+    local thr arm
+    thr=$(printf 'throttled=0x0\n' | awk -F= '{print $2}')
+    arm=$(( $(printf 'frequency(48)=1800000000\n' | awk -F= '{print $2}') / 1000000 ))
+    if [[ "$thr" == "0x0" && "$arm" -eq 1800 ]]; then
+        PASS=$((PASS + 1))
+        printf "${GREEN}  PASS${RESET} vcgencmd parse: throttled=%s arm=%s (real-device format)\n" "$thr" "$arm"
+    else
+        FAIL=$((FAIL + 1))
+        ERRORS+=("vcgencmd parse: expected thr=0x0 arm=1800, got thr=$thr arm=$arm")
+        printf "${RED}  FAIL${RESET} vcgencmd parse: expected thr=0x0 arm=1800, got thr=%s arm=%s\n" "$thr" "$arm"
+    fi
+}
+vcgencmd_parse_behavior_test
+
 # ============================================================================
 echo ""
 echo "=== HDMI mode single-source-of-truth Tests ==="
