@@ -387,10 +387,18 @@ cmd_variant() {
     echo "=========================================================="
     echo " Variant '$name' is now LIVE on screen."
     echo " Watch for judder; compare with baseline."
-    echo " Press Ctrl-C here to restore the original player."
+    echo
+    echo " Press Enter (or Ctrl-C) here to restore the original player."
+    echo " If this session dies before you exit cleanly, run:"
+    echo "     ./judder.sh restore"
+    echo " from any new shell on the Pi to force-restore the symlink."
     echo "=========================================================="
-    # Sleep forever; trap handles restore.
-    while true; do sleep 60; done
+    # Block on a single line of input — restores via the EXIT trap on return.
+    # Replaced the previous busy-sleep loop, which left Ctrl-C as the only exit:
+    # undiscoverable for a first-time operator and unreliable over flaky SSH.
+    # `read -r` consumes whatever the operator types (Enter alone works), then
+    # we fall through and the trap fires.
+    read -r _ || true
 }
 
 cmd_restore() {

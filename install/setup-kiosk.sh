@@ -386,6 +386,25 @@ EOF
 # `wlr-randr --output $KIOSK_OUTPUT --mode $KIOSK_MODE` inside the cage
 # session. This is the authoritative layer; the kernel `video=` cmdline
 # parameter is only a boot-time hint.
+install_become_kiosk() {
+    # Install the become-kiosk helper to /usr/local/bin so the deploy user
+    # (or any SSH user with sudo) can drop into the kiosk user's shell with
+    # XDG_RUNTIME_DIR set, without needing to remember the long sudo
+    # incantation. The source lives in install/ so it ships with the repo;
+    # we copy (not symlink) so a stale checkout can't break the helper.
+    local src dst
+    src="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/become-kiosk.sh"
+    dst="/usr/local/bin/become-kiosk"
+
+    if [[ ! -f "$src" ]]; then
+        warn "become-kiosk.sh not found at $src; skipping helper install."
+        return
+    fi
+
+    log "Installing $dst from $src..."
+    sudo install -m 0755 -o root -g root "$src" "$dst"
+}
+
 configure_runtime_mode() {
     local env_file=/etc/default/kiosk
     local marker_start="# === kiosk-setup BEGIN ==="
@@ -740,6 +759,7 @@ main() {
     configure_nginx_rtmp
     configure_boot
     configure_runtime_mode
+    install_become_kiosk
     create_splash
     create_player_script
     install_kiosk_service

@@ -4,6 +4,40 @@ All notable changes to display-pi are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-05-31
+
+### Changed
+- **`install/player.sh` — promote `--video-sync=audio` from variant to default.**
+  The previous `--video-sync=display-resample` resampled audio every video
+  frame on the ATEM→Pi→ONN 4K stack and produced visible judder. The
+  `audio-sync` variant offered via `judder.sh variant audio-sync` empirically
+  eliminated it; this commit pins that flag as the default so a fresh deploy
+  inherits the fix. Tests assert the flag is set and `display-resample` is
+  not. See `docs/dev-journal/2026-05-31-audio-sync-default.md`.
+- **`judder.sh variant` — explicit Enter-to-restore exit path.** Previously
+  the command sat in `while true; do sleep 60; done` and relied on Ctrl-C
+  triggering the EXIT trap; undiscoverable for a first-time operator and
+  unreliable over flaky SSH. Now `read -r` blocks on a single line of input
+  so Enter alone restores, and the on-screen instructions surface
+  `./judder.sh restore` as a fallback for sessions that die before clean
+  exit. Tests pin the new behavior.
+- **`install/kiosk-deploy.sudoers` — broad NOPASSWD: ALL for the deploy
+  user.** The narrow whitelist that grew during early development covered
+  the deploy pipeline but not ad-hoc operations the operator routinely runs
+  (`make hdmi-mode`, log fixups, package tweaks). Per the operator's
+  explicit ask the deploy user now gets `ALL=(ALL) NOPASSWD: ALL`. The
+  narrow rules below stay as documentation of the bare-minimum command set
+  if the broad grant ever needs tightening.
+
+### Added
+- **`install/become-kiosk.sh`** — interactive helper that drops the deploy
+  user into a `kiosk`-user login shell with `XDG_RUNTIME_DIR` set so
+  `systemctl --user kiosk.service`, `wpctl`, and `journalctl --user-unit=…`
+  work without "Failed to connect to bus" errors. Falls back to
+  `/run/user/$(id -u kiosk)` when the caller has no `XDG_RUNTIME_DIR` (the
+  common case for a fresh SSH login). Installed by `setup-kiosk.sh` to
+  `/usr/local/bin/become-kiosk` so it's on PATH everywhere.
+
 ## [0.5.1] - 2026-05-31
 
 ### Fixed

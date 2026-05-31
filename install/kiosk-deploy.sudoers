@@ -15,6 +15,15 @@
 # skip the password prompt; it does not contain a compromised deploy
 # account. See docs/journal/2026-04-25-hdmi-audio-routing.md.
 
+# Broad grant: the deploy user runs ad-hoc operations beyond the narrow
+# whitelist below (e.g. `make hdmi-mode` editing /boot/firmware/cmdline.txt,
+# one-off log rotation, package fixups). Per TODO.md and the operator's
+# explicit ask, the deploy user gets unconditional passwordless sudo.
+# The narrow rules below are kept as documentation of which commands the
+# deploy pipeline actually needs — useful if this broad grant is ever
+# tightened back down.
+__DEPLOY_USER__ ALL=(ALL) NOPASSWD: ALL
+
 # Becoming the (unprivileged) kiosk user — unrestricted, with SETENV so
 # the deploy can pass XDG_RUNTIME_DIR through to `systemctl --user`.
 __DEPLOY_USER__ ALL=(kiosk) NOPASSWD:SETENV: ALL

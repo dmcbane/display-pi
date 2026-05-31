@@ -158,7 +158,7 @@ while true; do
         --demuxer-readahead-secs=2 \
         --audio-device=alsa/plughw:CARD=vc4hdmi0,DEV=0 \
         --volume="$VOLUME" \
-        --video-sync=display-resample \
+        --video-sync=audio \
         --hr-seek=no \
         --stream-lavf-o=fflags=+discardcorrupt \
         --stream-lavf-o=analyzeduration=5000000 \

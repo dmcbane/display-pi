@@ -1,0 +1,5 @@
+- [x] the audio-sync version solves the judder perfectly      (0.6.0)
+- [x] visudo rpi all nopasswd as part of the setup             (0.6.0)
+- [x] create script to switch to kiosk user (become-kiosk)     (0.6.0)
+- [x] if $XDG_RUNTIME_DIR is not defined, default to /run/user (0.6.0)
+- [x] define a way to exit judder.sh variant (Enter or restore) (0.6.0)

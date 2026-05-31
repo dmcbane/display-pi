@@ -98,6 +98,8 @@ assert_file_exists "dev/test-stream.sh exists" "$REPO_ROOT/dev/test-stream.sh"
 assert_executable  "dev/test-stream.sh is executable" "$REPO_ROOT/dev/test-stream.sh"
 assert_file_exists "dev/pi-shell.sh exists" "$REPO_ROOT/dev/pi-shell.sh"
 assert_executable  "dev/pi-shell.sh is executable" "$REPO_ROOT/dev/pi-shell.sh"
+assert_file_exists "install/become-kiosk.sh exists" "$REPO_ROOT/install/become-kiosk.sh"
+assert_executable  "install/become-kiosk.sh is executable" "$REPO_ROOT/install/become-kiosk.sh"
 assert_file_exists "Makefile exists" "$REPO_ROOT/Makefile"
 assert_file_exists "images/splash.png exists" "$REPO_ROOT/images/splash.png"
 
@@ -110,6 +112,15 @@ assert_contains "player.sh uses v4l2m2m-copy hwdec (Pi 4 native; avoids CUDA/Vul
     "$REPO_ROOT/install/player.sh" "hwdec=v4l2m2m-copy"
 assert_not_contains "player.sh does not use --hwdec=auto-safe (trips CUDA/Vulkan/VDPAU on Pi 4)" \
     "$REPO_ROOT/install/player.sh" "hwdec=auto-safe"
+# --video-sync=audio is the chosen sync strategy: empirically eliminates judder
+# on the ATEM→Pi→ONN 4K stack. display-resample re-resampled audio every frame
+# and produced the judder; --video-sync=audio (mpv's default, but pinned here
+# for clarity) lets video frames be duped/dropped instead. See dev-journal
+# 2026-05-31-audio-sync-default.md.
+assert_contains "player.sh uses --video-sync=audio (judder fix)" \
+    "$REPO_ROOT/install/player.sh" "video-sync=audio"
+assert_not_contains "player.sh does not use display-resample (caused judder)" \
+    "$REPO_ROOT/install/player.sh" "video-sync=display-resample"
 assert_contains "player.sh has shebang" "$REPO_ROOT/install/player.sh" "^#!/bin/bash"
 assert_contains "player.sh has set -u" "$REPO_ROOT/install/player.sh" "^set -u"
 assert_contains "player.sh references assess.sh" "$REPO_ROOT/install/player.sh" "assess.sh"
@@ -312,6 +323,15 @@ assert_contains "Makefile has sudoers target for one-time bootstrap" \
     "$REPO_ROOT/Makefile" "^sudoers:"
 assert_not_contains "deploy.sh does not use sudo -A (option 2 makes askpass unnecessary)" \
     "$REPO_ROOT/dev/deploy.sh" "sudo -A"
+# Per TODO.md: visudo rpi all nopasswd as part of the setup. The narrow
+# whitelist above is kept as documentation of which commands deploy needs,
+# but the broad ALL=(ALL) NOPASSWD: ALL grant is what the operator
+# explicitly asked for so the deploy user has unconditional passwordless
+# sudo from any SSH session (e.g. for ad-hoc `make hdmi-mode` runs that
+# touch /boot/firmware/cmdline.txt — a path NOT in the narrow list, see
+# dev journal 2026-05-10 set-hdmi-mode-sudo-tty).
+assert_contains "sudoers grants deploy user unconditional NOPASSWD: ALL" \
+    "$REPO_ROOT/install/kiosk-deploy.sudoers" "ALL=(ALL) NOPASSWD: ALL"
 
 # ============================================================================
 echo ""
@@ -381,8 +401,40 @@ assert_contains "judder.sh probe has ACTIVE PUBLISHERS section" \
     "$REPO_ROOT/diagnostics/judder.sh" "ACTIVE PUBLISHERS"
 assert_contains "judder.sh has stream-key subcommand" \
     "$REPO_ROOT/diagnostics/judder.sh" "^cmd_stream_key()"
+# become-kiosk.sh: a one-shot helper to drop into the kiosk user's shell with
+# XDG_RUNTIME_DIR set so `systemctl --user`, wpctl, and friends work. The
+# script must (a) fall back to /run/user/$(id -u kiosk) when XDG_RUNTIME_DIR
+# is unset (the common case when invoked from a plain SSH session), and
+# (b) exec sudo -u kiosk so signals propagate to the child shell.
+assert_contains "become-kiosk.sh execs sudo -u into the kiosk user" \
+    "$REPO_ROOT/install/become-kiosk.sh" "exec sudo -u"
+assert_contains "become-kiosk.sh defaults XDG_RUNTIME_DIR when unset" \
+    "$REPO_ROOT/install/become-kiosk.sh" 'XDG_RUNTIME_DIR:-/run/user/'
+assert_contains "become-kiosk.sh passes XDG_RUNTIME_DIR through to sudo" \
+    "$REPO_ROOT/install/become-kiosk.sh" "XDG_RUNTIME_DIR="
+assert_contains "become-kiosk.sh defaults target user to kiosk" \
+    "$REPO_ROOT/install/become-kiosk.sh" 'KIOSK_USER:-kiosk'
+# setup-kiosk.sh must install become-kiosk into /usr/local/bin so the
+# operator can run `become-kiosk` from any SSH session without needing
+# to know the repo path.
+assert_contains "setup-kiosk.sh installs become-kiosk into /usr/local/bin" \
+    "$REPO_ROOT/install/setup-kiosk.sh" "/usr/local/bin/become-kiosk"
 assert_contains "Makefile has stream-key target (fast publisher check during event)" \
     "$REPO_ROOT/Makefile" "^stream-key:"
+
+# cmd_variant must offer an explicit non-Ctrl-C exit path. The original
+# implementation used `while true; do sleep 60; done` and relied on Ctrl-C
+# triggering the EXIT trap — fine locally but unreliable over SSH and
+# undiscoverable for an operator at the venue. Accept Enter (read -r) and
+# surface `./judder.sh restore` in the on-screen instructions.
+assert_contains "judder.sh variant accepts Enter to restore (read -r, not sleep-forever)" \
+    "$REPO_ROOT/diagnostics/judder.sh" "read -r"
+assert_not_contains "judder.sh variant does not busy-sleep forever (Ctrl-C only)" \
+    "$REPO_ROOT/diagnostics/judder.sh" "while true; do sleep 60; done"
+assert_contains "judder.sh variant tells operator to press Enter to restore" \
+    "$REPO_ROOT/diagnostics/judder.sh" "Press Enter"
+assert_contains "judder.sh variant surfaces './judder.sh restore' as a fallback exit path" \
+    "$REPO_ROOT/diagnostics/judder.sh" "judder.sh restore"
 
 # HDMI mode-forcing recipe must use the KMS-correct kernel video= parameter
 # in cmdline.txt — NOT the legacy firmware hdmi_group/hdmi_mode keys, which
