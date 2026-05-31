@@ -4,6 +4,37 @@ All notable changes to display-pi are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.1] - 2026-05-31
+
+### Fixed
+- **`judder.sh` stat parser silently misreported "no active publishers".**
+  In probe blocks where ffprobe simultaneously read full live-stream
+  metadata, the embedded `ACTIVE PUBLISHERS (nginx-rtmp stat)` section
+  printed `app=live: no active streams` with no raw XML retained — an
+  operator had no way to distinguish "publisher genuinely transient" from
+  "parser silently misread the XML". The XPath `app.findall('./live/stream')`
+  was also brittle to namespaces and to bare-`<application>` XML shapes some
+  nginx-rtmp builds emit. (Captured in `logs/monitor-5.log` from 2026-05-23
+  and `docs/dev-journal/2026-05-31-stat-parser-blind-spot.md`.)
+
+### Added
+- **`diagnostics/parse_stat.py`** — shared XML parser (replaces two embedded
+  Python heredocs in `judder.sh`). Prefers `defusedxml.ElementTree` (XXE /
+  billion-laughs hardening), falls back to stdlib. Strips namespaces. Uses
+  `.//stream` for nesting tolerance. Surfaces `<nclients>` when a `<live>`
+  block has no `<stream>` so the operator can tell "publisher gone AND no
+  subscribers" from "publisher gone BUT subscribers still waiting". Exits
+  non-zero with stderr error on parse failure (no silent success).
+- **`judder.sh probe`** now writes the raw stat XML to
+  `/tmp/judder-stat-${TS}.xml` and prints the path. Future probe blocks
+  that claim "no publishers" can be audited against the saved bytes.
+- **`install/setup-kiosk.sh`** installs `python3-defusedxml` so the secure
+  parser is always available on a fresh Pi.
+- **Eight behavioral parser tests** in `tests/run-tests.sh` covering:
+  standard XML, bare-`<application>` XML, key-mismatch, publisher-gone
+  with subscribers waiting, subscribers-only, stream-key mode, malformed
+  XML (exit 2), and namespaced root.
+
 ## [0.5.0] - 2026-05-24
 
 ### Added

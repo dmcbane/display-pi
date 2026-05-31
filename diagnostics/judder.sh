@@ -85,61 +85,28 @@ cmd_probe() {
         # stream" while ss(8) shows an active TCP session on :1935 — exactly
         # the splash-stuck-while-stream-live failure mode. /stat lists every
         # active key and its publisher, so the mismatch is unambiguous.
+        #
+        # We always persist the raw XML to /tmp/judder-stat-${TS}.xml so a
+        # later audit can confirm whether "no active publishers" was actually
+        # true at the instant of the probe (2026-05-23 monitor-5: ffprobe saw
+        # a live stream while the parsed line said no streams — no way to
+        # tell which was right without the raw bytes).
         local stat_url="http://127.0.0.1:8080/stat"
+        local raw_xml="/tmp/judder-stat-${TS}.xml"
+        local parser="$(dirname "$(readlink -f "$0")")/parse_stat.py"
         if have curl; then
-            local stat_xml
-            stat_xml=$(curl -fsS --max-time 3 "$stat_url" 2>&1) || {
-                echo "(stat endpoint not reachable — older nginx.conf?  re-run setup or 'make deploy')"
-                stat_xml=""
-            }
-            if [[ -n "$stat_xml" ]]; then
-                # Per-stream summary: name (key), publisher addr, bytes in,
-                # bw, # subscribers. One line per active stream.
-                if have python3; then
-                    EXPECTED_URL="$STREAM_URL" STAT_XML="$stat_xml" python3 <<'PY' || echo "(python3 parse failed)"
-import os, xml.etree.ElementTree as ET
-expected_url = os.environ['EXPECTED_URL']
-expected_key = expected_url.rsplit('/', 1)[-1]
-data = os.environ['STAT_XML']
-try:
-    root = ET.fromstring(data)
-except ET.ParseError as e:
-    print(f"(stat XML parse failed: {e})")
-    raise SystemExit(0)
-apps = root.findall('.//application')
-if not apps:
-    print("no <application> blocks (rtmp_stat returned empty)")
-    raise SystemExit(0)
-any_pub = False
-for app in apps:
-    app_name = (app.findtext('name') or '?').strip()
-    streams = app.findall('./live/stream')
-    if not streams:
-        print(f"app={app_name}: no active streams")
-        continue
-    for s in streams:
-        name = (s.findtext('name') or '?').strip()
-        clients = s.findall('client')
-        publisher = next((c for c in clients if c.find('publishing') is not None), None)
-        n_subs = sum(1 for c in clients if c.find('publishing') is None)
-        bw_in = (s.findtext('bw_in') or '0').strip()
-        if publisher is not None:
-            any_pub = True
-            paddr = (publisher.findtext('address') or '?').strip()
-            pflash = (publisher.findtext('flashver') or '').strip()
-            if name == expected_key:
-                tag = '  <-- matches player'
-            else:
-                tag = f'  *** MISMATCH: player expects key={expected_key}'
-            print(f"app={app_name} key={name} pub={paddr} flashver={pflash!r} bw_in={bw_in} subs={n_subs}{tag}")
-        else:
-            print(f"app={app_name} key={name} (no publisher) subs={n_subs}")
-if not any_pub:
-    print("(no active publishers on any stream)")
-PY
+            if curl -fsS --max-time 3 -o "$raw_xml" "$stat_url"; then
+                echo "raw XML saved to: $raw_xml"
+                if have python3 && [[ -x "$parser" ]]; then
+                    "$parser" probe --expected-key "${STREAM_URL##*/}" <"$raw_xml" \
+                        || echo "(parse_stat.py exited non-zero; inspect $raw_xml)"
+                elif [[ ! -x "$parser" ]]; then
+                    echo "(parser not found at $parser; inspect $raw_xml)"
                 else
-                    echo "(python3 not available; raw XML at $stat_url)"
+                    echo "(python3 not available; inspect $raw_xml)"
                 fi
+            else
+                echo "(stat endpoint not reachable — older nginx.conf?  re-run setup or 'make deploy')"
             fi
         else
             echo "curl not installed; cannot query $stat_url"
@@ -448,44 +415,22 @@ cmd_restore() {
 # ---------------------------------------------------------------------------
 cmd_stream_key() {
     local stat_url="http://127.0.0.1:8080/stat"
-    local stat_xml
-    stat_xml=$(curl -fsS --max-time 3 "$stat_url" 2>&1) || {
-        echo "ERROR: stat endpoint not reachable at $stat_url" >&2
-        echo "       (re-run setup or 'make deploy' to install nginx.conf with rtmp_stat)" >&2
-        exit 1
-    }
-    if ! have python3; then
-        echo "ERROR: python3 required to parse stat XML" >&2
+    local parser="$(dirname "$(readlink -f "$0")")/parse_stat.py"
+    if ! have curl; then
+        echo "ERROR: curl required to query $stat_url" >&2
         exit 1
     fi
-    local expected_key="${STREAM_URL##*/}"
-    EXPECTED_KEY="$expected_key" STAT_XML="$stat_xml" python3 <<'PY'
-import os, sys, xml.etree.ElementTree as ET
-expected = os.environ['EXPECTED_KEY']
-try:
-    root = ET.fromstring(os.environ['STAT_XML'])
-except ET.ParseError as e:
-    print(f"ERROR: stat XML parse failed: {e}", file=sys.stderr)
-    raise SystemExit(2)
-streams = root.findall('.//application/live/stream')
-any_pub = False
-for s in streams:
-    name = (s.findtext('name') or '?').strip()
-    bw_in = (s.findtext('bw_in') or '0').strip()
-    for c in s.findall('client'):
-        if c.find('publishing') is None:
-            continue
-        any_pub = True
-        addr = (c.findtext('address') or '?').strip()
-        flash = (c.findtext('flashver') or '').strip()
-        if name == expected:
-            tag = '  <-- matches player'
-        else:
-            tag = f'  *** MISMATCH: player expects key={expected}'
-        print(f'key={name} pub={addr} flashver={flash!r} bw_in={bw_in}{tag}')
-if not any_pub:
-    print(f'(no active publishers; player expects key={expected})')
-PY
+    if ! have python3 || [[ ! -x "$parser" ]]; then
+        echo "ERROR: python3 + $parser required to parse stat XML" >&2
+        exit 1
+    fi
+    curl -fsS --max-time 3 "$stat_url" \
+        | "$parser" stream-key --expected-key "${STREAM_URL##*/}" \
+        || {
+            echo "ERROR: stat endpoint not reachable at $stat_url or parse failed" >&2
+            echo "       (re-run setup or 'make deploy' to install nginx.conf with rtmp_stat)" >&2
+            exit 1
+        }
 }
 
 # ---------------------------------------------------------------------------

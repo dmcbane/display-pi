@@ -505,6 +505,250 @@ vcgencmd_parse_behavior_test
 
 # ============================================================================
 echo ""
+echo "=== rtmp_stat parser Tests ==="
+# ============================================================================
+# The stat parser embedded in judder.sh (probe + stream-key) was demonstrably
+# silent about subscriber-only and publisher-just-disconnected states: the
+# 2026-05-23 monitor-5 log captured ffprobe reading h264/1920x1080 in the
+# same probe block where the stat parser printed "no active streams" — the
+# operator had no way to tell whether the publisher really was absent or the
+# parser had silently misread the XML. Fix: extract the parser into a shared
+# helper (diagnostics/parse_stat.py) and drive it from fixtures so future
+# regressions surface in CI, and always persist the raw XML so the operator
+# can verify the parsed output against the source.
+
+assert_file_exists "diagnostics/parse_stat.py exists" "$REPO_ROOT/diagnostics/parse_stat.py"
+assert_executable  "diagnostics/parse_stat.py is executable" "$REPO_ROOT/diagnostics/parse_stat.py"
+# Judder script should delegate to the helper (no embedded heredoc parsers).
+assert_contains "judder.sh delegates probe stat parsing to parse_stat.py" \
+    "$REPO_ROOT/diagnostics/judder.sh" "parse_stat.py"
+assert_not_contains "judder.sh has no embedded probe ET.fromstring (replaced by parse_stat.py)" \
+    "$REPO_ROOT/diagnostics/judder.sh" "ET.fromstring"
+# Probe should always save raw XML so an after-the-fact audit can confirm
+# whether "no active publishers" was true at that instant.
+assert_contains "judder.sh probe saves raw stat XML for post-hoc verification" \
+    "$REPO_ROOT/diagnostics/judder.sh" "judder-stat-"
+
+# Behavioral: run the helper against realistic nginx-rtmp stat XML fixtures.
+parse_stat_behavior_test() {
+    local helper="$REPO_ROOT/diagnostics/parse_stat.py"
+    if [[ ! -x "$helper" ]]; then
+        FAIL=$((FAIL + 1))
+        ERRORS+=("parse_stat behavioral tests skipped: $helper missing or not executable")
+        printf "${RED}  FAIL${RESET} parse_stat behavioral tests skipped (helper missing)\n"
+        return
+    fi
+    if ! command -v python3 >/dev/null 2>&1; then
+        FAIL=$((FAIL + 1))
+        ERRORS+=("parse_stat behavioral tests skipped: python3 unavailable")
+        printf "${RED}  FAIL${RESET} parse_stat behavioral tests skipped (python3 missing)\n"
+        return
+    fi
+
+    local tmp; tmp=$(mktemp -d); trap "rm -rf '$tmp'" RETURN
+
+    # Standard nginx-rtmp XML: <rtmp><server><application><name>live</name>
+    # <live><nclients>2</nclients><stream>...<client><publishing/>...</client>
+    # <client/></stream></live></application></server></rtmp>
+    local xml_full="$tmp/full.xml"
+    cat >"$xml_full" <<'XML'
+<?xml version="1.0" encoding="utf-8" ?>
+<rtmp>
+  <nginx_version>1.22.1</nginx_version>
+  <server>
+    <application>
+      <name>live</name>
+      <live>
+        <nclients>2</nclients>
+        <stream>
+          <name>church242</name>
+          <time>123456</time>
+          <bw_in>7031032</bw_in>
+          <client>
+            <id>1</id>
+            <address>192.168.0.108</address>
+            <time>120000</time>
+            <flashver>Blackmagic ATEM Mini Pro 9.5.1</flashver>
+            <publishing/>
+            <active/>
+          </client>
+          <client>
+            <id>2</id>
+            <address>127.0.0.1</address>
+            <time>5000</time>
+            <flashver>mpv</flashver>
+            <active/>
+          </client>
+        </stream>
+      </live>
+    </application>
+  </server>
+</rtmp>
+XML
+
+    # Case 1: standard XML, publisher matches player's expected key.
+    local out
+    out=$("$helper" probe --expected-key church242 <"$xml_full" 2>&1) || true
+    case "$out" in
+        *"key=church242"*"pub=192.168.0.108"*"matches player"*)
+            PASS=$((PASS + 1))
+            printf "${GREEN}  PASS${RESET} parse_stat probe finds publisher in standard XML\n" ;;
+        *)
+            FAIL=$((FAIL + 1))
+            ERRORS+=("parse_stat probe missed publisher in standard XML; got: $out")
+            printf "${RED}  FAIL${RESET} parse_stat probe missed publisher in standard XML\n" ;;
+    esac
+
+    # Case 2: same XML but no <server> wrapper — some nginx-rtmp builds emit
+    # <rtmp><application>… directly. .//application makes this work; a tight
+    # ./application would not.
+    local xml_no_server="$tmp/no_server.xml"
+    cat >"$xml_no_server" <<'XML'
+<?xml version="1.0" encoding="utf-8" ?>
+<rtmp>
+  <application>
+    <name>live</name>
+    <live>
+      <nclients>1</nclients>
+      <stream>
+        <name>church242</name>
+        <bw_in>6000000</bw_in>
+        <client>
+          <address>192.168.0.108</address>
+          <flashver>ATEM</flashver>
+          <publishing/>
+        </client>
+      </stream>
+    </live>
+  </application>
+</rtmp>
+XML
+    out=$("$helper" probe --expected-key church242 <"$xml_no_server" 2>&1) || true
+    case "$out" in
+        *"key=church242"*"pub=192.168.0.108"*) PASS=$((PASS + 1))
+            printf "${GREEN}  PASS${RESET} parse_stat probe handles XML without <server> wrapper\n" ;;
+        *) FAIL=$((FAIL + 1)); ERRORS+=("parse_stat probe missed publisher when <server> absent; got: $out")
+            printf "${RED}  FAIL${RESET} parse_stat probe missed publisher when <server> absent\n" ;;
+    esac
+
+    # Case 3: stream key MISMATCH — publisher pushing to a different key than
+    # the player expects. The 2026-05-03 splash-stuck failure mode.
+    local xml_mismatch="$tmp/mismatch.xml"
+    sed 's/church242/wrongkey/' "$xml_full" >"$xml_mismatch"
+    out=$("$helper" probe --expected-key church242 <"$xml_mismatch" 2>&1) || true
+    case "$out" in
+        *"MISMATCH"*"church242"*) PASS=$((PASS + 1))
+            printf "${GREEN}  PASS${RESET} parse_stat probe flags key MISMATCH against expected key\n" ;;
+        *) FAIL=$((FAIL + 1)); ERRORS+=("parse_stat probe did not flag mismatch; got: $out")
+            printf "${RED}  FAIL${RESET} parse_stat probe did not flag key MISMATCH\n" ;;
+    esac
+
+    # Case 4: publisher just disconnected — <live> remains briefly with
+    # nclients>0 (subscribers waiting) but no <stream>. Parser must say so
+    # explicitly, citing nclients, not just "no active streams".
+    local xml_no_stream="$tmp/no_stream.xml"
+    cat >"$xml_no_stream" <<'XML'
+<?xml version="1.0" encoding="utf-8" ?>
+<rtmp>
+  <server>
+    <application>
+      <name>live</name>
+      <live>
+        <nclients>1</nclients>
+      </live>
+    </application>
+  </server>
+</rtmp>
+XML
+    out=$("$helper" probe --expected-key church242 <"$xml_no_stream" 2>&1) || true
+    case "$out" in
+        *"app=live"*"no publisher"*"nclients=1"*) PASS=$((PASS + 1))
+            printf "${GREEN}  PASS${RESET} parse_stat probe reports nclients when no stream is published\n" ;;
+        *) FAIL=$((FAIL + 1)); ERRORS+=("parse_stat probe did not surface nclients on empty <live>; got: $out")
+            printf "${RED}  FAIL${RESET} parse_stat probe did not surface nclients on empty <live>\n" ;;
+    esac
+
+    # Case 5: subscribers only (stream entry exists with non-publisher clients).
+    local xml_subs_only="$tmp/subs_only.xml"
+    cat >"$xml_subs_only" <<'XML'
+<?xml version="1.0" encoding="utf-8" ?>
+<rtmp><server><application>
+  <name>live</name>
+  <live>
+    <nclients>1</nclients>
+    <stream>
+      <name>church242</name>
+      <bw_in>0</bw_in>
+      <client><address>127.0.0.1</address></client>
+    </stream>
+  </live>
+</application></server></rtmp>
+XML
+    out=$("$helper" probe --expected-key church242 <"$xml_subs_only" 2>&1) || true
+    case "$out" in
+        *"key=church242"*"no publisher"*) PASS=$((PASS + 1))
+            printf "${GREEN}  PASS${RESET} parse_stat probe distinguishes subscribers-only from no-stream\n" ;;
+        *) FAIL=$((FAIL + 1)); ERRORS+=("parse_stat probe missed subscribers-only state; got: $out")
+            printf "${RED}  FAIL${RESET} parse_stat probe missed subscribers-only state\n" ;;
+    esac
+
+    # Case 6: stream-key mode emits the publisher's key and address.
+    out=$("$helper" stream-key --expected-key church242 <"$xml_full" 2>&1) || true
+    case "$out" in
+        *"key=church242"*"pub=192.168.0.108"*) PASS=$((PASS + 1))
+            printf "${GREEN}  PASS${RESET} parse_stat stream-key emits key+pub for standard XML\n" ;;
+        *) FAIL=$((FAIL + 1)); ERRORS+=("parse_stat stream-key missed publisher; got: $out")
+            printf "${RED}  FAIL${RESET} parse_stat stream-key missed publisher\n" ;;
+    esac
+
+    # Case 7: invalid XML must produce a non-zero exit and an error on
+    # stderr — never silently succeed (CLAUDE.md: NEVER SWALLOW ERRORS).
+    local rc=0
+    out=$(printf 'not xml' | "$helper" probe --expected-key church242 2>&1) || rc=$?
+    if [[ $rc -ne 0 && "$out" == *"parse"* ]]; then
+        PASS=$((PASS + 1))
+        printf "${GREEN}  PASS${RESET} parse_stat surfaces XML parse error with non-zero exit\n"
+    else
+        FAIL=$((FAIL + 1))
+        ERRORS+=("parse_stat swallowed XML parse error: rc=$rc out='$out'")
+        printf "${RED}  FAIL${RESET} parse_stat swallowed XML parse error (rc=%s)\n" "$rc"
+    fi
+
+    # Case 8: XML with default namespace — older nginx-rtmp forks occasionally
+    # emit one. The helper must strip namespaces so the parse still finds
+    # <application> / <stream>.
+    local xml_ns="$tmp/ns.xml"
+    cat >"$xml_ns" <<'XML'
+<?xml version="1.0" encoding="utf-8" ?>
+<rtmp xmlns="http://nginx.org/rtmp">
+  <application>
+    <name>live</name>
+    <live>
+      <nclients>1</nclients>
+      <stream>
+        <name>church242</name>
+        <bw_in>1</bw_in>
+        <client>
+          <address>192.168.0.108</address>
+          <publishing/>
+        </client>
+      </stream>
+    </live>
+  </application>
+</rtmp>
+XML
+    out=$("$helper" probe --expected-key church242 <"$xml_ns" 2>&1) || true
+    case "$out" in
+        *"key=church242"*"pub=192.168.0.108"*) PASS=$((PASS + 1))
+            printf "${GREEN}  PASS${RESET} parse_stat probe strips XML namespaces\n" ;;
+        *) FAIL=$((FAIL + 1)); ERRORS+=("parse_stat probe failed on namespaced XML; got: $out")
+            printf "${RED}  FAIL${RESET} parse_stat probe failed on namespaced XML\n" ;;
+    esac
+}
+parse_stat_behavior_test
+
+# ============================================================================
+echo ""
 echo "=== HDMI mode single-source-of-truth Tests ==="
 # ============================================================================
 # Goal: HDMI mode lives in setup-kiosk.sh's cmdline.txt edits. dev/set-hdmi-mode.sh

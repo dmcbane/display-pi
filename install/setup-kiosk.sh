@@ -135,6 +135,8 @@ install_packages() {
     #   libdrm-tests              — provides kmsprint (KMS connector dump)
     #   libraspberrypi-bin        — provides vcgencmd (thermal/throttle readout)
     #   alsa-utils                — provides aplay (audio fallback probe)
+    #   python3-defusedxml        — diagnostics/parse_stat.py prefers it over
+    #                               stdlib ET for XXE/billion-laughs hardening
     sudo apt-get install -y --no-install-recommends \
         cage mpv seatd \
         libnginx-mod-rtmp nginx \
@@ -143,7 +145,8 @@ install_packages() {
         ca-certificates curl logrotate cron \
         pipewire pipewire-audio wireplumber \
         netcat-openbsd \
-        wlr-randr libdrm-tests libraspberrypi-bin alsa-utils
+        wlr-randr libdrm-tests libraspberrypi-bin alsa-utils \
+        python3-defusedxml
     log "Packages installed."
 }
 
