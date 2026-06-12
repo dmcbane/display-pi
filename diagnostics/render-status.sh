@@ -138,7 +138,7 @@ check_rtmp_stream() {
     if timeout 5 ffprobe -v quiet \
         -show_entries stream=codec_type \
         -of default=nw=1:nk=1 \
-        "rtmp://127.0.0.1/live/church242" 2>/dev/null | grep -q .; then
+        "rtmp://127.0.0.1/live/restoration" 2>/dev/null | grep -q .; then
         echo "OK|RTMP Stream|Live"
     else
         echo "WARN|RTMP Stream|No active stream"

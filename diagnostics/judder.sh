@@ -1,4 +1,4 @@
-#!/bin/bash
+bin/bash
 #
 # judder.sh — On-Pi toolkit for diagnosing live-stream judder.
 #
@@ -17,7 +17,7 @@
 
 set -u
 
-STREAM_URL="${STREAM_URL:-rtmp://127.0.0.1/live/church242}"
+STREAM_URL="${STREAM_URL:-rtmp://127.0.0.1/live/restoration}"
 KIOSK_USER="${KIOSK_USER:-kiosk}"
 PLAYER_LINK="/home/${KIOSK_USER}/bin/player.sh"
 PLAYER_TARGET="$(readlink -f "$PLAYER_LINK" 2>/dev/null || echo "")"
@@ -80,7 +80,7 @@ cmd_probe() {
         fi
 
         section "ACTIVE PUBLISHERS (nginx-rtmp stat)"
-        # The player hardcodes one stream key (church242). If a publisher is
+        # The player hardcodes one stream key (restoration). If a publisher is
         # connected to a *different* key, ffprobe above will say "No such
         # stream" while ss(8) shows an active TCP session on :1935 — exactly
         # the splash-stuck-while-stream-live failure mode. /stat lists every
@@ -574,7 +574,7 @@ SYMPTOM: nothing else explains it; mpv reports clean playback in
 TEST: temporarily try mpv directly on a TTY (no cage). This is
       manual — stop kiosk.service, switch to a TTY (Ctrl-Alt-F2),
       log in as kiosk, then:
-        mpv --vo=drm --hwdec=auto-safe rtmp://127.0.0.1/live/church242
+        mpv --vo=drm --hwdec=auto-safe rtmp://127.0.0.1/live/restoration
       If smooth → cage adds latency/jitter. Long-term fix would be
       moving mpv to drm directly without cage.
 

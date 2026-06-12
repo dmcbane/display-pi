@@ -17,7 +17,7 @@
 
 HOST       ?= displaypi
 KIOSK_USER ?= kiosk
-STREAM_KEY ?= church242
+STREAM_KEY ?= restoration
 
 # Setup-only defaults (consumed by `make setup`). Match install/setup-kiosk.sh.
 RTMP_APP                 ?= live

@@ -254,7 +254,7 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `diagnostics/judder.sh probe` that parses it. When a publisher is
   connected to nginx but the player is stuck on splash, the probe now
   prints exactly which stream key is live and flags it
-  (`*** MISMATCH: player expects key=church242`). Closes the diagnostic
+  (`*** MISMATCH: player expects key=restoration`). Closes the diagnostic
   gap that left the 2026-05-02 venue probe ambiguous (ESTAB on :1935 +
   `ffprobe: No such stream` — but no way to see which key was actually
   in use). See `docs/dev-journal/2026-05-03-stream-key-mismatch.md`.

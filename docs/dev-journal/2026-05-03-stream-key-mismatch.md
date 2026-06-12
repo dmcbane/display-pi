@@ -20,11 +20,11 @@ ESTAB 0 0  192.168.0.106:1935  192.168.0.108:59723
 
 ```
 [rtmp @ ...] Server error: No such stream
-rtmp://127.0.0.1/live/church242: Operation not permitted
+rtmp://127.0.0.1/live/restoration Operation not permitted
 ```
 
 So the publisher's TCP session is alive, but the named stream the
-player asks for (`live/church242`) does not exist on the server.
+player asks for (`live/restoration`) does not exist on the server.
 
 ## Root cause
 
@@ -32,7 +32,7 @@ nginx-rtmp's `application live { ... }` accepts *any* stream key under
 that app — there is no key-level whitelist. The publisher had simply
 configured a different key (e.g. `church2`, no trailing `42`), so it
 was publishing to `live/church2` while the player was subscribing to
-`live/church242`. The server happily kept both endpoints; they just
+`live/restoration`. The server happily kept both endpoints; they just
 never met.
 
 The probe couldn't distinguish "publisher connected to wrong key" from
@@ -55,7 +55,7 @@ doesn't exist):
    active stream:
 
    ```
-   app=live key=church2 pub=192.168.0.108 flashver='FMLE/3.0' bw_in=5000000 subs=0  *** MISMATCH: player expects key=church242
+   app=live key=church2 pub=192.168.0.108 flashver='FMLE/3.0' bw_in=5000000 subs=0  *** MISMATCH: player expects key=restoration
    ```
 
    The `*** MISMATCH` tag fires whenever an active key differs from the
@@ -66,7 +66,7 @@ doesn't exist):
 
 When the probe shows a `MISMATCH`, either:
 
-- Reconfigure the publisher (ATEM, OBS, etc.) to use `church242` as the
+- Reconfigure the publisher (ATEM, OBS, etc.) to use `restoration` as the
   stream key.
 - Or, if the publisher's key is the source of truth for some reason,
   edit `install/player.sh` to match and `make deploy`.

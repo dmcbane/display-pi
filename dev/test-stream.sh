@@ -12,7 +12,7 @@ set -euo pipefail
 
 HOST="${1:-${KIOSK_HOST:-displaypi}}"
 DURATION="${2:-60}"
-STREAM_KEY="${STREAM_KEY:-church242}"
+STREAM_KEY="${STREAM_KEY:-restoration}"
 RTMP_APP="${RTMP_APP:-live}"
 
 # Resolve via SSH config if possible (handles cases where the short name

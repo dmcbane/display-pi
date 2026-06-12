@@ -41,7 +41,7 @@ Have an answer for these before you start:
 - **RTMP allow-list** — the CIDR(s) permitted to push RTMP. Default is
   `192.168.0.0/16` and `10.0.0.0/8`; tighten to the ATEM's exact IP for
   better hygiene once it's stable.
-- **Stream key** — defaults to `church242`. The ATEM and the kiosk
+- **Stream key** — defaults to `restoration`. The ATEM and the kiosk
   must agree on this.
 
 ## Installation procedure
@@ -117,7 +117,7 @@ cd ~/display-pi
 ```
 
 Edit configuration if you need to (the defaults in `install/setup-kiosk.sh`
-are sane for a 192.168.x.x LAN with a `church242` stream key — read the
+are sane for a 192.168.x.x LAN with a `restoration` stream key — read the
 top of the file and adjust if not):
 
 ```sh
@@ -181,7 +181,7 @@ The ATEM Mini Pro is what we use. In ATEM Software Control:
    [Streaming.xml generator](https://www.blackmagicdesign.com/) or by
    editing the Streaming.xml file directly.
 2. **Server URL:** `rtmp://<pi-ip>/live` (e.g. `rtmp://192.168.0.106/live`)
-3. **Stream key:** `church242` (or whatever you set in
+3. **Stream key:** `restoration` (or whatever you set in
    `install/setup-kiosk.sh`).
 4. Press the LIVE button on the ATEM. The Pi should switch from the
    splash to your live feed within a few seconds.

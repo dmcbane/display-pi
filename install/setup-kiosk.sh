@@ -36,7 +36,7 @@ else
 fi
 
 # The stream key the ATEM will push with. Must match ATEM's config.
-STREAM_KEY="${STREAM_KEY:-church242}"
+STREAM_KEY="${STREAM_KEY:-restoration}"
 
 # The RTMP application name (the path component before the key).
 RTMP_APP="${RTMP_APP:-live}"

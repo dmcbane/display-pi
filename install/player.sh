@@ -14,7 +14,7 @@ set -u
 LOG=/tmp/player.log
 exec >> "$LOG" 2>&1
 
-STREAM_URL="rtmp://127.0.0.1/live/church242"
+STREAM_URL="rtmp://127.0.0.1/live/restoration"
 SPLASH_IMAGE="/home/kiosk/splash.png"
 VOLUME=80
 SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"

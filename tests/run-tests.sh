@@ -613,7 +613,7 @@ parse_stat_behavior_test() {
       <live>
         <nclients>2</nclients>
         <stream>
-          <name>church242</name>
+          <name>restoration</name>
           <time>123456</time>
           <bw_in>7031032</bw_in>
           <client>
@@ -640,9 +640,9 @@ XML
 
     # Case 1: standard XML, publisher matches player's expected key.
     local out
-    out=$("$helper" probe --expected-key church242 <"$xml_full" 2>&1) || true
+    out=$("$helper" probe --expected-key restoration <"$xml_full" 2>&1) || true
     case "$out" in
-        *"key=church242"*"pub=192.168.0.108"*"matches player"*)
+        *"key=restoration"*"pub=192.168.0.108"*"matches player"*)
             PASS=$((PASS + 1))
             printf "${GREEN}  PASS${RESET} parse_stat probe finds publisher in standard XML\n" ;;
         *)
@@ -663,7 +663,7 @@ XML
     <live>
       <nclients>1</nclients>
       <stream>
-        <name>church242</name>
+        <name>restoration</name>
         <bw_in>6000000</bw_in>
         <client>
           <address>192.168.0.108</address>
@@ -675,9 +675,9 @@ XML
   </application>
 </rtmp>
 XML
-    out=$("$helper" probe --expected-key church242 <"$xml_no_server" 2>&1) || true
+    out=$("$helper" probe --expected-key restoration <"$xml_no_server" 2>&1) || true
     case "$out" in
-        *"key=church242"*"pub=192.168.0.108"*) PASS=$((PASS + 1))
+        *"key=restoration"*"pub=192.168.0.108"*) PASS=$((PASS + 1))
             printf "${GREEN}  PASS${RESET} parse_stat probe handles XML without <server> wrapper\n" ;;
         *) FAIL=$((FAIL + 1)); ERRORS+=("parse_stat probe missed publisher when <server> absent; got: $out")
             printf "${RED}  FAIL${RESET} parse_stat probe missed publisher when <server> absent\n" ;;
@@ -686,10 +686,10 @@ XML
     # Case 3: stream key MISMATCH — publisher pushing to a different key than
     # the player expects. The 2026-05-03 splash-stuck failure mode.
     local xml_mismatch="$tmp/mismatch.xml"
-    sed 's/church242/wrongkey/' "$xml_full" >"$xml_mismatch"
-    out=$("$helper" probe --expected-key church242 <"$xml_mismatch" 2>&1) || true
+    sed 's/restoration/wrongkey/' "$xml_full" >"$xml_mismatch"
+    out=$("$helper" probe --expected-key restoration <"$xml_mismatch" 2>&1) || true
     case "$out" in
-        *"MISMATCH"*"church242"*) PASS=$((PASS + 1))
+        *"MISMATCH"*"restoration"*) PASS=$((PASS + 1))
             printf "${GREEN}  PASS${RESET} parse_stat probe flags key MISMATCH against expected key\n" ;;
         *) FAIL=$((FAIL + 1)); ERRORS+=("parse_stat probe did not flag mismatch; got: $out")
             printf "${RED}  FAIL${RESET} parse_stat probe did not flag key MISMATCH\n" ;;
@@ -712,7 +712,7 @@ XML
   </server>
 </rtmp>
 XML
-    out=$("$helper" probe --expected-key church242 <"$xml_no_stream" 2>&1) || true
+    out=$("$helper" probe --expected-key restoration <"$xml_no_stream" 2>&1) || true
     case "$out" in
         *"app=live"*"no publisher"*"nclients=1"*) PASS=$((PASS + 1))
             printf "${GREEN}  PASS${RESET} parse_stat probe reports nclients when no stream is published\n" ;;
@@ -729,25 +729,25 @@ XML
   <live>
     <nclients>1</nclients>
     <stream>
-      <name>church242</name>
+      <name>restoration</name>
       <bw_in>0</bw_in>
       <client><address>127.0.0.1</address></client>
     </stream>
   </live>
 </application></server></rtmp>
 XML
-    out=$("$helper" probe --expected-key church242 <"$xml_subs_only" 2>&1) || true
+    out=$("$helper" probe --expected-key restoration <"$xml_subs_only" 2>&1) || true
     case "$out" in
-        *"key=church242"*"no publisher"*) PASS=$((PASS + 1))
+        *"key=restoration"*"no publisher"*) PASS=$((PASS + 1))
             printf "${GREEN}  PASS${RESET} parse_stat probe distinguishes subscribers-only from no-stream\n" ;;
         *) FAIL=$((FAIL + 1)); ERRORS+=("parse_stat probe missed subscribers-only state; got: $out")
             printf "${RED}  FAIL${RESET} parse_stat probe missed subscribers-only state\n" ;;
     esac
 
     # Case 6: stream-key mode emits the publisher's key and address.
-    out=$("$helper" stream-key --expected-key church242 <"$xml_full" 2>&1) || true
+    out=$("$helper" stream-key --expected-key restoration <"$xml_full" 2>&1) || true
     case "$out" in
-        *"key=church242"*"pub=192.168.0.108"*) PASS=$((PASS + 1))
+        *"key=restoration"*"pub=192.168.0.108"*) PASS=$((PASS + 1))
             printf "${GREEN}  PASS${RESET} parse_stat stream-key emits key+pub for standard XML\n" ;;
         *) FAIL=$((FAIL + 1)); ERRORS+=("parse_stat stream-key missed publisher; got: $out")
             printf "${RED}  FAIL${RESET} parse_stat stream-key missed publisher\n" ;;
@@ -756,7 +756,7 @@ XML
     # Case 7: invalid XML must produce a non-zero exit and an error on
     # stderr — never silently succeed (CLAUDE.md: NEVER SWALLOW ERRORS).
     local rc=0
-    out=$(printf 'not xml' | "$helper" probe --expected-key church242 2>&1) || rc=$?
+    out=$(printf 'not xml' | "$helper" probe --expected-key restoration 2>&1) || rc=$?
     if [[ $rc -ne 0 && "$out" == *"parse"* ]]; then
         PASS=$((PASS + 1))
         printf "${GREEN}  PASS${RESET} parse_stat surfaces XML parse error with non-zero exit\n"
@@ -778,7 +778,7 @@ XML
     <live>
       <nclients>1</nclients>
       <stream>
-        <name>church242</name>
+        <name>restoration</name>
         <bw_in>1</bw_in>
         <client>
           <address>192.168.0.108</address>
@@ -789,9 +789,9 @@ XML
   </application>
 </rtmp>
 XML
-    out=$("$helper" probe --expected-key church242 <"$xml_ns" 2>&1) || true
+    out=$("$helper" probe --expected-key restoration <"$xml_ns" 2>&1) || true
     case "$out" in
-        *"key=church242"*"pub=192.168.0.108"*) PASS=$((PASS + 1))
+        *"key=restoration"*"pub=192.168.0.108"*) PASS=$((PASS + 1))
             printf "${GREEN}  PASS${RESET} parse_stat probe strips XML namespaces\n" ;;
         *) FAIL=$((FAIL + 1)); ERRORS+=("parse_stat probe failed on namespaced XML; got: $out")
             printf "${RED}  FAIL${RESET} parse_stat probe failed on namespaced XML\n" ;;
@@ -1097,8 +1097,8 @@ echo "=== Consistency Tests ==="
 # ============================================================================
 
 # Stream URL should be consistent across files
-assert_contains "player.sh uses church242 stream key" "$REPO_ROOT/install/player.sh" "church242"
-assert_contains "test-stream.sh defaults to church242" "$REPO_ROOT/dev/test-stream.sh" "church242"
+assert_contains "player.sh uses restoration stream key" "$REPO_ROOT/install/player.sh" "restoration"
+assert_contains "test-stream.sh defaults to restoration" "$REPO_ROOT/dev/test-stream.sh" "restoration"
 
 # Splash path should be consistent
 assert_contains "player.sh references splash.png" "$REPO_ROOT/install/player.sh" "/home/kiosk/splash.png"
