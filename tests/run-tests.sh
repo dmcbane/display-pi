@@ -917,7 +917,7 @@ assert_contains "setup-kiosk.sh accepts HDMI_MODE env var" \
 # (e.g. kernel makes "1920x1080@30.00" while panel reports
 # "1920x1080@30.003"). KMS ends up on the synthesized mode, wayland (cage)
 # on the EDID-preferred mode; every atomic commit fails -> black screen.
-# Single source of truth is now KIOSK_MODE applied by wlr-randr at
+# Single source of truth is now HDMI_MODE applied by wlr-randr at
 # runtime. setup-kiosk.sh and set-hdmi-mode.sh must STRIP any existing
 # video=HDMI-A-1:* token but NEVER add one.
 assert_contains "setup-kiosk.sh strips stale video=HDMI-A-1: token (cleanup)" \
@@ -1065,7 +1065,7 @@ echo "=== Runtime mode enforcement (wlr-randr layer) Tests ==="
 # ============================================================================
 # Goal: the kernel `video=HDMI-A-1:<mode>` cmdline parameter is a best-effort
 # hint that some panels' EDID override. A second authoritative layer runs
-# inside the cage session: `wlr-randr --output $KIOSK_OUTPUT --mode $KIOSK_MODE`
+# inside the cage session: `wlr-randr --output $HDMI_OUTPUT --mode $HDMI_MODE`
 # before mpv launches. The mode string lives in /etc/default/kiosk (sourced
 # by kiosk.service via EnvironmentFile=) so both setup-kiosk.sh and
 # dev/set-hdmi-mode.sh write the same source of truth.
@@ -1075,12 +1075,12 @@ assert_contains "kiosk.service sources /etc/default/kiosk (EnvironmentFile)" \
     "$REPO_ROOT/install/kiosk.service" 'EnvironmentFile=-/etc/default/kiosk'
 
 # player.sh calls wlr-randr before mpv to force the active mode
-assert_contains "player.sh invokes wlr-randr to enforce KIOSK_MODE" \
+assert_contains "player.sh invokes wlr-randr to enforce HDMI_MODE" \
     "$REPO_ROOT/install/player.sh" "wlr-randr"
-assert_contains "player.sh references KIOSK_MODE env var" \
-    "$REPO_ROOT/install/player.sh" "KIOSK_MODE"
-assert_contains "player.sh references KIOSK_OUTPUT env var (default HDMI-A-1)" \
-    "$REPO_ROOT/install/player.sh" "KIOSK_OUTPUT"
+assert_contains "player.sh references HDMI_MODE env var" \
+    "$REPO_ROOT/install/player.sh" "HDMI_MODE"
+assert_contains "player.sh references HDMI_OUTPUT env var (default HDMI-A-1)" \
+    "$REPO_ROOT/install/player.sh" "HDMI_OUTPUT"
 # Defensive: wlr-randr failures must not abort the player loop — better
 # to show the wrong size than not display at all.
 assert_contains "player.sh tolerates wlr-randr failure (no hard exit)" \
@@ -1089,8 +1089,8 @@ assert_contains "player.sh tolerates wlr-randr failure (no hard exit)" \
 # setup-kiosk.sh writes /etc/default/kiosk when HDMI_MODE is set
 assert_contains "setup-kiosk.sh writes /etc/default/kiosk" \
     "$REPO_ROOT/install/setup-kiosk.sh" '/etc/default/kiosk'
-assert_contains "setup-kiosk.sh writes KIOSK_MODE= into /etc/default/kiosk" \
-    "$REPO_ROOT/install/setup-kiosk.sh" 'KIOSK_MODE='
+assert_contains "setup-kiosk.sh writes HDMI_MODE= into /etc/default/kiosk" \
+    "$REPO_ROOT/install/setup-kiosk.sh" 'HDMI_MODE='
 # Apt list must include wlr-randr (cage stack uses it for runtime mode setting)
 assert_contains "setup-kiosk.sh installs wlr-randr" \
     "$REPO_ROOT/install/setup-kiosk.sh" 'wlr-randr'
@@ -1098,8 +1098,8 @@ assert_contains "setup-kiosk.sh installs wlr-randr" \
 # set-hdmi-mode.sh writes both layers in one shot
 assert_contains "set-hdmi-mode.sh writes /etc/default/kiosk (runtime layer)" \
     "$REPO_ROOT/dev/set-hdmi-mode.sh" '/etc/default/kiosk'
-assert_contains "set-hdmi-mode.sh writes KIOSK_MODE= token" \
-    "$REPO_ROOT/dev/set-hdmi-mode.sh" 'KIOSK_MODE='
+assert_contains "set-hdmi-mode.sh writes HDMI_MODE= token" \
+    "$REPO_ROOT/dev/set-hdmi-mode.sh" 'HDMI_MODE='
 
 # render-status.sh has the new display-mode check
 assert_contains "render-status.sh defines check_display_mode" \
@@ -1149,17 +1149,17 @@ EOF
         in_fn && /^\}/ { exit }
     ' "$REPO_ROOT/diagnostics/render-status.sh")
 
-    # Mismatch case: KIOSK_MODE asks for 1920x1080@30Hz, stub says 3840x2160 — WARN
-    out=$(PATH="$tmpdir:$PATH" KIOSK_MODE="1920x1080@30Hz" KIOSK_OUTPUT="HDMI-A-1" \
+    # Mismatch case: HDMI_MODE asks for 1920x1080@30Hz, stub says 3840x2160 — WARN
+    out=$(PATH="$tmpdir:$PATH" HDMI_MODE="1920x1080@30Hz" HDMI_OUTPUT="HDMI-A-1" \
         bash -c "$fn_src; check_display_mode" 2>/dev/null)
     status="${out%%|*}"
     if [[ "$status" != "WARN" && "$status" != "FAIL" ]]; then
         FAIL=$((FAIL + 1))
         ERRORS+=("check_display_mode mismatch case: expected WARN/FAIL, got '$status' (full='$out')")
-        printf "${RED}  FAIL${RESET} check_display_mode emits WARN when active mode differs from KIOSK_MODE (got '%s')\n" "$status"
+        printf "${RED}  FAIL${RESET} check_display_mode emits WARN when active mode differs from HDMI_MODE (got '%s')\n" "$status"
     else
         PASS=$((PASS + 1))
-        printf "${GREEN}  PASS${RESET} check_display_mode emits %s when active mode differs from KIOSK_MODE\n" "$status"
+        printf "${GREEN}  PASS${RESET} check_display_mode emits %s when active mode differs from HDMI_MODE\n" "$status"
     fi
 
     # Match case: stub already says 1920x1080@30 is current — flip it
@@ -1173,16 +1173,16 @@ HDMI-A-1 "ONN 100012587 (HDMI-A-1)"
     1920x1080 px, 30.000000 Hz (current)
 OUT
 EOF
-    out=$(PATH="$tmpdir:$PATH" KIOSK_MODE="1920x1080@30Hz" KIOSK_OUTPUT="HDMI-A-1" \
+    out=$(PATH="$tmpdir:$PATH" HDMI_MODE="1920x1080@30Hz" HDMI_OUTPUT="HDMI-A-1" \
         bash -c "$fn_src; check_display_mode" 2>/dev/null)
     status="${out%%|*}"
     if [[ "$status" != "OK" ]]; then
         FAIL=$((FAIL + 1))
         ERRORS+=("check_display_mode match case: expected OK, got '$status' (full='$out')")
-        printf "${RED}  FAIL${RESET} check_display_mode emits OK when active mode matches KIOSK_MODE (got '%s')\n" "$status"
+        printf "${RED}  FAIL${RESET} check_display_mode emits OK when active mode matches HDMI_MODE (got '%s')\n" "$status"
     else
         PASS=$((PASS + 1))
-        printf "${GREEN}  PASS${RESET} check_display_mode emits OK when active mode matches KIOSK_MODE\n"
+        printf "${GREEN}  PASS${RESET} check_display_mode emits OK when active mode matches HDMI_MODE\n"
     fi
 
     rm -rf "$tmpdir"

@@ -364,7 +364,7 @@ EOF
     # diverges from EDID-reported modes, leaving KMS at the synthesized
     # mode and wayland (cage) at the EDID-preferred mode. The mismatch
     # makes every atomic commit fail with "Invalid argument" — black
-    # screen. The single source of truth for HDMI mode is now KIOSK_MODE
+    # screen. The single source of truth for HDMI mode is now HDMI_MODE
     # in /etc/default/kiosk, applied at runtime by player.sh via
     # wlr-randr. setup-kiosk.sh and dev/set-hdmi-mode.sh always strip
     # the cmdline.txt token and never add one.
@@ -373,7 +373,7 @@ EOF
     local stripped
     stripped=$(printf '%s' "$new" | sed -E 's/( |^)video=HDMI-A-1:[^ ]+//g; s/  +/ /g; s/^ //; s/ $//')
     if [[ "$stripped" != "$new" ]]; then
-        log "Stripping stale video=HDMI-A-1: from cmdline.txt (KIOSK_MODE owns this now)"
+        log "Stripping stale video=HDMI-A-1: from cmdline.txt (HDMI_MODE owns this now)"
         new="$stripped"
         hdmi_changed=1
     fi
@@ -404,7 +404,7 @@ EOF
 
 # Runtime mode-enforcement layer: write /etc/default/kiosk so kiosk.service
 # (via EnvironmentFile=-) and player.sh (force_display_mode) can run
-# `wlr-randr --output $KIOSK_OUTPUT --mode $KIOSK_MODE` inside the cage
+# `wlr-randr --output $HDMI_OUTPUT --mode $HDMI_MODE` inside the cage
 # session. This is the authoritative layer; the kernel `video=` cmdline
 # parameter is only a boot-time hint.
 install_become_kiosk() {
@@ -436,7 +436,7 @@ configure_runtime_mode() {
         return
     fi
 
-    log "Writing $env_file (KIOSK_MODE=${HDMI_MODE})..."
+    log "Writing $env_file (HDMI_MODE=${HDMI_MODE})..."
     if [[ -f "$env_file" ]]; then
         backup_once "$env_file"
         # Strip any prior kiosk-setup block (idempotent re-runs).
@@ -444,13 +444,13 @@ configure_runtime_mode() {
     fi
 
     if [[ "$HDMI_MODE" == "none" ]]; then
-        log "HDMI_MODE=none — clearing KIOSK_MODE."
+        log "HDMI_MODE=none — clearing HDMI_MODE."
         sudo tee -a "$env_file" > /dev/null <<EOF
 ${marker_start}
 # Runtime HDMI mode enforcement (cleared by setup-kiosk.sh on ${STAMP}).
-# Leave KIOSK_MODE empty to let EDID pick the active mode.
-KIOSK_MODE=
-KIOSK_OUTPUT=HDMI-A-1
+# Leave HDMI_MODE empty to let EDID pick the active mode.
+HDMI_MODE=
+HDMI_OUTPUT=HDMI-A-1
 ${marker_end}
 EOF
     else
@@ -461,8 +461,8 @@ ${marker_start}
 # (force_display_mode runs wlr-randr before mpv). Change with
 # \`make hdmi-mode HDMI_MODE=…\` so both this file and cmdline.txt
 # stay in sync.
-KIOSK_MODE=${HDMI_MODE}
-KIOSK_OUTPUT=HDMI-A-1
+HDMI_MODE=${HDMI_MODE}
+HDMI_OUTPUT=HDMI-A-1
 ${marker_end}
 EOF
     fi

@@ -501,21 +501,21 @@ FIX OPTIONS (pick the most achievable):
      CANONICAL MECHANISM (single source of truth — use this):
         # From your dev workstation:
         make hdmi-mode HDMI_MODE=1920x1080@30
-        # Writes KIOSK_MODE to /etc/default/kiosk and strips any stale
+        # Writes HDMI_MODE to /etc/default/kiosk and strips any stale
         # video=HDMI-A-1: from cmdline.txt. Prompts to reboot the Pi.
 
      To clear forcing:
         make hdmi-mode HDMI_MODE=none
 
      Verify the runtime layer landed:
-        ssh kiosk@<pi> 'cat /etc/default/kiosk'   # KIOSK_MODE=... line
+        ssh kiosk@<pi> 'cat /etc/default/kiosk'   # HDMI_MODE=... line
         ssh kiosk@<pi> 'wlr-randr'                # "(current)" mode
 
      Manual edit (only if `make hdmi-mode` is unavailable):
         sudoedit /etc/default/kiosk
         # add or replace inside the kiosk-setup marker block:
-        KIOSK_MODE=1920x1080@30
-        KIOSK_OUTPUT=HDMI-A-1
+        HDMI_MODE=1920x1080@30
+        HDMI_OUTPUT=HDMI-A-1
         # then: sudo systemctl restart kiosk.service  (no reboot needed)
 
      Other useful values: 1920x1080@60, 1920x1080@50, 1280x720@60.

@@ -217,11 +217,11 @@ check_watchdog() {
 }
 
 check_display_mode() {
-    local expected="${KIOSK_MODE:-}"
-    local output="${KIOSK_OUTPUT:-HDMI-A-1}"
+    local expected="${HDMI_MODE:-}"
+    local output="${HDMI_OUTPUT:-HDMI-A-1}"
 
     if [[ -z "$expected" ]]; then
-        echo "OK|Display Mode|KIOSK_MODE unset (EDID picks)"
+        echo "OK|Display Mode|HDMI_MODE unset (EDID picks)"
         return
     fi
     if ! command -v wlr-randr >/dev/null 2>&1; then

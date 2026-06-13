@@ -67,13 +67,13 @@ sudo cp -a "$CMDLINE" "$BACKUP"
 # synthesizes a modeline that diverges from EDID-reported modes; KMS
 # ends up on the synthesized mode and wayland (cage) on EDID-preferred,
 # every atomic commit fails -> black screen. The single source of truth
-# is KIOSK_MODE applied by player.sh -> wlr-randr at runtime. We always
+# is HDMI_MODE applied by player.sh -> wlr-randr at runtime. We always
 # strip any stale token and NEVER write a new one.
 current=$(sudo cat "$CMDLINE" | tr -s "[:space:]" " " | sed "s/^ //;s/ \$//")
 stripped=$(printf "%s" "$current" | sed -E "s/( |^)video=HDMI-A-1:[^ ]+//g; s/  +/ /g; s/^ //; s/ \$//")
 new="$stripped"
 if [ "$stripped" != "$current" ]; then
-    echo "Stripped stale video=HDMI-A-1: from cmdline.txt (KIOSK_MODE owns mode now)"
+    echo "Stripped stale video=HDMI-A-1: from cmdline.txt (HDMI_MODE owns mode now)"
 fi
 
 # Refuse empty
@@ -107,9 +107,9 @@ MARKER_START="# === kiosk-setup BEGIN ==="
 MARKER_END="# === kiosk-setup END ==="
 
 if [ "$MODE" = "none" ]; then
-    KIOSK_MODE_VALUE=""
+    HDMI_MODE_VALUE=""
 else
-    KIOSK_MODE_VALUE="$MODE"
+    HDMI_MODE_VALUE="$MODE"
 fi
 
 if [ -f "$ENV_FILE" ]; then
@@ -119,12 +119,12 @@ fi
 sudo tee -a "$ENV_FILE" > /dev/null <<ENVEOF
 ${MARKER_START}
 # Runtime HDMI mode (set by dev/set-hdmi-mode.sh on ${STAMP}).
-KIOSK_MODE=${KIOSK_MODE_VALUE}
-KIOSK_OUTPUT=HDMI-A-1
+HDMI_MODE=${HDMI_MODE_VALUE}
+HDMI_OUTPUT=HDMI-A-1
 ${MARKER_END}
 ENVEOF
 sudo chmod 644 "$ENV_FILE"
-echo "$ENV_FILE updated (KIOSK_MODE=${KIOSK_MODE_VALUE})"
+echo "$ENV_FILE updated (HDMI_MODE=${HDMI_MODE_VALUE})"
 
 # Inert-key warning on config.txt (do not auto-edit; the operator may have
 # intentional non-kiosk config in there).

@@ -4,6 +4,24 @@ All notable changes to display-pi are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2026-06-13
+
+### Changed (BREAKING)
+- **Rename `KIOSK_MODE`/`KIOSK_OUTPUT` → `HDMI_MODE`/`HDMI_OUTPUT`
+  everywhere.** Removes the cross-layer name asymmetry — the value was
+  already called `HDMI_MODE` at the workstation (`make setup
+  HDMI_MODE=…`, `make hdmi-mode HDMI_MODE=…`) but became `KIOSK_MODE`
+  inside `/etc/default/kiosk` and `player.sh`. Both names now match end
+  to end. Affected files: `install/player.sh`, `install/setup-kiosk.sh`,
+  `install/kiosk.service` (comment only), `dev/set-hdmi-mode.sh`,
+  `diagnostics/render-status.sh`, `diagnostics/judder.sh`,
+  `tests/run-tests.sh`. Migrating an existing Pi requires renaming the
+  two lines inside `/etc/default/kiosk`:
+      sudo sed -i 's/^KIOSK_MODE=/HDMI_MODE=/; s/^KIOSK_OUTPUT=/HDMI_OUTPUT=/' /etc/default/kiosk
+      sudo systemctl --machine=kiosk@.host --user restart kiosk.service
+  Fresh `make setup` runs write the new names directly. No
+  backwards-compatibility shim; the rename is a clean cut.
+
 ## [0.7.0] - 2026-06-13
 
 ### Changed (BREAKING)

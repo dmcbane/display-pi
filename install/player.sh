@@ -23,14 +23,14 @@ DIAG_SCRIPT="$(dirname "$SCRIPT_DIR")/diagnostics/render-status.sh"
 HEALTH_MONITOR="$(dirname "$SCRIPT_DIR")/diagnostics/health-monitor.sh"
 OVERLAY_SCRIPT="${SCRIPT_DIR}/mpv-health-overlay.lua"
 
-# Runtime HDMI mode enforcement. KIOSK_MODE and KIOSK_OUTPUT come from
+# Runtime HDMI mode enforcement. HDMI_MODE and HDMI_OUTPUT come from
 # /etc/default/kiosk (loaded by kiosk.service via EnvironmentFile=) and
 # are written by install/setup-kiosk.sh and dev/set-hdmi-mode.sh. The
 # kernel `video=HDMI-A-1:<mode>` cmdline parameter is a best-effort hint
 # that some panels' EDID overrides; this is the authoritative layer.
-# Empty KIOSK_MODE skips enforcement (lets EDID pick).
-KIOSK_MODE="${KIOSK_MODE:-}"
-KIOSK_OUTPUT="${KIOSK_OUTPUT:-HDMI-A-1}"
+# Empty HDMI_MODE skips enforcement (lets EDID pick).
+HDMI_MODE="${HDMI_MODE:-}"
+HDMI_OUTPUT="${HDMI_OUTPUT:-HDMI-A-1}"
 
 # ---------------------------------------------------------------------------
 # Runtime mode enforcement — wlr-randr sets the active mode authoritatively
@@ -65,22 +65,22 @@ nearest_refresh_for() {
 }
 
 force_display_mode() {
-    if [[ -z "$KIOSK_MODE" ]]; then
-        echo "[$(date)] KIOSK_MODE unset, leaving EDID-preferred mode active"
+    if [[ -z "$HDMI_MODE" ]]; then
+        echo "[$(date)] HDMI_MODE unset, leaving EDID-preferred mode active"
         return 0
     fi
     if ! command -v wlr-randr >/dev/null 2>&1; then
-        echo "[$(date)] WARN: wlr-randr not installed; cannot enforce $KIOSK_MODE"
+        echo "[$(date)] WARN: wlr-randr not installed; cannot enforce $HDMI_MODE"
         return 0
     fi
     local resolved
-    resolved=$(wlr-randr 2>/dev/null | nearest_refresh_for "$KIOSK_MODE")
+    resolved=$(wlr-randr 2>/dev/null | nearest_refresh_for "$HDMI_MODE")
     if [[ -z "$resolved" ]]; then
-        echo "[$(date)] WARN: no $KIOSK_MODE match in wlr-randr output; leaving active mode"
+        echo "[$(date)] WARN: no $HDMI_MODE match in wlr-randr output; leaving active mode"
         return 0
     fi
-    echo "[$(date)] forcing $KIOSK_OUTPUT: requested $KIOSK_MODE, resolved $resolved"
-    wlr-randr --output "$KIOSK_OUTPUT" --mode "$resolved" \
+    echo "[$(date)] forcing $HDMI_OUTPUT: requested $HDMI_MODE, resolved $resolved"
+    wlr-randr --output "$HDMI_OUTPUT" --mode "$resolved" \
         > /tmp/kiosk-wlr-randr.log 2>&1 || {
             echo "[$(date)] WARN: wlr-randr failed (exit $?); continuing with active mode"
         }
