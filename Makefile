@@ -38,7 +38,7 @@ export KIOSK_HOST  := $(HOST)
 export KIOSK_USER
 export STREAM_KEY
 
-.PHONY: help setup deploy sudoers test-stream test-stream-long ssh logs status diag judder-tree judder-probe judder-monitor stream-key hdmi-mode set-time test lint check ping reboot
+.PHONY: help setup deploy sudoers test-stream test-stream-long ssh logs status diag judder-tree judder-probe judder-monitor stream-key hdmi-mode set-time test lint check ping reboot volunteer-bundle
 
 help:
 	@echo "display-pi — Church Worship Stream Kiosk"
@@ -69,6 +69,9 @@ help:
 	@echo "  set-time          Push laptop clock to Pi (optional TIME_OFFSET=<sec>)"
 	@echo "  ping              Ping the Pi"
 	@echo "  reboot            Reboot the Pi"
+	@echo ""
+	@echo "Volunteer workflow:"
+	@echo "  volunteer-bundle  Build volunteer-bundle.zip (scripts + README + key)"
 	@echo ""
 	@echo "Variables (override on command line):"
 	@echo "  HOST=$(HOST)"
@@ -223,3 +226,36 @@ reboot:
 	@echo "Rebooting $(HOST)..."
 	@ssh $(HOST) "sudo reboot" || true
 	@echo "Reboot command sent. Pi will come back in ~30s."
+
+# --- Volunteer bundle ---
+
+# Build volunteer-bundle.zip containing the two client scripts, the
+# README, and the splash-updater private key (pulled live from the
+# Pi). The bundle is what you hand to a volunteer over USB stick or a
+# trusted file-share — never email it: the key is inside.
+#
+# Prereqs:
+#   - install/splash-updater-setup.sh must have been run on the Pi
+#     once (creates /etc/ssh/splash-updater_ed25519 and the user).
+#   - `zip` available on the workstation.
+#
+# Output: ./volunteer-bundle.zip (overwritten each run).
+volunteer-bundle:
+	@command -v zip >/dev/null || { echo "ERROR: 'zip' not installed (try: apt install zip)"; exit 1; }
+	@echo "[volunteer-bundle] staging files..."
+	@rm -rf /tmp/splash-bundle volunteer-bundle.zip
+	@mkdir -p /tmp/splash-bundle
+	@cp dev/splash-replace.sh dev/splash-replace.ps1 /tmp/splash-bundle/
+	@cp docs/volunteer-splash-update.md /tmp/splash-bundle/README.md
+	@echo "[volunteer-bundle] pulling private key from $(HOST):/etc/ssh/splash-updater_ed25519..."
+	@ssh $(HOST) 'sudo cat /etc/ssh/splash-updater_ed25519' > /tmp/splash-bundle/splash-updater
+	@chmod 600 /tmp/splash-bundle/splash-updater
+	@chmod 755 /tmp/splash-bundle/splash-replace.sh
+	@cd /tmp/splash-bundle && zip -q ../../$(CURDIR)/volunteer-bundle.zip splash-replace.sh splash-replace.ps1 README.md splash-updater
+	@rm -rf /tmp/splash-bundle
+	@echo "[volunteer-bundle] wrote $(CURDIR)/volunteer-bundle.zip"
+	@unzip -l volunteer-bundle.zip | sed 's/^/    /'
+	@echo ""
+	@echo "Hand-deliver this zip on a USB stick. Do NOT email it — the SSH"
+	@echo "private key inside is what proves the holder is authorized to"
+	@echo "replace the splash."

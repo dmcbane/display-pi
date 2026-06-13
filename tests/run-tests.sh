@@ -1294,6 +1294,31 @@ assert_contains "splash-updater-setup.sh creates user with a real shell (ForceCo
 assert_contains "splash-updater-setup.sh locks the password (no interactive login)" \
     "$REPO_ROOT/install/splash-updater-setup.sh" 'passwd -l "\$SU_USER"'
 
+# Makefile bundles the volunteer artifacts (scripts + README + key from
+# the Pi) into a single zip so the admin can hand-deliver it without
+# manually scripting the copy-pull-zip dance every time.
+assert_contains "Makefile has volunteer-bundle target" \
+    "$REPO_ROOT/Makefile" "^volunteer-bundle:"
+assert_contains "Makefile .PHONY includes volunteer-bundle" \
+    "$REPO_ROOT/Makefile" '\.PHONY:.* volunteer-bundle'
+assert_contains "Makefile help mentions volunteer-bundle" \
+    "$REPO_ROOT/Makefile" "volunteer-bundle "
+assert_contains "volunteer-bundle target pulls private key from Pi" \
+    "$REPO_ROOT/Makefile" "splash-updater_ed25519"
+assert_contains "volunteer-bundle target ships the README" \
+    "$REPO_ROOT/Makefile" "volunteer-splash-update.md"
+assert_contains "volunteer-bundle target produces a zip" \
+    "$REPO_ROOT/Makefile" "volunteer-bundle.zip"
+
+# CRITICAL: the zip contains a live SSH private key. Must be gitignored
+# so a stray `git add -A` doesn't commit it to a public repo.
+assert_file_exists ".gitignore exists (volunteer key safety)" \
+    "$REPO_ROOT/.gitignore"
+assert_contains ".gitignore covers volunteer-bundle.zip" \
+    "$REPO_ROOT/.gitignore" "volunteer-bundle.zip"
+assert_contains ".gitignore covers stray splash-updater key files" \
+    "$REPO_ROOT/.gitignore" "^splash-updater\$"
+
 assert_file_exists "dev/splash-replace.sh exists" \
     "$REPO_ROOT/dev/splash-replace.sh"
 assert_executable  "dev/splash-replace.sh is executable" \

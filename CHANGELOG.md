@@ -4,6 +4,22 @@ All notable changes to display-pi are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.1] - 2026-06-13
+
+### Added
+- **`make volunteer-bundle`** — builds `volunteer-bundle.zip`
+  containing the two client scripts, the README
+  (`docs/volunteer-splash-update.md`), and the splash-updater private
+  key pulled live from the Pi. One command to produce a hand-deliver
+  bundle.
+
+### Fixed
+- **`.gitignore` — never commit `volunteer-bundle.zip` or stray key
+  files.** The bundle contains a live SSH private key. Without an
+  ignore rule, a routine `git add -A` would publish the key to the
+  repo. Test pins the rules so a future cleanup of `.gitignore` can't
+  silently re-open the gap.
+
 ## [0.9.0] - 2026-06-13
 
 ### Added

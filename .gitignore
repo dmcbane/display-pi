@@ -1,0 +1,7 @@
+# Volunteer bundle contains a live SSH private key — NEVER commit.
+volunteer-bundle.zip
+
+# Same key, if someone unzipped the bundle in-tree by accident.
+splash-updater
+splash-updater_ed25519
+splash-updater_ed25519.pub
