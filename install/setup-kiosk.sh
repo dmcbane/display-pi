@@ -151,6 +151,9 @@ install_packages() {
     #   $vcgencmd_pkg             — provides vcgencmd (thermal/throttle readout);
     #                               raspi-utils on Trixie, libraspberrypi-bin on Bookworm
     #   alsa-utils                — provides aplay (audio fallback probe)
+    #   systemd-container         — provides machinectl, referenced in the
+    #                               post-install instructions for inspecting
+    #                               the kiosk user's --user systemd units
     #   python3-defusedxml        — diagnostics/parse_stat.py prefers it over
     #                               stdlib ET for XXE/billion-laughs hardening
     sudo apt-get install -y --no-install-recommends \
@@ -162,6 +165,7 @@ install_packages() {
         pipewire pipewire-audio wireplumber \
         netcat-openbsd \
         wlr-randr libdrm-tests "$vcgencmd_pkg" alsa-utils \
+        systemd-container \
         python3-defusedxml
     log "Packages installed."
 }

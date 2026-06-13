@@ -394,6 +394,13 @@ assert_contains "setup-kiosk.sh picks vcgencmd pkg via apt-cache" \
 assert_contains "setup-kiosk.sh installs alsa-utils (provides aplay)" \
     "$REPO_ROOT/install/setup-kiosk.sh" "alsa-utils"
 
+# machinectl — the post-install instructions tell the operator to run
+# `sudo machinectl shell ${KIOSK_USER}@ /bin/bash -c "systemctl --user status …"`
+# to peek at the kiosk user's user-scope units. machinectl ships in
+# systemd-container, which Pi OS Lite does NOT preinstall.
+assert_contains "setup-kiosk.sh installs systemd-container (provides machinectl)" \
+    "$REPO_ROOT/install/setup-kiosk.sh" "systemd-container"
+
 # ============================================================================
 echo ""
 echo "=== judder.sh probe Tests ==="

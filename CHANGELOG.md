@@ -4,6 +4,16 @@ All notable changes to display-pi are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.2] - 2026-06-13
+
+### Fixed
+- **`install/setup-kiosk.sh` — install `systemd-container` for `machinectl`.**
+  The post-install instructions tell the operator to run
+  `sudo machinectl shell ${KIOSK_USER}@ /bin/bash …` to inspect the kiosk
+  user's `--user` systemd units, but Pi OS Lite does not ship `machinectl`
+  by default. `install_packages()` now pins `systemd-container` so a fresh
+  setup leaves the documented commands runnable. Test added.
+
 ## [0.6.1] - 2026-06-12
 
 ### Fixed
