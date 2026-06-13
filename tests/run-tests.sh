@@ -363,6 +363,19 @@ assert_contains "sudoers uses templated deploy user placeholder" \
     "$REPO_ROOT/install/kiosk-deploy.sudoers" "__DEPLOY_USER__"
 assert_contains "setup-kiosk.sh has configure_deploy_sudoers function" \
     "$REPO_ROOT/install/setup-kiosk.sh" "^configure_deploy_sudoers()"
+
+# backup_once must actually be "once": skip the backup when the source
+# file is byte-identical to the most recent existing backup. Without this
+# check, every idempotent `make setup` re-run accumulates a fresh
+# timestamped copy across cmdline.txt, config.txt, nginx.conf, etc.
+# (19 such files piled up across 3 re-runs on 2026-06-13).
+assert_contains "backup_once finds most recent existing backup" \
+    "$REPO_ROOT/install/setup-kiosk.sh" "ls -1t .*\\.bak-"
+assert_contains "backup_once skips when content matches latest backup" \
+    "$REPO_ROOT/install/setup-kiosk.sh" "cmp -s"
+# pipefail kills the script when the glob is empty unless guarded with || true.
+assert_contains "backup_once tolerates empty backup glob under pipefail" \
+    "$REPO_ROOT/install/setup-kiosk.sh" "head -1 || true"
 assert_contains "setup-kiosk.sh validates sudoers with visudo before install" \
     "$REPO_ROOT/install/setup-kiosk.sh" "visudo -cf"
 assert_contains "setup-kiosk.sh installs sudoers to /etc/sudoers.d/kiosk-deploy" \

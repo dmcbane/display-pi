@@ -82,14 +82,28 @@ log()  { printf '\033[1;34m[%s]\033[0m %s\n' "$SCRIPT_NAME" "$*"; }
 warn() { printf '\033[1;33m[%s] WARN:\033[0m %s\n' "$SCRIPT_NAME" "$*" >&2; }
 die()  { printf '\033[1;31m[%s] ERROR:\033[0m %s\n' "$SCRIPT_NAME" "$*" >&2; exit 1; }
 
-# Back up a file before modifying, if it exists and we haven't backed it up yet
-# in this run.
+# Back up a file before modifying. Two skips:
+#   1. Already backed up in THIS run (same STAMP) — repeat callers are free.
+#   2. The most recent existing backup is byte-identical to the live file.
+#      Idempotent re-runs of setup-kiosk.sh were piling up timestamped
+#      copies of files that hadn't changed (19 accumulated across 3 re-runs
+#      on 2026-06-13). Skipping in this case keeps the audit trail meaningful
+#      — a new .bak-${STAMP} now reliably means "the file actually changed".
 backup_once() {
     local file="$1"
-    if [[ -f "$file" && ! -f "${file}.bak-${STAMP}" ]]; then
-        sudo cp -a "$file" "${file}.bak-${STAMP}"
-        log "Backed up $file -> ${file}.bak-${STAMP}"
+    [[ -f "$file" ]] || return 0
+    [[ -f "${file}.bak-${STAMP}" ]] && return 0
+
+    # `ls` returns non-zero when the glob has no matches; under set -euo
+    # pipefail that would kill the script, so allow an empty result.
+    local latest
+    latest=$(sudo ls -1t "${file}".bak-* 2>/dev/null | head -1 || true)
+    if [[ -n "$latest" ]] && sudo cmp -s "$file" "$latest"; then
+        return 0
     fi
+
+    sudo cp -a "$file" "${file}.bak-${STAMP}"
+    log "Backed up $file -> ${file}.bak-${STAMP}"
 }
 
 require_root_capable() {

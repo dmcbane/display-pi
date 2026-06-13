@@ -4,6 +4,25 @@ All notable changes to display-pi are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.2] - 2026-06-13
+
+### Fixed
+- **`install/setup-kiosk.sh` — `backup_once` is finally actually once.**
+  The function was creating a new timestamped backup on every `make
+  setup` run, even when the file hadn't changed since the previous run.
+  Three idempotent re-runs accumulated 19 redundant `.bak-<STAMP>`
+  copies across cmdline.txt, config.txt, nginx.conf, watchdog.conf, and
+  the kiosk logrotate config. The function now compares the live file
+  against the most recent existing backup with `cmp -s` and skips when
+  bytes match. After this change a new `.bak-<STAMP>` reliably means
+  "this file actually changed."
+
+  Also guards the `ls -1t .bak-*` glob with `|| true` so an empty
+  match doesn't kill the script under `set -euo pipefail` (the
+  pipefail variant of [the unmatched-glob-under-`-e` footgun][1]).
+
+[1]: https://mywiki.wooledge.org/BashPitfalls#set_-e
+
 ## [0.8.1] - 2026-06-13
 
 ### Fixed
