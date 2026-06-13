@@ -514,6 +514,17 @@ assert_contains "become-kiosk.sh defaults target user to kiosk" \
 # to know the repo path.
 assert_contains "setup-kiosk.sh installs become-kiosk into /usr/local/bin" \
     "$REPO_ROOT/install/setup-kiosk.sh" "/usr/local/bin/become-kiosk"
+
+# kiosk user group memberships: video/render/input for DRM + input access,
+# audio for ALSA. A 'seat' group entry was speculative — Debian/Trixie has
+# no such group, and cage talks to seatd over a Unix socket with libseat
+# auth (no POSIX group required). The bogus entry warned on every setup
+# run with "Group 'seat' does not exist on this system; skipping."
+assert_contains "setup-kiosk.sh group loop covers video/render/input/audio" \
+    "$REPO_ROOT/install/setup-kiosk.sh" "for group in video render input audio"
+assert_not_contains "setup-kiosk.sh group loop drops nonexistent 'seat' group" \
+    "$REPO_ROOT/install/setup-kiosk.sh" "input seat audio"
+
 assert_contains "Makefile has stream-key target (fast publisher check during event)" \
     "$REPO_ROOT/Makefile" "^stream-key:"
 

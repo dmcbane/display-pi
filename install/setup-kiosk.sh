@@ -181,8 +181,9 @@ create_kiosk_user() {
         sudo useradd -m -s /bin/bash "$KIOSK_USER"
     fi
 
-    # Ensure required group memberships (idempotent)
-    for group in video render input seat audio; do
+    # Ensure required group memberships (idempotent). seatd does not need
+    # a POSIX 'seat' group — libseat auth happens over a Unix socket.
+    for group in video render input audio; do
         if getent group "$group" >/dev/null; then
             sudo usermod -aG "$group" "$KIOSK_USER"
         else

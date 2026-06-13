@@ -4,6 +4,18 @@ All notable changes to display-pi are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.1] - 2026-06-13
+
+### Fixed
+- **`install/setup-kiosk.sh` — drop `seat` from kiosk-user group loop.**
+  Debian/Trixie has no POSIX `seat` group; seatd authenticates clients
+  over a Unix socket via libseat instead, so the entry was speculative
+  from day one and surfaced a benign `WARN: Group 'seat' does not exist
+  on this system; skipping.` on every setup run. The kiosk user's
+  remaining group memberships (`video render input audio`) cover DRM
+  access, evdev input, and ALSA. No behavioral change beyond removing
+  the noise.
+
 ## [0.8.0] - 2026-06-13
 
 ### Changed (BREAKING)
