@@ -813,8 +813,9 @@ Next steps:
         # Kiosk service status (uses become-kiosk helper installed below)
         become-kiosk systemctl --user status kiosk.service
 
-        # Live player logs
-        become-kiosk journalctl --user -f --user-unit=kiosk.service
+        # Live player logs (system journal: kiosk is not in systemd-journal
+        # group, so we read as root and filter on the user-unit name)
+        sudo journalctl _SYSTEMD_USER_UNIT=kiosk.service -f
 
   4. Test the full stream path WITHOUT the ATEM (from another machine):
         ffmpeg -re -f lavfi -i testsrc=size=1920x1080:rate=30 \\

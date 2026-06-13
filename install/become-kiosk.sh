@@ -25,13 +25,12 @@ if ! id "$KIOSK_USER" >/dev/null 2>&1; then
     exit 1
 fi
 
-# If the caller already has XDG_RUNTIME_DIR pointing at the kiosk user's
-# runtime dir, use that. Otherwise fall back to /run/user/<kiosk-uid>.
-# Inline form matches the TODO ("if $XDG_RUNTIME_DIR is not defined,
-# default to /run/user/$(id -u)") so the pattern is grep-able from
-# either side. We pass KIOSK_USER to id so the helper still picks the
-# right directory when invoked by root or an unrelated SSH user.
-XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u "$KIOSK_USER")}"
+# XDG_RUNTIME_DIR must point at the KIOSK user's runtime dir, not the
+# caller's. Don't trust an inherited value: pam_systemd has already set
+# it to /run/user/<deploy_uid> for any SSH login, and falling back only
+# on unset would silently route DBUS/wpctl/systemctl --user calls to the
+# wrong user's bus. Overwrite unconditionally.
+XDG_RUNTIME_DIR="/run/user/$(id -u "$KIOSK_USER")"
 
 # If the user's runtime dir doesn't yet exist (no prior systemd --user
 # session), surface a hint but proceed — sudo will print its own error
@@ -41,11 +40,22 @@ if [[ ! -d "$XDG_RUNTIME_DIR" ]]; then
     echo "      since boot? (loginctl enable-linger should have created it.)" >&2
 fi
 
-# -i runs a login shell when no command is given; with extra args sudo
-# treats them as the command to run. SETENV is granted via the deploy
-# sudoers (install/kiosk-deploy.sudoers) so XDG_RUNTIME_DIR survives.
+# `sudo -u kiosk -i` sets up the login shell but does NOT establish a
+# usable D-Bus user-bus address — empirically (2026-06-13), systemctl --user
+# fails with "Failed to connect to user scope bus via local transport:
+# Operation not permitted" unless we point DBUS_SESSION_BUS_ADDRESS at the
+# user's bus socket explicitly. SETENV is granted via the deploy sudoers
+# (install/kiosk-deploy.sudoers) so both vars survive.
+DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
+
 if [[ $# -eq 0 ]]; then
-    exec sudo -u "$KIOSK_USER" XDG_RUNTIME_DIR="$XDG_RUNTIME_DIR" -i
+    exec sudo -u "$KIOSK_USER" \
+        XDG_RUNTIME_DIR="$XDG_RUNTIME_DIR" \
+        DBUS_SESSION_BUS_ADDRESS="$DBUS_SESSION_BUS_ADDRESS" \
+        -i
 else
-    exec sudo -u "$KIOSK_USER" XDG_RUNTIME_DIR="$XDG_RUNTIME_DIR" -i -- "$@"
+    exec sudo -u "$KIOSK_USER" \
+        XDG_RUNTIME_DIR="$XDG_RUNTIME_DIR" \
+        DBUS_SESSION_BUS_ADDRESS="$DBUS_SESSION_BUS_ADDRESS" \
+        -i -- "$@"
 fi

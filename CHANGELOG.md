@@ -4,6 +4,29 @@ All notable changes to display-pi are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.4] - 2026-06-13
+
+### Fixed
+- **`install/become-kiosk.sh` — always own `XDG_RUNTIME_DIR` and export
+  `DBUS_SESSION_BUS_ADDRESS`.** The helper had two bugs that surfaced
+  together when verifying the post-install instructions on a Pi 5 / Trixie
+  install:
+  1. `XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u kiosk)}"`
+     inherited the SSH caller's value (`/run/user/<deploy_uid>`), so
+     `systemctl --user` connected to the deploy user's bus instead of
+     kiosk's. The helper now overwrites unconditionally.
+  2. The user-bus connection also needs `DBUS_SESSION_BUS_ADDRESS` set
+     explicitly; without it `sudo -u kiosk -i` falls back to a lookup
+     path that fails with "Operation not permitted". Derived from
+     `XDG_RUNTIME_DIR` and forwarded via the existing SETENV grant.
+- **`install/setup-kiosk.sh` post-install — journalctl reads system journal
+  directly.** `become-kiosk journalctl --user` cannot read the journal
+  because the kiosk user is not in `systemd-journal` group (and adding
+  the group has broader implications). Switched to
+  `sudo journalctl _SYSTEMD_USER_UNIT=kiosk.service -f`, which works
+  unambiguously and surfaces the same log lines. Tests pin all three
+  changes.
+
 ## [0.6.3] - 2026-06-13
 
 ### Fixed

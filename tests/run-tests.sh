@@ -407,8 +407,12 @@ assert_contains "setup-kiosk.sh installs systemd-container (provides machinectl)
 # user manager is not registered as a machine with systemd-machined.
 assert_contains "setup-kiosk.sh post-install uses become-kiosk for kiosk service status" \
     "$REPO_ROOT/install/setup-kiosk.sh" "become-kiosk systemctl --user status kiosk.service"
-assert_contains "setup-kiosk.sh post-install uses become-kiosk for kiosk service logs" \
-    "$REPO_ROOT/install/setup-kiosk.sh" "become-kiosk journalctl --user"
+# journalctl can't go via become-kiosk: kiosk is not in systemd-journal group
+# (would need explicit usermod -aG, with broader implications), so it can't
+# read /run/log/journal/. Root reading the system journal with an explicit
+# _SYSTEMD_USER_UNIT= match is the simplest reliable form on this image.
+assert_contains "setup-kiosk.sh post-install uses sudo journalctl _SYSTEMD_USER_UNIT for logs" \
+    "$REPO_ROOT/install/setup-kiosk.sh" "sudo journalctl _SYSTEMD_USER_UNIT=kiosk.service"
 assert_not_contains "setup-kiosk.sh post-install no longer uses -M …KIOSK_USER@" \
     "$REPO_ROOT/install/setup-kiosk.sh" "KIOSK_USER}@"
 
@@ -433,10 +437,26 @@ assert_contains "judder.sh has stream-key subcommand" \
 # (b) exec sudo -u kiosk so signals propagate to the child shell.
 assert_contains "become-kiosk.sh execs sudo -u into the kiosk user" \
     "$REPO_ROOT/install/become-kiosk.sh" "exec sudo -u"
-assert_contains "become-kiosk.sh defaults XDG_RUNTIME_DIR when unset" \
-    "$REPO_ROOT/install/become-kiosk.sh" 'XDG_RUNTIME_DIR:-/run/user/'
+# XDG_RUNTIME_DIR must ALWAYS be set to the kiosk user's runtime dir, not
+# the caller's. The old ${VAR:-default} fallback was a bug: when invoked
+# from a deploy user's SSH session, pam_systemd had already set
+# XDG_RUNTIME_DIR to /run/user/<deploy_uid>, so the fallback skipped and
+# kiosk inherited the wrong path — DBUS lookups then connected to the
+# DEPLOY user's bus (or failed). Script must overwrite unconditionally.
+assert_contains "become-kiosk.sh always sets XDG_RUNTIME_DIR to kiosk uid" \
+    "$REPO_ROOT/install/become-kiosk.sh" 'XDG_RUNTIME_DIR="/run/user/'
+assert_not_contains "become-kiosk.sh does not inherit caller's XDG_RUNTIME_DIR" \
+    "$REPO_ROOT/install/become-kiosk.sh" 'XDG_RUNTIME_DIR:-'
 assert_contains "become-kiosk.sh passes XDG_RUNTIME_DIR through to sudo" \
     "$REPO_ROOT/install/become-kiosk.sh" "XDG_RUNTIME_DIR="
+# Empirically (2026-06-13), sudo -u kiosk -i does NOT inherit a usable D-Bus
+# user-bus address. systemctl --user fails with "Failed to connect to user
+# scope bus via local transport: Operation not permitted" unless we set
+# DBUS_SESSION_BUS_ADDRESS=unix:path=$XDG_RUNTIME_DIR/bus explicitly.
+assert_contains "become-kiosk.sh sets DBUS_SESSION_BUS_ADDRESS" \
+    "$REPO_ROOT/install/become-kiosk.sh" "DBUS_SESSION_BUS_ADDRESS="
+assert_contains "become-kiosk.sh derives DBUS_SESSION_BUS_ADDRESS from runtime dir" \
+    "$REPO_ROOT/install/become-kiosk.sh" 'unix:path=\$XDG_RUNTIME_DIR/bus'
 assert_contains "become-kiosk.sh defaults target user to kiosk" \
     "$REPO_ROOT/install/become-kiosk.sh" 'KIOSK_USER:-kiosk'
 # setup-kiosk.sh must install become-kiosk into /usr/local/bin so the
