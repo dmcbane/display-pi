@@ -1228,6 +1228,204 @@ assert_contains "judder.sh tree mentions wlr-randr (runtime enforcement)" \
 
 # ============================================================================
 echo ""
+echo "=== Splash updater Tests ==="
+# ============================================================================
+# Volunteers replace the kiosk splash image by piping a PNG over SSH to a
+# dedicated `splash-updater` user whose authorized_keys ForceCommand routes
+# the bytes through accept-splash. The validator MUST:
+#   - reject non-PNG input (verified by magic-byte check)
+#   - reject wrong-dimension images (must be 1920x1080)
+#   - cap input size (prevent fill-the-disk DoS via stdin)
+#   - stage to a fixed path so the sudo-privileged installer takes no args
+
+assert_file_exists "install/accept-splash.sh exists" \
+    "$REPO_ROOT/install/accept-splash.sh"
+assert_executable  "install/accept-splash.sh is executable" \
+    "$REPO_ROOT/install/accept-splash.sh"
+assert_contains "accept-splash.sh has set -euo pipefail" \
+    "$REPO_ROOT/install/accept-splash.sh" '^set -euo pipefail'
+assert_contains "accept-splash.sh checks for PNG magic via identify or file" \
+    "$REPO_ROOT/install/accept-splash.sh" 'PNG'
+assert_contains "accept-splash.sh enforces 1920 width" \
+    "$REPO_ROOT/install/accept-splash.sh" '1920'
+assert_contains "accept-splash.sh enforces 1080 height" \
+    "$REPO_ROOT/install/accept-splash.sh" '1080'
+assert_contains "accept-splash.sh caps input size (head -c MAX)" \
+    "$REPO_ROOT/install/accept-splash.sh" 'head -c'
+assert_contains "accept-splash.sh stages output to fixed path" \
+    "$REPO_ROOT/install/accept-splash.sh" '/var/lib/splash-updater/staged.png'
+# 100-byte truncated PNGs pass identify/file -b validation because both
+# parse only the IHDR header. IEND-chunk check rejects truncated input.
+assert_contains "accept-splash.sh checks for IEND chunk (rejects truncated PNG)" \
+    "$REPO_ROOT/install/accept-splash.sh" 'IEND'
+assert_contains "accept-splash.sh calls sudo install-staged-splash (no args)" \
+    "$REPO_ROOT/install/accept-splash.sh" 'sudo /usr/local/libexec/install-staged-splash'
+
+assert_file_exists "install/install-staged-splash.sh exists" \
+    "$REPO_ROOT/install/install-staged-splash.sh"
+assert_executable  "install/install-staged-splash.sh is executable" \
+    "$REPO_ROOT/install/install-staged-splash.sh"
+assert_contains "install-staged-splash.sh takes no args (sudo-safe)" \
+    "$REPO_ROOT/install/install-staged-splash.sh" 'set -euo pipefail'
+assert_contains "install-staged-splash.sh copies from fixed staging path" \
+    "$REPO_ROOT/install/install-staged-splash.sh" '/var/lib/splash-updater/staged.png'
+assert_contains "install-staged-splash.sh writes to /home/kiosk/splash.png" \
+    "$REPO_ROOT/install/install-staged-splash.sh" '/home/kiosk/splash.png'
+assert_contains "install-staged-splash.sh restarts kiosk so new splash shows" \
+    "$REPO_ROOT/install/install-staged-splash.sh" 'systemctl --machine=kiosk@.host --user restart kiosk.service'
+
+assert_file_exists "install/splash-updater-setup.sh exists" \
+    "$REPO_ROOT/install/splash-updater-setup.sh"
+assert_executable  "install/splash-updater-setup.sh is executable" \
+    "$REPO_ROOT/install/splash-updater-setup.sh"
+# Restricted authorized_keys: ForceCommand + every "no-" hardening flag we
+# can use, plus 'restrict' as a belt-and-suspenders default-deny.
+assert_contains "splash-updater-setup.sh sets ForceCommand to accept-splash" \
+    "$REPO_ROOT/install/splash-updater-setup.sh" 'command="/usr/local/libexec/accept-splash"'
+assert_contains "splash-updater-setup.sh adds restrict flag to authorized_keys" \
+    "$REPO_ROOT/install/splash-updater-setup.sh" 'restrict'
+assert_contains "splash-updater-setup.sh sudoers entry is no-args specific" \
+    "$REPO_ROOT/install/splash-updater-setup.sh" 'NOPASSWD: /usr/local/libexec/install-staged-splash$'
+# sshd's ForceCommand invokes the user's login shell, so we can't use
+# nologin (would refuse to exec anything). Lockdown lives in
+# authorized_keys (restrict + ForceCommand) + locked password instead.
+assert_contains "splash-updater-setup.sh creates user with a real shell (ForceCommand uses it)" \
+    "$REPO_ROOT/install/splash-updater-setup.sh" 'useradd .*--shell /bin/bash'
+assert_contains "splash-updater-setup.sh locks the password (no interactive login)" \
+    "$REPO_ROOT/install/splash-updater-setup.sh" 'passwd -l "\$SU_USER"'
+
+assert_file_exists "dev/splash-replace.sh exists" \
+    "$REPO_ROOT/dev/splash-replace.sh"
+assert_executable  "dev/splash-replace.sh is executable" \
+    "$REPO_ROOT/dev/splash-replace.sh"
+assert_contains "splash-replace.sh client validates PNG magic before upload" \
+    "$REPO_ROOT/dev/splash-replace.sh" '89504e470d0a1a0a'
+assert_contains "splash-replace.sh client validates 1920x1080 before upload" \
+    "$REPO_ROOT/dev/splash-replace.sh" '1920'
+assert_contains "splash-replace.sh client pipes file via ssh stdin" \
+    "$REPO_ROOT/dev/splash-replace.sh" 'splash-updater@'
+
+assert_file_exists "dev/splash-replace.ps1 exists" \
+    "$REPO_ROOT/dev/splash-replace.ps1"
+assert_contains "splash-replace.ps1 checks PNG magic" \
+    "$REPO_ROOT/dev/splash-replace.ps1" '89504E470D0A1A0A'
+assert_contains "splash-replace.ps1 checks 1920x1080" \
+    "$REPO_ROOT/dev/splash-replace.ps1" '1920'
+assert_contains "splash-replace.ps1 sends file to splash-updater" \
+    "$REPO_ROOT/dev/splash-replace.ps1" 'splash-updater@'
+
+# Behavior test: accept-splash validation against canned inputs.
+splash_validation_behavior_test() {
+    local script="$REPO_ROOT/install/accept-splash.sh"
+    if [[ ! -x "$script" ]]; then
+        FAIL=$((FAIL + 1))
+        ERRORS+=("accept-splash behavior: script missing")
+        printf "${RED}  FAIL${RESET} accept-splash behavior (script missing)\n"
+        return
+    fi
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    # Stub `sudo` so the validator doesn't actually try to invoke the
+    # privileged installer. Also stub staging path via env override.
+    cat > "$tmpdir/sudo" <<'SUDO'
+#!/bin/bash
+# Stub: pretend the install-staged-splash succeeded.
+echo "[stub-sudo] $*" >&2
+exit 0
+SUDO
+    chmod +x "$tmpdir/sudo"
+
+    # Stub `identify` so we exercise the IEND-chunk check on the Pi-side
+    # validator regardless of whether ImageMagick is installed locally.
+    # The stub reports any input that starts with PNG magic as
+    # "1920 1080 PNG" so the dimension+format checks pass — only the
+    # IEND-chunk check should decide pass/fail for the truncation case.
+    cat > "$tmpdir/identify" <<'ID'
+#!/bin/bash
+# Argv: -format <fmt> <file>
+file="${!#}"
+magic=$(od -An -N8 -tx1 "$file" 2>/dev/null | tr -d ' \n')
+if [[ "$magic" == "89504e470d0a1a0a" ]]; then
+    echo "1920 1080 PNG"
+    exit 0
+fi
+exit 1
+ID
+    chmod +x "$tmpdir/identify"
+
+    # Case 0: truncated 1920x1080 PNG (first 100 bytes of a valid file).
+    # identify/file -b both parse only IHDR, so this passes the dim check
+    # — the IEND-chunk check is what catches it.
+    local truncated="$tmpdir/truncated.png"
+    head -c 100 "$REPO_ROOT/images/splash.png" > "$truncated"
+    out=$(PATH="$tmpdir:$PATH" \
+          SPLASH_STAGING_PATH="$tmpdir/staged.png" \
+          "$script" < "$truncated" 2>&1) && rc=0 || rc=$?
+    if [[ $rc -eq 2 ]] && echo "$out" | grep -qi 'iend\|truncat'; then
+        PASS=$((PASS + 1))
+        printf "${GREEN}  PASS${RESET} accept-splash rejects truncated PNG (IEND check)\n"
+    else
+        FAIL=$((FAIL + 1))
+        ERRORS+=("accept-splash truncated: rc=$rc out=$out")
+        printf "${RED}  FAIL${RESET} accept-splash rejects truncated PNG (rc=%s out=%s)\n" "$rc" "$out"
+    fi
+
+    # Case 1: not a PNG (random bytes) — should reject with exit 2
+    local non_png="$tmpdir/not-png.bin"
+    head -c 200 /dev/urandom > "$non_png"
+    local out rc
+    out=$(PATH="$tmpdir:$PATH" \
+          SPLASH_STAGING_PATH="$tmpdir/staged.png" \
+          "$script" < "$non_png" 2>&1) && rc=0 || rc=$?
+    if [[ $rc -eq 2 ]] && echo "$out" | grep -qi 'png\|image'; then
+        PASS=$((PASS + 1))
+        printf "${GREEN}  PASS${RESET} accept-splash rejects non-PNG input\n"
+    else
+        FAIL=$((FAIL + 1))
+        ERRORS+=("accept-splash non-PNG: rc=$rc out=$out")
+        printf "${RED}  FAIL${RESET} accept-splash rejects non-PNG input (rc=%s)\n" "$rc"
+    fi
+
+    # Case 2: wrong-dimension PNG — should reject with exit 2
+    if command -v convert >/dev/null 2>&1; then
+        local wrong_dim="$tmpdir/wrong-dim.png"
+        convert -size 640x480 xc:red "$wrong_dim" 2>/dev/null
+        out=$(PATH="$tmpdir:$PATH" \
+              SPLASH_STAGING_PATH="$tmpdir/staged.png" \
+              "$script" < "$wrong_dim" 2>&1) && rc=0 || rc=$?
+        if [[ $rc -eq 2 ]] && echo "$out" | grep -qE '1920|dimension|size'; then
+            PASS=$((PASS + 1))
+            printf "${GREEN}  PASS${RESET} accept-splash rejects 640x480 PNG\n"
+        else
+            FAIL=$((FAIL + 1))
+            ERRORS+=("accept-splash 640x480: rc=$rc out=$out")
+            printf "${RED}  FAIL${RESET} accept-splash rejects 640x480 PNG (rc=%s)\n" "$rc"
+        fi
+
+        # Case 3: correct PNG — should succeed (sudo stubbed)
+        local good_png="$tmpdir/good.png"
+        convert -size 1920x1080 xc:blue "$good_png" 2>/dev/null
+        out=$(PATH="$tmpdir:$PATH" \
+              SPLASH_STAGING_PATH="$tmpdir/staged.png" \
+              "$script" < "$good_png" 2>&1) && rc=0 || rc=$?
+        if [[ $rc -eq 0 ]] && echo "$out" | grep -qi 'ok'; then
+            PASS=$((PASS + 1))
+            printf "${GREEN}  PASS${RESET} accept-splash accepts 1920x1080 PNG\n"
+        else
+            FAIL=$((FAIL + 1))
+            ERRORS+=("accept-splash 1920x1080: rc=$rc out=$out")
+            printf "${RED}  FAIL${RESET} accept-splash accepts 1920x1080 PNG (rc=%s out=%s)\n" "$rc" "$out"
+        fi
+    else
+        printf "${RED}  SKIP${RESET} accept-splash dimension tests (convert not installed)\n"
+    fi
+
+    rm -rf "$tmpdir"
+}
+splash_validation_behavior_test
+
+# ============================================================================
+echo ""
 echo "=== Consistency Tests ==="
 # ============================================================================
 

@@ -4,6 +4,45 @@ All notable changes to display-pi are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - 2026-06-13
+
+### Added
+- **Splash-image update workflow for non-technical volunteers.** Three
+  Pi-side scripts plus two client scripts (macOS/Linux + Windows) that
+  let a volunteer replace `/home/kiosk/splash.png` over SSH with a hard
+  guarantee that they can ONLY replace that one file.
+  - `install/accept-splash.sh` — SSH `ForceCommand` target. Reads PNG
+    from stdin, validates magic bytes, format (`identify` or `file -b`
+    fallback), dimensions (must be 1920×1080), max size (10 MiB), and
+    the trailing `IEND` chunk (catches truncated uploads that
+    `identify` would otherwise accept — `identify` only parses IHDR).
+    Stages to `/var/lib/splash-updater/staged.png`.
+  - `install/install-staged-splash.sh` — root-only helper, invoked via
+    a no-args `NOPASSWD:` sudo grant. Copies the staged PNG to
+    `/home/kiosk/splash.png` and restarts the kiosk so the new image
+    appears within ~2 seconds.
+  - `install/splash-updater-setup.sh` — admin-run, one-time. Creates
+    the `splash-updater` system user (locked password), generates an
+    ed25519 keypair, writes `~splash-updater/.ssh/authorized_keys`
+    with `restrict,no-port-forwarding,no-X11-forwarding,
+    no-agent-forwarding,no-pty,command="…accept-splash"`, installs the
+    sudoers entry, and prints the private key + connection details for
+    the volunteer bundle.
+  - `dev/splash-replace.sh` — macOS/Linux client. Validates PNG magic
+    + 1920×1080 locally (so an obviously-wrong file fails fast with a
+    clear message) then pipes the file via `ssh splash-updater@HOST`.
+  - `dev/splash-replace.ps1` — Windows client. Uses `System.Drawing`
+    for dimension check, shells out to `cmd /c "ssh … < file"` for
+    binary-safe stdin redirection.
+
+  Security model: SSH key auth only, `ForceCommand` traps every
+  connection into the validator regardless of the client's intent.
+  Worst case a malicious volunteer can do: replace `splash.png` with a
+  valid 1920×1080 PNG (exactly what they're supposed to do). End-to-end
+  verified on the live Pi: full PNG accepted, 100-byte truncated PNG
+  rejected, shell attempts rejected, `scp` to arbitrary paths blocked,
+  port forwards refused.
+
 ## [0.8.2] - 2026-06-13
 
 ### Fixed
