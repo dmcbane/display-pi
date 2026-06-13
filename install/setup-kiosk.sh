@@ -810,12 +810,11 @@ Next steps:
         # nginx RTMP listener
         sudo ss -tlnp | grep 1935
 
-        # Kiosk service status
-        sudo machinectl shell ${KIOSK_USER}@ /bin/bash \\
-             -c "systemctl --user status kiosk.service"
+        # Kiosk service status (uses become-kiosk helper installed below)
+        become-kiosk systemctl --user status kiosk.service
 
         # Live player logs
-        sudo journalctl -f --user-unit=kiosk.service -M ${KIOSK_USER}@
+        become-kiosk journalctl --user -f --user-unit=kiosk.service
 
   4. Test the full stream path WITHOUT the ATEM (from another machine):
         ffmpeg -re -f lavfi -i testsrc=size=1920x1080:rate=30 \\

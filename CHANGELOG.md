@@ -4,6 +4,23 @@ All notable changes to display-pi are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.3] - 2026-06-13
+
+### Fixed
+- **`install/setup-kiosk.sh` post-install instructions — switch from
+  `machinectl shell` / `journalctl -M kiosk@` to the project's
+  `become-kiosk` helper.** `journalctl -M ${KIOSK_USER}@` failed on Pi OS
+  with `Failed to open root directory of machine 'kiosk@'` because the
+  kiosk user's `--user` systemd manager (running via linger) is not
+  registered as a "machine" with `systemd-machined` — `-M user@` only
+  works when machined knows about the user manager, which Pi OS does
+  not arrange. `machinectl shell` worked because it opens an ephemeral
+  session per invocation, but the asymmetry was a footgun. Both
+  commands now use `become-kiosk`, which was added in 0.6.0 for
+  exactly this purpose and works one-shot via `become-kiosk <cmd>`.
+  Tests pin the new invocations and forbid the old `-M …KIOSK_USER@`
+  form.
+
 ## [0.6.2] - 2026-06-13
 
 ### Fixed

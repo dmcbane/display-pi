@@ -401,6 +401,17 @@ assert_contains "setup-kiosk.sh installs alsa-utils (provides aplay)" \
 assert_contains "setup-kiosk.sh installs systemd-container (provides machinectl)" \
     "$REPO_ROOT/install/setup-kiosk.sh" "systemd-container"
 
+# Post-install instructions printed at end of setup must use become-kiosk
+# (the project's helper) instead of machinectl/-M kiosk@. machinectl shell
+# works one-shot but `journalctl -M kiosk@` fails on Pi OS because the
+# user manager is not registered as a machine with systemd-machined.
+assert_contains "setup-kiosk.sh post-install uses become-kiosk for kiosk service status" \
+    "$REPO_ROOT/install/setup-kiosk.sh" "become-kiosk systemctl --user status kiosk.service"
+assert_contains "setup-kiosk.sh post-install uses become-kiosk for kiosk service logs" \
+    "$REPO_ROOT/install/setup-kiosk.sh" "become-kiosk journalctl --user"
+assert_not_contains "setup-kiosk.sh post-install no longer uses -M …KIOSK_USER@" \
+    "$REPO_ROOT/install/setup-kiosk.sh" "KIOSK_USER}@"
+
 # ============================================================================
 echo ""
 echo "=== judder.sh probe Tests ==="
