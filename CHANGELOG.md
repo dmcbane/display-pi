@@ -4,6 +4,18 @@ All notable changes to display-pi are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.1] - 2026-06-12
+
+### Fixed
+- **`install/setup-kiosk.sh` — Pi OS 13 (Trixie) package rename for `vcgencmd`.**
+  Debian Trixie dropped `libraspberrypi-bin`; `vcgencmd` now ships in
+  `raspi-utils`. A fresh `make setup` on a Pi 5 running Pi OS 13 failed at the
+  apt-install step with "Package 'libraspberrypi-bin' has no installation
+  candidate". `install_packages()` now probes `apt-cache show raspi-utils`
+  and falls back to `libraspberrypi-bin` so the script works on both Bookworm
+  and Trixie. `confirm_os` also accepts trixie alongside bookworm. Tests pin
+  both package names and the apt-cache probe.
+
 ## [0.6.0] - 2026-05-31
 
 ### Changed

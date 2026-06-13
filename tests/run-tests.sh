@@ -380,8 +380,15 @@ assert_contains "setup-kiosk.sh installs libdrm-tests (provides kmsprint)" \
 
 # vcgencmd — used by judder.sh probe + monitor for thermal/throttling readout.
 # Usually preinstalled on Raspberry Pi OS, but Lite images don't guarantee it.
-assert_contains "setup-kiosk.sh installs libraspberrypi-bin (provides vcgencmd)" \
+# On Pi OS 12 (Bookworm) vcgencmd ships in libraspberrypi-bin; on Pi OS 13
+# (Trixie) that package is gone and vcgencmd lives in raspi-utils. The script
+# must reference BOTH names and pick at runtime via apt-cache.
+assert_contains "setup-kiosk.sh references raspi-utils (Trixie vcgencmd pkg)" \
+    "$REPO_ROOT/install/setup-kiosk.sh" "raspi-utils"
+assert_contains "setup-kiosk.sh references libraspberrypi-bin (Bookworm vcgencmd pkg)" \
     "$REPO_ROOT/install/setup-kiosk.sh" "libraspberrypi-bin"
+assert_contains "setup-kiosk.sh picks vcgencmd pkg via apt-cache" \
+    "$REPO_ROOT/install/setup-kiosk.sh" "apt-cache show raspi-utils"
 
 # aplay — used by render-status.sh check_audio fallback when wpctl is absent.
 assert_contains "setup-kiosk.sh installs alsa-utils (provides aplay)" \

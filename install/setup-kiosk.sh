@@ -108,8 +108,8 @@ confirm_os() {
     if ! grep -qi 'raspbian\|raspberry pi os\|debian' /etc/os-release; then
         warn "This doesn't look like Raspberry Pi OS. Continuing anyway."
     fi
-    if ! grep -q 'bookworm' /etc/os-release 2>/dev/null; then
-        warn "Not Bookworm. Paths like /boot/firmware may differ."
+    if ! grep -qE 'bookworm|trixie' /etc/os-release 2>/dev/null; then
+        warn "Not Bookworm or Trixie. Paths like /boot/firmware may differ."
     fi
 }
 
@@ -119,6 +119,21 @@ confirm_os() {
 install_packages() {
     log "Updating apt and installing packages..."
     sudo apt-get update
+
+    # vcgencmd ships in different packages across Pi OS releases:
+    #   Pi OS 12 (Bookworm): libraspberrypi-bin
+    #   Pi OS 13 (Trixie):   raspi-utils  (libraspberrypi-bin is gone)
+    # Pick whichever apt knows about. raspi-utils first since Trixie is current.
+    local vcgencmd_pkg
+    if apt-cache show raspi-utils >/dev/null 2>&1; then
+        vcgencmd_pkg=raspi-utils
+    elif apt-cache show libraspberrypi-bin >/dev/null 2>&1; then
+        vcgencmd_pkg=libraspberrypi-bin
+    else
+        die "Neither raspi-utils nor libraspberrypi-bin available — vcgencmd has no source."
+    fi
+    log "vcgencmd provider: $vcgencmd_pkg"
+
     # Display + media stack
     #   cage / mpv / seatd        — kiosk compositor + player + seat manager
     #   nginx + libnginx-mod-rtmp — RTMP ingest from the ATEM
@@ -133,7 +148,8 @@ install_packages() {
     #                               Kiosk hangs at boot without it.
     #   wlr-randr                 — judder.sh: read the active Wayland mode
     #   libdrm-tests              — provides kmsprint (KMS connector dump)
-    #   libraspberrypi-bin        — provides vcgencmd (thermal/throttle readout)
+    #   $vcgencmd_pkg             — provides vcgencmd (thermal/throttle readout);
+    #                               raspi-utils on Trixie, libraspberrypi-bin on Bookworm
     #   alsa-utils                — provides aplay (audio fallback probe)
     #   python3-defusedxml        — diagnostics/parse_stat.py prefers it over
     #                               stdlib ET for XXE/billion-laughs hardening
@@ -145,7 +161,7 @@ install_packages() {
         ca-certificates curl logrotate cron \
         pipewire pipewire-audio wireplumber \
         netcat-openbsd \
-        wlr-randr libdrm-tests libraspberrypi-bin alsa-utils \
+        wlr-randr libdrm-tests "$vcgencmd_pkg" alsa-utils \
         python3-defusedxml
     log "Packages installed."
 }
