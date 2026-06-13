@@ -24,6 +24,13 @@ param(
 $ErrorActionPreference = 'Stop'
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 
+# When the volunteer right-clicks "Run with PowerShell", a fresh window
+# opens, runs the script, then closes. If the script errors and exits
+# before they can read the message, the window vanishes with the error
+# unread. Pause at exit ONLY when stdin is interactive (no pipe), so
+# automation / dev runs don't pause.
+try {
+
 $Host_ = $env:SPLASH_HOST
 if (-not $Host_) { $Host_ = 'displaypi' }
 
@@ -90,3 +97,12 @@ $sshCmd = "ssh -i $keyArg -o StrictHostKeyChecking=accept-new -o BatchMode=yes -
 
 $exit = (Start-Process -FilePath 'cmd.exe' -ArgumentList '/c', $sshCmd -Wait -NoNewWindow -PassThru).ExitCode
 exit $exit
+
+}
+finally {
+    if (-not [Console]::IsInputRedirected) {
+        Write-Host ''
+        Write-Host 'Press Enter to close...' -ForegroundColor Yellow
+        $null = Read-Host
+    }
+}

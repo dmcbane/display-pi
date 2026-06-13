@@ -4,6 +4,18 @@ All notable changes to display-pi are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.2] - 2026-06-13
+
+### Fixed
+- **`dev/splash-replace.ps1` — pause on interactive exit so the right-
+  click "Run with PowerShell" window doesn't vanish before the
+  volunteer reads the error.** Body wrapped in `try { … } finally { … }`;
+  finally checks `[Console]::IsInputRedirected` and prompts for Enter
+  only when stdin is interactive (no pipe), so automation/dev runs
+  don't pause. Verified end-to-end on the Pi from a Windows test
+  bundle: valid PNG accepted, all three error cases reject with rc=2
+  and the documented friendly messages.
+
 ## [0.9.1] - 2026-06-13
 
 ### Added

@@ -1338,6 +1338,15 @@ assert_contains "splash-replace.ps1 checks 1920x1080" \
     "$REPO_ROOT/dev/splash-replace.ps1" '1920'
 assert_contains "splash-replace.ps1 sends file to splash-updater" \
     "$REPO_ROOT/dev/splash-replace.ps1" 'splash-updater@'
+# Right-click "Run with PowerShell" opens a fresh window that vanishes
+# on script exit. If the script errors before the volunteer reads the
+# message, they see nothing. Try/finally + IsInputRedirected check
+# pauses for Enter ONLY when stdin is interactive (no pipe), so
+# automation isn't affected.
+assert_contains "splash-replace.ps1 wraps body in try/finally" \
+    "$REPO_ROOT/dev/splash-replace.ps1" '^finally {'
+assert_contains "splash-replace.ps1 pauses for Enter on interactive exit" \
+    "$REPO_ROOT/dev/splash-replace.ps1" 'IsInputRedirected'
 
 # Behavior test: accept-splash validation against canned inputs.
 splash_validation_behavior_test() {
