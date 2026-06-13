@@ -4,6 +4,35 @@ All notable changes to display-pi are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-06-13
+
+### Changed (BREAKING)
+- **HDMI mode no longer written to `cmdline.txt`.** On Pi 5 / Trixie,
+  the kernel `video=HDMI-A-1:<mode>` parameter synthesizes a CRT-style
+  modeline that diverges from EDID-reported modes (e.g. kernel makes
+  `1920x1080@30.00` while panel reports `1920x1080@30.003`). KMS lands
+  on the synthesized mode; wayland (cage) lands on EDID-preferred; every
+  atomic commit fails with `Invalid argument` → black screen and an
+  unending stream of `connector HDMI-A-1: Atomic commit failed` lines in
+  the journal.
+  - `install/setup-kiosk.sh` now ALWAYS strips any stale
+    `video=HDMI-A-1:*` token from cmdline.txt and never writes a new
+    one. `HDMI_MODE` setup variable still flows through to
+    `KIOSK_MODE=` in `/etc/default/kiosk`.
+  - `dev/set-hdmi-mode.sh` same: strip on every run, never add.
+  - `diagnostics/judder.sh tree` updated to teach the runtime-only path.
+
+### Added
+- **`install/player.sh` — `nearest_refresh_for` resolver.** wlr-randr's
+  `--mode` rejects a target like `1920x1080@30` when the EDID-reported
+  rate is `30.003000` (or any other non-integer). The resolver reads
+  wlr-randr's mode list, matches the requested resolution, and picks
+  the closest available refresh rate, then feeds that exact decimal back
+  to `wlr-randr --mode`. Handles panels that report integer rates,
+  panels that report 30.003/29.97, and panels that have no mode at the
+  requested rate (returns empty → force_display_mode logs a WARN and
+  leaves EDID-preferred active rather than fighting the panel).
+
 ## [0.6.4] - 2026-06-13
 
 ### Fixed

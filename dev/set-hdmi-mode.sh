@@ -63,15 +63,17 @@ BACKUP="${CMDLINE}.bak-${STAMP}"
 sudo cp -a "$CMDLINE" "$BACKUP"
 
 # Read current line, normalize whitespace, strip any existing video=HDMI-A-1:*
+# Pi 5 / Trixie regression 2026-06-13: the kernel video= parameter
+# synthesizes a modeline that diverges from EDID-reported modes; KMS
+# ends up on the synthesized mode and wayland (cage) on EDID-preferred,
+# every atomic commit fails -> black screen. The single source of truth
+# is KIOSK_MODE applied by player.sh -> wlr-randr at runtime. We always
+# strip any stale token and NEVER write a new one.
 current=$(sudo cat "$CMDLINE" | tr -s "[:space:]" " " | sed "s/^ //;s/ \$//")
 stripped=$(printf "%s" "$current" | sed -E "s/( |^)video=HDMI-A-1:[^ ]+//g; s/  +/ /g; s/^ //; s/ \$//")
-
-if [ "$MODE" = "none" ]; then
-    new="$stripped"
-    echo "Removing video=HDMI-A-1: from cmdline.txt"
-else
-    new="${stripped} video=HDMI-A-1:${MODE}"
-    echo "Setting video=HDMI-A-1:${MODE}"
+new="$stripped"
+if [ "$stripped" != "$current" ]; then
+    echo "Stripped stale video=HDMI-A-1: from cmdline.txt (KIOSK_MODE owns mode now)"
 fi
 
 # Refuse empty

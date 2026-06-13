@@ -359,21 +359,22 @@ EOF
         tokens_to_add+=("vc4.force_hotplug=1")
     fi
 
-    # HDMI_MODE handling: idempotent strip-then-add. A prior video=HDMI-A-1:*
-    # token is always stripped first so re-runs replace cleanly.
+    # Strip any stale video=HDMI-A-1:* token. Pi 5 / Trixie regression
+    # 2026-06-13: a kernel `video=` parameter synthesizes a modeline that
+    # diverges from EDID-reported modes, leaving KMS at the synthesized
+    # mode and wayland (cage) at the EDID-preferred mode. The mismatch
+    # makes every atomic commit fail with "Invalid argument" — black
+    # screen. The single source of truth for HDMI mode is now KIOSK_MODE
+    # in /etc/default/kiosk, applied at runtime by player.sh via
+    # wlr-randr. setup-kiosk.sh and dev/set-hdmi-mode.sh always strip
+    # the cmdline.txt token and never add one.
     local new="$current"
     local hdmi_changed=0
-    if [[ -n "$HDMI_MODE" ]]; then
-        # Strip any existing video=HDMI-A-1:... token, normalize whitespace
-        local stripped
-        stripped=$(printf '%s' "$new" | sed -E 's/( |^)video=HDMI-A-1:[^ ]+//g; s/  +/ /g; s/^ //; s/ $//')
-        if [[ "$HDMI_MODE" == "none" ]]; then
-            new="$stripped"
-            log "Removing video=HDMI-A-1: from cmdline.txt (HDMI_MODE=none)"
-        else
-            new="${stripped} video=HDMI-A-1:${HDMI_MODE}"
-            log "Setting cmdline.txt video=HDMI-A-1:${HDMI_MODE}"
-        fi
+    local stripped
+    stripped=$(printf '%s' "$new" | sed -E 's/( |^)video=HDMI-A-1:[^ ]+//g; s/  +/ /g; s/^ //; s/ $//')
+    if [[ "$stripped" != "$new" ]]; then
+        log "Stripping stale video=HDMI-A-1: from cmdline.txt (KIOSK_MODE owns this now)"
+        new="$stripped"
         hdmi_changed=1
     fi
 

@@ -140,6 +140,56 @@ assert_contains "player.sh shows diagnostics on repeated failure" "$REPO_ROOT/in
 assert_contains "player.sh resolves symlinks for SCRIPT_DIR" "$REPO_ROOT/install/player.sh" "readlink -f"
 assert_contains "player.sh splash mpv redirects stdout (\$()+& pipe bug)" "$REPO_ROOT/install/player.sh" '</dev/null >>"\$LOG" 2>&1 &'
 
+# nearest_refresh_for: maps an operator-friendly mode string like
+# "1920x1080@30" to the closest refresh actually reported by wlr-randr for
+# that resolution (e.g. "1920x1080@30.003000"). Pi 5 / Trixie regression
+# 2026-06-13: wlr-randr does an exact string match on @RATE, and the GWD
+# ARZOPA panel reports its 30Hz mode as 30.003 Hz — exact "@30" was
+# rejected as "unknown mode", display defaulted to 60Hz, cage's atomic
+# commits failed (kernel video= had synthesized a phantom 30Hz mode), and
+# the screen went black. The resolver lets force_display_mode handle both
+# panels that report 30.000 and panels that report 30.003/29.97/etc.
+assert_contains "player.sh defines nearest_refresh_for resolver" \
+    "$REPO_ROOT/install/player.sh" "^nearest_refresh_for()"
+assert_contains "player.sh force_display_mode calls nearest_refresh_for" \
+    "$REPO_ROOT/install/player.sh" "nearest_refresh_for"
+
+# Behavior test: extract the function and exercise it on canned wlr-randr
+# output. Same pattern as drops_behavior_test above.
+nearest_refresh_behavior_test() {
+    local fn_body
+    fn_body=$(sed -n '/^nearest_refresh_for()/,/^}/p' "$REPO_ROOT/install/player.sh")
+    if [[ -z "$fn_body" ]]; then
+        FAIL=$((FAIL + 1))
+        ERRORS+=("nearest_refresh_for behavior: function not found")
+        printf "${RED}  FAIL${RESET} nearest_refresh_for behavior (function missing)\n"
+        return
+    fi
+    local canned
+    canned=$'HDMI-A-1 "GWD ARZOPA"\n  Modes:\n    1920x1080 px, 60.000000 Hz (preferred, current)\n    1920x1080 px, 144.001007 Hz\n    1920x1080 px, 30.003000 Hz\n    1280x720 px, 60.000000 Hz\n'
+
+    for case in \
+        '1920x1080@30:1920x1080@30.003000' \
+        '1920x1080@60:1920x1080@60.000000' \
+        '1280x720@30:1280x720@60.000000' \
+        '3840x2160@30:'; do
+        local target="${case%%:*}"
+        local want="${case#*:}"
+        local actual
+        actual=$(bash -c "$fn_body
+printf '%s' \"\$1\" | nearest_refresh_for '$target'" _ "$canned")
+        if [[ "$actual" == "$want" ]]; then
+            PASS=$((PASS + 1))
+            printf "${GREEN}  PASS${RESET} nearest_refresh_for '%s' -> '%s'\n" "$target" "$want"
+        else
+            FAIL=$((FAIL + 1))
+            ERRORS+=("nearest_refresh_for '$target': expected '$want' got '$actual'")
+            printf "${RED}  FAIL${RESET} nearest_refresh_for '%s' (expected '%s', got '%s')\n" "$target" "$want" "$actual"
+        fi
+    done
+}
+nearest_refresh_behavior_test
+
 # ============================================================================
 echo ""
 echo "=== Assess Script Tests ==="
@@ -482,14 +532,19 @@ assert_contains "judder.sh variant surfaces './judder.sh restore' as a fallback 
     "$REPO_ROOT/diagnostics/judder.sh" "judder.sh restore"
 
 # HDMI mode-forcing recipe must use the KMS-correct kernel video= parameter
-# in cmdline.txt — NOT the legacy firmware hdmi_group/hdmi_mode keys, which
-# the vc4-kms-v3d driver silently ignores under Bookworm. Regressed in
-# 6aa7d4e (rtmp_stat work) — operators followed the stale recipe and the
-# 4K display kept upscaling. See dev journal 2026-05-09 entry.
-assert_contains "judder.sh tree teaches the KMS cmdline.txt video= recipe" \
-    "$REPO_ROOT/diagnostics/judder.sh" "video=HDMI-A-1:1920x1080@30"
+# in /etc/default/kiosk (consumed at runtime by player.sh -> wlr-randr) —
+# NOT the legacy firmware hdmi_group/hdmi_mode keys, which the vc4-kms-v3d
+# driver silently ignores under Bookworm/Trixie. Also NOT the kernel
+# video=HDMI-A-1: cmdline parameter — on Pi 5 / Trixie that synthesizes a
+# modeline that wayland (cage) can't atomic-commit against (regression
+# 2026-06-13 — black screen). See dev journal 2026-05-09 and the
+# Pi 5 / Trixie black-screen note.
+assert_contains "judder.sh tree teaches make hdmi-mode (canonical recipe)" \
+    "$REPO_ROOT/diagnostics/judder.sh" "make hdmi-mode HDMI_MODE=1920x1080@30"
 assert_not_contains "judder.sh tree does not teach the legacy firmware hdmi_mode recipe (KMS ignores it)" \
     "$REPO_ROOT/diagnostics/judder.sh" "hdmi_mode=39"
+assert_not_contains "judder.sh tree no longer teaches manual cmdline.txt video= edit (breaks Pi 5/Trixie)" \
+    "$REPO_ROOT/diagnostics/judder.sh" 'sudoedit /boot/firmware/cmdline.txt'
 
 # judder.sh monitor: the drops counter must produce a single-line value.
 # GNU grep -c on an empty file outputs "0" AND exits 1, so `grep -c … || echo 0`
@@ -856,11 +911,19 @@ echo "=== HDMI mode single-source-of-truth Tests ==="
 # setup-kiosk.sh accepts HDMI_MODE env var
 assert_contains "setup-kiosk.sh accepts HDMI_MODE env var" \
     "$REPO_ROOT/install/setup-kiosk.sh" "HDMI_MODE="
-assert_contains "setup-kiosk.sh adds video=HDMI-A-1: to cmdline.txt when HDMI_MODE set" \
-    "$REPO_ROOT/install/setup-kiosk.sh" 'video=HDMI-A-1:'
-# Idempotence: must strip any prior video=HDMI-A-1:* before adding
-assert_contains "setup-kiosk.sh strips prior video=HDMI-A-1: token (idempotent)" \
-    "$REPO_ROOT/install/setup-kiosk.sh" "video=HDMI-A-1:"
+
+# Pi 5 / Trixie regression 2026-06-13: the kernel video=HDMI-A-1:<mode>
+# parameter synthesizes a modeline that diverges from EDID-reported modes
+# (e.g. kernel makes "1920x1080@30.00" while panel reports
+# "1920x1080@30.003"). KMS ends up on the synthesized mode, wayland (cage)
+# on the EDID-preferred mode; every atomic commit fails -> black screen.
+# Single source of truth is now KIOSK_MODE applied by wlr-randr at
+# runtime. setup-kiosk.sh and set-hdmi-mode.sh must STRIP any existing
+# video=HDMI-A-1:* token but NEVER add one.
+assert_contains "setup-kiosk.sh strips stale video=HDMI-A-1: token (cleanup)" \
+    "$REPO_ROOT/install/setup-kiosk.sh" "s/( |^)video=HDMI-A-1:"
+assert_not_contains "setup-kiosk.sh does not ADD video=HDMI-A-1: token" \
+    "$REPO_ROOT/install/setup-kiosk.sh" 'video=HDMI-A-1:\${HDMI_MODE}'
 
 # Standalone fix-script for an already-deployed Pi
 assert_file_exists "dev/set-hdmi-mode.sh exists" "$REPO_ROOT/dev/set-hdmi-mode.sh"
@@ -871,8 +934,11 @@ assert_contains "set-hdmi-mode.sh edits cmdline.txt (KMS-correct path)" \
 # be written by this script — the KMS-correct path lives in cmdline.txt.
 assert_not_contains "set-hdmi-mode.sh does not write to config.txt (sudo tee/sed -i CONFIG)" \
     "$REPO_ROOT/dev/set-hdmi-mode.sh" 'sudo tee.*\$CONFIG\|sed -i.*\$CONFIG\|> *\$CONFIG'
-assert_contains "set-hdmi-mode.sh writes video=HDMI-A-1 token" \
-    "$REPO_ROOT/dev/set-hdmi-mode.sh" "video=HDMI-A-1:"
+# Same Pi 5 / Trixie reason as setup-kiosk.sh above.
+assert_contains "set-hdmi-mode.sh strips stale video=HDMI-A-1: token (cleanup)" \
+    "$REPO_ROOT/dev/set-hdmi-mode.sh" 'video=HDMI-A-1:'
+assert_not_contains "set-hdmi-mode.sh does not ADD video=HDMI-A-1: token" \
+    "$REPO_ROOT/dev/set-hdmi-mode.sh" 'video=HDMI-A-1:\${MODE}'
 assert_contains "set-hdmi-mode.sh validates cmdline.txt is one non-empty line" \
     "$REPO_ROOT/dev/set-hdmi-mode.sh" "grep -c"
 

@@ -35,7 +35,35 @@ KIOSK_OUTPUT="${KIOSK_OUTPUT:-HDMI-A-1}"
 # ---------------------------------------------------------------------------
 # Runtime mode enforcement — wlr-randr sets the active mode authoritatively
 # within the cage session. Logged for forensics; failure is non-fatal.
+#
+# nearest_refresh_for: read wlr-randr output on stdin, take a target like
+# "1920x1080@30" as $1, print the closest mode in WIDTHxHEIGHT@RATE form
+# (RATE is the EDID-reported decimal, e.g. "30.003000"). Pi 5 / Trixie
+# panels often report 30Hz as 30.003 Hz; an exact "@30" string match
+# rejects everything. This resolver matches the resolution first, then
+# picks the smallest |actual_rate - target_rate|.
 # ---------------------------------------------------------------------------
+nearest_refresh_for() {
+    awk -v target="$1" '
+        BEGIN {
+            n = split(target, parts, "@")
+            if (n != 2) exit
+            target_wh = parts[1]
+            target_rate = parts[2] + 0
+        }
+        $1 ~ /^[0-9]+x[0-9]+$/ && $2 == "px," && $4 == "Hz" && $1 == target_wh {
+            diff = ($3 > target_rate) ? $3 - target_rate : target_rate - $3
+            if (best_rate == "" || diff < best_diff) {
+                best_rate = $3
+                best_diff = diff
+            }
+        }
+        END {
+            if (best_rate != "") print target_wh "@" best_rate
+        }
+    '
+}
+
 force_display_mode() {
     if [[ -z "$KIOSK_MODE" ]]; then
         echo "[$(date)] KIOSK_MODE unset, leaving EDID-preferred mode active"
@@ -45,8 +73,14 @@ force_display_mode() {
         echo "[$(date)] WARN: wlr-randr not installed; cannot enforce $KIOSK_MODE"
         return 0
     fi
-    echo "[$(date)] forcing $KIOSK_OUTPUT to $KIOSK_MODE via wlr-randr"
-    wlr-randr --output "$KIOSK_OUTPUT" --mode "$KIOSK_MODE" \
+    local resolved
+    resolved=$(wlr-randr 2>/dev/null | nearest_refresh_for "$KIOSK_MODE")
+    if [[ -z "$resolved" ]]; then
+        echo "[$(date)] WARN: no $KIOSK_MODE match in wlr-randr output; leaving active mode"
+        return 0
+    fi
+    echo "[$(date)] forcing $KIOSK_OUTPUT: requested $KIOSK_MODE, resolved $resolved"
+    wlr-randr --output "$KIOSK_OUTPUT" --mode "$resolved" \
         > /tmp/kiosk-wlr-randr.log 2>&1 || {
             echo "[$(date)] WARN: wlr-randr failed (exit $?); continuing with active mode"
         }

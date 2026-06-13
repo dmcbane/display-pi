@@ -486,19 +486,23 @@ FIX OPTIONS (pick the most achievable):
      default in NTSC regions.
   2. Force HDMI to a specific mode (also fixes 4K-display preferred
      mode pulling the Pi to 3840x2160@30 with 1080p source). Under
-     Bookworm KMS the legacy firmware knobs (hdmi_group, hdmi_mode,
-     hdmi_drive) are IGNORED. Two cooperating layers do the work:
-       - Kernel cmdline `video=HDMI-A-1:<mode>` in /boot/firmware/cmdline.txt
-         (boot-time hint to DRM/KMS — best-effort).
-       - Runtime `wlr-randr --output HDMI-A-1 --mode <mode>` invoked by
-         player.sh's force_display_mode() — authoritative inside cage.
-     Both read the same value: KIOSK_MODE in /etc/default/kiosk.
+     Bookworm/Trixie KMS the legacy firmware knobs (hdmi_group,
+     hdmi_mode, hdmi_drive) are IGNORED. The kernel cmdline
+     `video=HDMI-A-1:<mode>` parameter ALSO does not work safely on
+     Pi 5 / Trixie: it synthesizes a modeline that diverges from
+     EDID-reported modes (e.g. kernel "30.00" vs panel "30.003"), so
+     KMS lands on one mode and wayland (cage) lands on another. Every
+     atomic commit then fails -> black screen. The single source of
+     truth is now runtime:
+        Runtime `wlr-randr --output HDMI-A-1 --mode <mode>` invoked by
+        player.sh's force_display_mode(), which nearest-matches the
+        requested rate against the EDID-reported modes.
 
      CANONICAL MECHANISM (single source of truth — use this):
         # From your dev workstation:
         make hdmi-mode HDMI_MODE=1920x1080@30
-        # Updates both cmdline.txt AND /etc/default/kiosk on the Pi.
-        # The Pi will prompt-reboot. Verify with `make judder-probe`.
+        # Writes KIOSK_MODE to /etc/default/kiosk and strips any stale
+        # video=HDMI-A-1: from cmdline.txt. Prompts to reboot the Pi.
 
      To clear forcing:
         make hdmi-mode HDMI_MODE=none
@@ -508,14 +512,11 @@ FIX OPTIONS (pick the most achievable):
         ssh kiosk@<pi> 'wlr-randr'                # "(current)" mode
 
      Manual edit (only if `make hdmi-mode` is unavailable):
-        sudoedit /boot/firmware/cmdline.txt
-        # append, on the same single line (space-separated):
-        video=HDMI-A-1:1920x1080@30
         sudoedit /etc/default/kiosk
         # add or replace inside the kiosk-setup marker block:
         KIOSK_MODE=1920x1080@30
         KIOSK_OUTPUT=HDMI-A-1
-        # then: sudo reboot
+        # then: sudo systemctl restart kiosk.service  (no reboot needed)
 
      Other useful values: 1920x1080@60, 1920x1080@50, 1280x720@60.
      Append D after the rate (e.g. @60D) for double-clock CEA modes
