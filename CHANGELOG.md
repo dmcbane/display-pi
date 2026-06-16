@@ -4,6 +4,39 @@ All notable changes to display-pi are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.0] - 2026-06-16
+
+### Fixed
+- **Splash rotation now actually works.** Two bugs kept the kiosk stuck on
+  one image: (1) `deploy.sh` gated the splash copy on a test that ran as
+  the SSH user, who can't read the `0700 /home/kiosk` — so the rotation
+  folder was never created on the Pi and the player fell back to the
+  single `splash.png`; (2) once the folder existed as a symlink, `find`
+  did not descend into it (a symlink start-point needs `-L`), so the
+  player still saw an empty folder. `next_splash_image` now uses
+  `find -L`, and the folder is provisioned by symlink (below).
+- **Rotation cursor persists across restarts.** It was an in-memory
+  counter that reset to the first slide on every service start, so
+  `make restart` always showed image 0 instead of advancing. The cursor
+  is now stored in `/home/kiosk/.splash-index`, so each splash entry —
+  including after a restart or crash — steps to the next image.
+
+### Changed
+- **Splash images are symlinked, not copied.** `deploy.sh` now points
+  `/home/kiosk/splash.d` and `/home/kiosk/splash.png` at the deployed
+  repo (`images/…`), exactly like the `bin/` scripts — no more duplicate
+  copies drifting out of sync, and the old copy blocks (which silently
+  no-op'd due to the `0700` permission bug) are gone. The volunteer slide
+  lives inside the symlinked folder and is protected from the deploy's
+  `rsync --delete` by a top-level `--exclude='*-volunteer.png'`.
+- **`setup-kiosk.sh`** no longer seeds a runtime `splash.d/` (deploy owns
+  it via the symlink); it still installs the bootstrap `splash.png`
+  fallback for the pre-deploy window.
+
+### Removed
+- Duplicate `images/rcc_splash.png` and `images/c242_splash.png` (the same
+  images already ship in `images/splash.d/` as `01-rcc.png` / `02-c242.png`).
+
 ## [0.11.1] - 2026-06-16
 
 ### Added

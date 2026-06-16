@@ -5,3 +5,6 @@ volunteer-bundle.zip
 splash-updater
 splash-updater_ed25519
 splash-updater_ed25519.pub
+
+# Local scratch: kiosk home-dir tree dumps captured for debugging.
+kiosk_home.txt

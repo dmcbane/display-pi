@@ -232,16 +232,25 @@ All from the workstation, in the `display-pi/` checkout:
 
 The kiosk cycles through the images in `/home/kiosk/splash.d/` whenever the
 stream is idle, **advancing one image each time the splash comes back up**
-(when the stream drops). There is no timer — a single continuous idle period
-shows one image until the stream toggles, so newly added images appear at the
-next splash entry (or after a kiosk restart).
+(when the stream drops, or the kiosk service restarts). There is no timer — a
+single continuous idle period shows one image until the splash is re-entered.
+The cursor is persisted to `/home/kiosk/.splash-index`, so it keeps moving
+across restarts instead of snapping back to the first slide (this is what makes
+`make restart` step to the next image during testing).
+
+`/home/kiosk/splash.d` and `/home/kiosk/splash.png` are **symlinks** into the
+deployed repo (`/home/kiosk/display-pi/images/…`), exactly like the `bin/`
+scripts — there are no separate copies to keep in sync.
 
 - **Rotation set:** drop 1920×1080 PNGs into `~/display-pi/images/splash.d/` on
   the workstation (prefix `01-`, `02-`, … to order them) and `make deploy`. The
-  deploy mirrors that folder to the Pi, **preserving** the volunteer slide
-  (`00-volunteer.png`). With one image the same slide shows every time.
-- **Single fallback:** if the folder is ever empty, the kiosk falls back to
-  `/home/kiosk/splash.png` (seeded from `~/display-pi/images/splash.png`).
+  deploy re-points the symlink and **preserves** the volunteer slide
+  (`00-volunteer.png`, protected from `--delete` by an rsync exclude). With one
+  image the same slide shows every time.
+- **Single fallback:** if the folder is ever empty, the kiosk falls back to the
+  single `/home/kiosk/splash.png` (→ `images/splash.png`).
+- **Cycle manually while testing:** `make restart` (advances one slide), or send
+  a `make test-stream` and let it end (a stream toggle also advances one).
 - **Volunteers** can replace their slide over SSH — see
   [`docs/admin-splash-update.md`](admin-splash-update.md); their image joins the
   rotation.

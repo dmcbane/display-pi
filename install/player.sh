@@ -18,11 +18,14 @@ STREAM_URL="rtmp://127.0.0.1/live/restoration"
 # Splash images. The kiosk cycles through the images in $SPLASH_DIR, advancing
 # by ONE each time the idle splash is (re)entered (no timer — the image only
 # changes when the stream drops and the splash comes back up). $SPLASH_IMAGE is
-# the legacy single-image fallback used when the folder is empty/missing. Both
-# are overridable via /etc/default/kiosk (kiosk.service EnvironmentFile).
+# the legacy single-image fallback used when the folder is empty/missing. The
+# rotation cursor is persisted to $SPLASH_STATE so it advances across service
+# restarts (an in-memory counter would reset to the first image every restart);
+# this is what makes `make restart` step to the next slide during testing. All
+# overridable via /etc/default/kiosk (kiosk.service EnvironmentFile).
 SPLASH_DIR="${SPLASH_DIR:-/home/kiosk/splash.d}"
 SPLASH_IMAGE="${SPLASH_IMAGE:-/home/kiosk/splash.png}"
-SPLASH_INDEX=0
+SPLASH_STATE="${SPLASH_STATE:-/home/kiosk/.splash-index}"
 VOLUME=80
 SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 ASSESS_SCRIPT="${SCRIPT_DIR}/assess.sh"
@@ -139,7 +142,7 @@ next_splash_image() {
     if [[ -d "$SPLASH_DIR" ]]; then
         while IFS= read -r -d '' f; do
             images+=("$f")
-        done < <(find "$SPLASH_DIR" -maxdepth 1 -type f \
+        done < <(find -L "$SPLASH_DIR" -maxdepth 1 -type f \
             \( -iname '*.png' -o -iname '*.jpg' -o -iname '*.jpeg' \) -print0 \
             2>/dev/null | sort -z)
     fi
@@ -151,8 +154,16 @@ next_splash_image() {
         fi
         return 1
     fi
-    SPLASH_NEXT="${images[SPLASH_INDEX % ${#images[@]}]}"
-    SPLASH_INDEX=$(( SPLASH_INDEX + 1 ))
+    # Read the persisted cursor, show that image, then store the next index.
+    # Persisting (vs an in-memory counter) keeps rotation advancing across
+    # service restarts/crashes instead of snapping back to the first slide.
+    local idx=0
+    if [[ -r "$SPLASH_STATE" ]]; then
+        idx=$(< "$SPLASH_STATE")
+        [[ "$idx" =~ ^[0-9]+$ ]] || idx=0
+    fi
+    SPLASH_NEXT="${images[idx % ${#images[@]}]}"
+    echo $(( (idx + 1) % ${#images[@]} )) > "$SPLASH_STATE" 2>/dev/null || true
     return 0
 }
 

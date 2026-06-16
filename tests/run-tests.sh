@@ -1494,8 +1494,8 @@ assert_contains "create_splash only prompts on an interactive tty (no CI hang)" 
     "$SETUP" '&& -t 0'
 assert_contains "create_splash keeps the ImageMagick placeholder fallback" \
     "$SETUP" 'convert -size 1920x1080'
-assert_contains "create_splash creates the rotation folder /home/kiosk/splash.d" \
-    "$SETUP" 'splash.d'
+assert_contains "setup-kiosk.sh bootstrap player has the rotation picker" \
+    "$SETUP" 'next_splash_image'
 
 # ============================================================================
 echo ""
@@ -1515,8 +1515,8 @@ assert_contains "player.sh defaults SPLASH_DIR to the rotation folder" \
     "$PLAYER" 'SPLASH_DIR:-/home/kiosk/splash.d'
 assert_contains "player.sh keeps a legacy single-image fallback" \
     "$PLAYER" 'SPLASH_IMAGE:-/home/kiosk/splash.png'
-assert_contains "player.sh has an in-memory rotation cursor" \
-    "$PLAYER" 'SPLASH_INDEX=0'
+assert_contains "player.sh persists the rotation cursor (advances across restarts)" \
+    "$PLAYER" 'SPLASH_STATE'
 assert_contains "player.sh has a next_splash_image picker" \
     "$PLAYER" '^next_splash_image()'
 assert_contains "player.sh enumerates the folder deterministically" \
@@ -1530,10 +1530,17 @@ assert_contains "player.sh errors loudly when no splash is available" \
 assert_contains "player.sh guards kill/wait against an empty splash PID" \
     "$PLAYER" '\-n "\$SPLASH_PID"'
 
-assert_contains "deploy.sh syncs the splash.d rotation folder" \
-    "$DEPLOY" 'splash.d'
-assert_contains "deploy.sh preserves the volunteer drop-in on sync" \
-    "$DEPLOY" 'volunteer.png'
+# Splash images are symlinked from the deployed repo (no copies — single
+# source of truth, parallel to bin/). The volunteer drop-in is written into the
+# symlinked folder, so the top-level rsync must exclude it from --delete.
+assert_contains "deploy.sh symlinks the splash.d rotation folder (no copy)" \
+    "$DEPLOY" 'ln -sfn .*images/splash.d'
+assert_contains "deploy.sh symlinks the fallback splash.png (no copy)" \
+    "$DEPLOY" 'ln -sf .*images/splash.png'
+assert_not_contains "deploy.sh no longer copies splash images (symlinked instead)" \
+    "$DEPLOY" 'cp .*images/splash'
+assert_contains "deploy.sh excludes the volunteer drop-in from --delete (survives deploy)" \
+    "$DEPLOY" "exclude='\\*-volunteer.png'"
 
 assert_contains "install-staged-splash.sh ensures the rotation folder exists" \
     "$STAGED_INSTALL" 'splash.d'
@@ -1552,14 +1559,22 @@ next_splash_behavior_test() {
         printf "${RED}  FAIL${RESET} next_splash_image behavior (function missing)\n"
         return
     fi
-    local tmpdir emptydir got want fallback rc
+    local tmpdir emptydir got want fallback rc statefile one
     tmpdir=$(mktemp -d)
     : > "$tmpdir/01-a.png"; : > "$tmpdir/02-b.png"; : > "$tmpdir/03-c.png"
+    statefile="$tmpdir/idx"
 
-    # Cursor persists in-process: four calls cycle A,B,C,A in filename order.
-    got=$(bash -c "$fn_body
-SPLASH_DIR='$tmpdir'; SPLASH_IMAGE='$tmpdir/none.png'; SPLASH_INDEX=0
-for i in 1 2 3 4; do next_splash_image && basename \"\$SPLASH_NEXT\"; done")
+    # Cursor persists to a state file: four SEPARATE invocations (each a fresh
+    # process, like a service restart) cycle A,B,C,A in filename order. This is
+    # the behavior `make restart` relies on.
+    got=""
+    for i in 1 2 3 4; do
+        one=$(bash -c "$fn_body
+SPLASH_DIR='$tmpdir'; SPLASH_IMAGE='$tmpdir/none.png'; SPLASH_STATE='$statefile'
+next_splash_image && basename \"\$SPLASH_NEXT\"" || true)
+        got+="$one"$'\n'
+    done
+    got="${got%$'\n'}"
     want=$'01-a.png\n02-b.png\n03-c.png\n01-a.png'
     if [[ "$got" == "$want" ]]; then
         PASS=$((PASS + 1))
@@ -1570,11 +1585,30 @@ for i in 1 2 3 4; do next_splash_image && basename \"\$SPLASH_NEXT\"; done")
         printf "${RED}  FAIL${RESET} next_splash_image cycles A,B,C,A (got: %s)\n" "${got//$'\n'/,}"
     fi
 
+    # SPLASH_DIR is a SYMLINK to the image folder (the real Pi layout:
+    # /home/kiosk/splash.d -> display-pi/images/splash.d). `find` must follow
+    # the starting symlink (-L) or it sees an empty dir and never rotates.
+    local linkdir
+    linkdir=$(mktemp -d)/link
+    ln -sfn "$tmpdir" "$linkdir"
+    got=$(bash -c "$fn_body
+SPLASH_DIR='$linkdir'; SPLASH_IMAGE='$tmpdir/none.png'; SPLASH_STATE='$linkdir.idx'
+next_splash_image && basename \"\$SPLASH_NEXT\"" || true)
+    if [[ "$got" == "01-a.png" ]]; then
+        PASS=$((PASS + 1))
+        printf "${GREEN}  PASS${RESET} next_splash_image follows a symlinked splash dir\n"
+    else
+        FAIL=$((FAIL + 1))
+        ERRORS+=("next_splash_image symlinked dir: want '01-a.png' got '$got'")
+        printf "${RED}  FAIL${RESET} next_splash_image follows a symlinked splash dir (got: %s)\n" "$got"
+    fi
+    rm -rf "$(dirname "$linkdir")"
+
     # Empty folder but legacy fallback present -> returns the fallback path.
     emptydir=$(mktemp -d)
     fallback="$tmpdir/legacy.png"; : > "$fallback"
     got=$(bash -c "$fn_body
-SPLASH_DIR='$emptydir'; SPLASH_IMAGE='$fallback'; SPLASH_INDEX=0
+SPLASH_DIR='$emptydir'; SPLASH_IMAGE='$fallback'; SPLASH_STATE='$tmpdir/idx2'
 next_splash_image && printf '%s' \"\$SPLASH_NEXT\"")
     if [[ "$got" == "$fallback" ]]; then
         PASS=$((PASS + 1))
@@ -1587,7 +1621,7 @@ next_splash_image && printf '%s' \"\$SPLASH_NEXT\"")
 
     # Nothing usable anywhere -> non-zero return (caller surfaces it loudly).
     bash -c "$fn_body
-SPLASH_DIR='$emptydir'; SPLASH_IMAGE='$emptydir/missing.png'; SPLASH_INDEX=0
+SPLASH_DIR='$emptydir'; SPLASH_IMAGE='$emptydir/missing.png'; SPLASH_STATE='$tmpdir/idx3'
 next_splash_image" >/dev/null 2>&1 && rc=0 || rc=$?
     if [[ "$rc" -ne 0 ]]; then
         PASS=$((PASS + 1))

@@ -32,6 +32,7 @@ rsync -avz --delete \
     --exclude='*.swp' \
     --exclude='*.swo' \
     --exclude='__pycache__/' \
+    --exclude='*-volunteer.png' \
     "${REPO_ROOT}/" "${HOST}:${REMOTE_DIR}/"
 
 # Symlink install files into expected locations.
@@ -113,30 +114,22 @@ if ! diff -q ${REMOTE_DIR}/install/nginx.conf /etc/nginx/nginx.conf &>/dev/null 
     echo "nginx config updated and reloaded"
 fi
 
-# Install splash image if present and different (legacy single-image fallback)
-if [[ -f ${REMOTE_DIR}/images/splash.png ]]; then
-    if ! diff -q ${REMOTE_DIR}/images/splash.png /home/${KIOSK_USER}/splash.png &>/dev/null 2>&1; then
-        sudo cp ${REMOTE_DIR}/images/splash.png /home/${KIOSK_USER}/splash.png
-        sudo chown ${KIOSK_USER}:${KIOSK_USER} /home/${KIOSK_USER}/splash.png
-        echo "Splash image updated"
-    fi
+# Symlink the splash images from the deployed repo — no copies, single source
+# of truth, exactly like the bin/ scripts above. /home/kiosk/splash.d is the
+# rotation folder; /home/kiosk/splash.png is the single fallback. Created via
+# sudo (root), so the 0700 /home/kiosk is no obstacle (the old copy blocks
+# gated on a test the deploy user couldn't pass, so they silently no-op'd).
+# A pre-existing *real* splash.d dir (older layout) is removed first so the
+# symlink takes its place. The volunteer drop-in lives inside the symlinked
+# repo folder and is protected from --delete by the top-level rsync exclude.
+if [ -d /home/${KIOSK_USER}/splash.d ] && [ ! -L /home/${KIOSK_USER}/splash.d ]; then
+    sudo rm -rf /home/${KIOSK_USER}/splash.d
 fi
-
-# Sync the splash rotation folder (the slides player.sh cycles through). Run as
-# the kiosk user — the diff/-f checks above can't read /home/kiosk (mode 0700).
-# Repo stays authoritative for admin slides via --delete, but the volunteer
-# drop-in (00-volunteer.png) is excluded so a deploy never wipes it.
-if [[ -d ${REMOTE_DIR}/images/splash.d ]]; then
-    sudo -u ${KIOSK_USER} mkdir -p /home/${KIOSK_USER}/splash.d
-    if command -v rsync >/dev/null 2>&1; then
-        sudo -u ${KIOSK_USER} rsync -a --delete --exclude='*-volunteer.png' \
-            ${REMOTE_DIR}/images/splash.d/ /home/${KIOSK_USER}/splash.d/
-    else
-        sudo -u ${KIOSK_USER} cp ${REMOTE_DIR}/images/splash.d/*.png \
-            /home/${KIOSK_USER}/splash.d/ 2>/dev/null || true
-    fi
-    echo "Splash rotation folder synced"
-fi
+sudo ln -sfn ${REMOTE_DIR}/images/splash.d /home/${KIOSK_USER}/splash.d
+sudo chown -h ${KIOSK_USER}:${KIOSK_USER} /home/${KIOSK_USER}/splash.d
+sudo ln -sf ${REMOTE_DIR}/images/splash.png /home/${KIOSK_USER}/splash.png
+sudo chown -h ${KIOSK_USER}:${KIOSK_USER} /home/${KIOSK_USER}/splash.png
+echo "Splash images symlinked"
 REMOTE
 
 # Reload kiosk service
