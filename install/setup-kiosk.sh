@@ -502,8 +502,11 @@ create_splash() {
     # Preference 1: a ready-made images/splash.png ships with the repo.
     if [[ -f "${images_dir}/splash.png" ]]; then
         log "Installing splash image from ${images_dir}/splash.png ..."
-        sudo -u "$KIOSK_USER" cp "${images_dir}/splash.png" "$splash_path"
-        sudo chmod 644 "$splash_path"
+        # images_dir lives under the SSH user's 0700 home (display-pi-bootstrap),
+        # so `sudo -u kiosk cp` can't traverse in to read it. Copy as root via
+        # install(1); -o/-g hand the destination to the kiosk user atomically.
+        sudo install -o "$KIOSK_USER" -g "$KIOSK_USER" -m 0644 \
+            "${images_dir}/splash.png" "$splash_path"
         log "Splash installed at $splash_path."
         return
     fi
@@ -526,8 +529,10 @@ create_splash() {
         select choice in "${candidates[@]}"; do
             if [[ -n "$choice" ]]; then
                 log "Installing splash image from $choice ..."
-                sudo -u "$KIOSK_USER" cp "$choice" "$splash_path"
-                sudo chmod 644 "$splash_path"
+                # Copy as root (see note above) — the chosen image is under the
+                # SSH user's 0700 home, unreadable to the kiosk user.
+                sudo install -o "$KIOSK_USER" -g "$KIOSK_USER" -m 0644 \
+                    "$choice" "$splash_path"
                 log "Splash installed at $splash_path."
                 return
             fi

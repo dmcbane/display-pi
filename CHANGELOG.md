@@ -4,6 +4,18 @@ All notable changes to display-pi are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.1] - 2026-06-16
+
+### Fixed
+- **`make setup` no longer fails copying the splash image.** `create_splash`
+  ran `sudo -u kiosk cp` to install `images/splash.png`, but the source lives
+  under the SSH user's `0700` home (`display-pi-bootstrap/`), which the kiosk
+  user can't traverse — so a fresh Pi setup aborted with
+  `cp: cannot stat '.../images/splash.png': Permission denied`. The copy (both
+  the default and the interactive picker branch) now runs as root via
+  `install -o kiosk -g kiosk -m 0644`, which reads the source as root and
+  hands the destination to the kiosk user atomically.
+
 ## [0.12.0] - 2026-06-16
 
 ### Fixed

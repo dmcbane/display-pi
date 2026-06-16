@@ -1486,8 +1486,13 @@ assert_contains "create_splash resolves the repo images/ dir from its own path" 
     "$SETUP" 'images_dir='
 assert_contains "create_splash prefers the repo images/splash.png" \
     "$SETUP" '${images_dir}/splash.png'
-assert_contains "create_splash copies the chosen splash to the kiosk home" \
-    "$SETUP" 'cp .* "\$splash_path"'
+# The source file lives under the SSH user's 0700 home (display-pi-bootstrap/),
+# which the kiosk user cannot traverse. Copy AS ROOT via `install` (root reads
+# anywhere) and let -o/-g hand the destination to the kiosk user atomically.
+assert_contains "create_splash installs the chosen splash as root so it can read the bootstrap dir" \
+    "$SETUP" 'sudo install -o "\$KIOSK_USER" -g "\$KIOSK_USER" -m 0644'
+assert_not_contains "create_splash never cp's as the kiosk user (can't traverse SSH user's 0700 home)" \
+    "$SETUP" 'sudo -u "\$KIOSK_USER" cp .* "\$splash_path"'
 assert_contains "create_splash prompts to pick when only other images exist" \
     "$SETUP" 'select '
 assert_contains "create_splash only prompts on an interactive tty (no CI hang)" \
