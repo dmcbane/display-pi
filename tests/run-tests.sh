@@ -1460,6 +1460,33 @@ splash_validation_behavior_test
 
 # ============================================================================
 echo ""
+echo "=== Splash creation Tests ==="
+# ============================================================================
+#
+# create_splash() in setup-kiosk.sh installs the kiosk splash on first setup.
+# Source precedence (only when /home/kiosk/splash.png does not yet exist):
+#   1. repo images/splash.png   -> copy it verbatim
+#   2. other images in images/  -> prompt the operator to pick one
+#   3. nothing usable           -> generate a placeholder via ImageMagick
+SETUP="$REPO_ROOT/install/setup-kiosk.sh"
+
+assert_contains "create_splash still leaves an existing /home/kiosk/splash.png alone" \
+    "$SETUP" 'leaving it alone'
+assert_contains "create_splash resolves the repo images/ dir from its own path" \
+    "$SETUP" 'images_dir='
+assert_contains "create_splash prefers the repo images/splash.png" \
+    "$SETUP" '${images_dir}/splash.png'
+assert_contains "create_splash copies the chosen splash to the kiosk home" \
+    "$SETUP" 'cp .* "\$splash_path"'
+assert_contains "create_splash prompts to pick when only other images exist" \
+    "$SETUP" 'select '
+assert_contains "create_splash only prompts on an interactive tty (no CI hang)" \
+    "$SETUP" '&& -t 0'
+assert_contains "create_splash keeps the ImageMagick placeholder fallback" \
+    "$SETUP" 'convert -size 1920x1080'
+
+# ============================================================================
+echo ""
 echo "=== Consistency Tests ==="
 # ============================================================================
 

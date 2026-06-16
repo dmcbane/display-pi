@@ -493,6 +493,49 @@ create_splash() {
         log "Splash image already exists at $splash_path (leaving it alone)."
         return
     fi
+
+    # images/ lives one level up from this script (repo root). Resolve it
+    # via the script's own path so setup works regardless of CWD.
+    local images_dir
+    images_dir="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../images"
+
+    # Preference 1: a ready-made images/splash.png ships with the repo.
+    if [[ -f "${images_dir}/splash.png" ]]; then
+        log "Installing splash image from ${images_dir}/splash.png ..."
+        sudo -u "$KIOSK_USER" cp "${images_dir}/splash.png" "$splash_path"
+        sudo chmod 644 "$splash_path"
+        log "Splash installed at $splash_path."
+        return
+    fi
+
+    # Preference 2: no splash.png, but other images exist — ask which to use.
+    local candidates=()
+    if [[ -d "$images_dir" ]]; then
+        while IFS= read -r -d '' img; do
+            candidates+=("$img")
+        done < <(find "$images_dir" -maxdepth 1 -type f \
+            \( -iname '*.png' -o -iname '*.jpg' -o -iname '*.jpeg' \) -print0 \
+            2>/dev/null | sort -z)
+    fi
+    # Only prompt on a real terminal; a non-interactive run falls through to
+    # the generated placeholder rather than hanging on EOF.
+    if [[ ${#candidates[@]} -gt 0 && -t 0 ]]; then
+        log "No ${images_dir}/splash.png found, but ${#candidates[@]} other image(s) are available."
+        local choice
+        PS3="Select a splash image to install: "
+        select choice in "${candidates[@]}"; do
+            if [[ -n "$choice" ]]; then
+                log "Installing splash image from $choice ..."
+                sudo -u "$KIOSK_USER" cp "$choice" "$splash_path"
+                sudo chmod 644 "$splash_path"
+                log "Splash installed at $splash_path."
+                return
+            fi
+            echo "Invalid selection — enter a number from the list."
+        done
+    fi
+
+    # Preference 3: nothing usable in images/ — generate a placeholder.
     log "Generating placeholder splash image..."
     sudo -u "$KIOSK_USER" convert -size 1920x1080 xc:black \
         -gravity center -pointsize 72 -fill white \

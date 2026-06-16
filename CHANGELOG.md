@@ -4,6 +4,22 @@ All notable changes to display-pi are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.0] - 2026-06-15
+
+### Added
+- **`create_splash()` installs a repo-shipped splash instead of always
+  generating one.** On first setup (when `/home/kiosk/splash.png` does
+  not yet exist) the source is chosen by precedence: (1) copy
+  `images/splash.png` verbatim if present; (2) otherwise, if other
+  images exist in `images/`, prompt the operator to pick one — guarded
+  by a `-t 0` tty check so non-interactive runs don't hang; (3) fall
+  back to the ImageMagick placeholder built from `$SPLASH_TEXT`. An
+  existing `/home/kiosk/splash.png` is still left untouched.
+- **`images/splash.png`** — the default placeholder ("Service will begin
+  shortly", 1920×1080, white-on-black) now ships in the repo so a fresh
+  setup gets a consistent splash without depending on the local font /
+  ImageMagick rendering.
+
 ## [0.9.2] - 2026-06-13
 
 ### Fixed

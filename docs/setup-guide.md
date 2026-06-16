@@ -139,7 +139,11 @@ You'll be prompted for your sudo password once. The script is idempotent
 4. Configures nginx with the RTMP module
 5. Updates `/boot/firmware/config.txt` and `cmdline.txt` (watchdog,
    `vc4.force_hotplug=1`, `consoleblank=0`)
-6. Generates a placeholder splash image at `/home/kiosk/splash.png`
+6. Installs the splash image at `/home/kiosk/splash.png`. If the repo
+   ships `images/splash.png`, that file is used as-is. If it's absent but
+   other images are present in `images/`, setup prompts you to pick one
+   (on a non-interactive run it skips the prompt). With no usable image,
+   it generates a placeholder from `$SPLASH_TEXT`.
 7. Installs a minimal bootstrap player script (overwritten by the full
    one when you `make deploy`)
 8. Installs the systemd user service
