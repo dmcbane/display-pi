@@ -38,7 +38,7 @@ export KIOSK_HOST  := $(HOST)
 export KIOSK_USER
 export STREAM_KEY
 
-.PHONY: help setup deploy sudoers test-stream test-stream-long ssh logs status diag judder-tree judder-probe judder-monitor stream-key hdmi-mode set-time test lint check ping reboot volunteer-bundle
+.PHONY: help setup deploy sudoers test-stream test-stream-long ssh logs status diag judder-tree judder-probe judder-monitor stream-key hdmi-mode set-time test lint check ping reboot restart volunteer-bundle
 
 help:
 	@echo "display-pi — Church Worship Stream Kiosk"
@@ -69,6 +69,7 @@ help:
 	@echo "  set-time          Push laptop clock to Pi (optional TIME_OFFSET=<sec>)"
 	@echo "  ping              Ping the Pi"
 	@echo "  reboot            Reboot the Pi"
+	@echo "  restart           Restart the kiosk service (advances splash rotation)"
 	@echo ""
 	@echo "Volunteer workflow:"
 	@echo "  volunteer-bundle  Build volunteer-bundle.zip (scripts + README + key)"
@@ -226,6 +227,17 @@ reboot:
 	@echo "Rebooting $(HOST)..."
 	@ssh $(HOST) "sudo reboot" || true
 	@echo "Reboot command sent. Pi will come back in ~30s."
+
+# Restart the kiosk service without a full deploy. Handy during testing: the
+# player re-enters the splash loop on restart, so each `make restart` advances
+# the splash rotation by one image (when the stream is idle). Uses the same
+# password-free `sudo -u kiosk` path as `make deploy` (deploy sudoers
+# whitelist), so it won't prompt. Single-quoted so the Pi resolves the kiosk
+# UID, not the workstation.
+restart:
+	@echo "Restarting kiosk service on $(HOST)..."
+	@ssh $(HOST) 'sudo -u $(KIOSK_USER) XDG_RUNTIME_DIR="/run/user/$$(id -u $(KIOSK_USER))" systemctl --user restart kiosk.service'
+	@echo "Kiosk service restarted on $(HOST)."
 
 # --- Volunteer bundle ---
 

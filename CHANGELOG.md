@@ -4,6 +4,15 @@ All notable changes to display-pi are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.1] - 2026-06-16
+
+### Added
+- **`make restart`** — bounces the kiosk service without a full deploy.
+  During testing this advances the splash rotation by one image (the
+  player re-enters the splash loop on restart and picks the next slide).
+  Uses the same password-free `sudo -u kiosk` path as `make deploy`, and
+  resolves the kiosk UID on the Pi.
+
 ## [0.11.0] - 2026-06-16
 
 ### Added

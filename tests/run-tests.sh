@@ -272,6 +272,16 @@ assert_contains "deploy.sh excludes .git" "$REPO_ROOT/dev/deploy.sh" "exclude='.
 assert_contains "deploy.sh restarts kiosk service" "$REPO_ROOT/dev/deploy.sh" "systemctl --user restart"
 assert_contains "deploy.sh installs nginx config" "$REPO_ROOT/dev/deploy.sh" "nginx.conf"
 
+# `make restart` bounces the kiosk service without a full deploy — used during
+# testing to advance the splash rotation (player.sh re-enters the splash loop
+# on restart and picks the next image). Same password-free path as deploy.
+assert_contains "Makefile has restart target (manual kiosk restart)" \
+    "$REPO_ROOT/Makefile" "^restart:"
+assert_contains "Makefile restart target restarts kiosk.service" \
+    "$REPO_ROOT/Makefile" "systemctl --user restart kiosk.service"
+assert_contains "Makefile restart target uses the password-free 'sudo -u kiosk' path" \
+    "$REPO_ROOT/Makefile" "sudo -u .* systemctl --user restart"
+
 # Bug 2026-04-25: /home/kiosk is mode 0700, so the deploy user (rpi) cannot
 # read kiosk.service on either side of the diff. The bare `diff -q` always
 # exits 2, the script always falls into the cp branch, and `sudo cp ...
