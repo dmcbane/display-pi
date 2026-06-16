@@ -1269,8 +1269,8 @@ assert_contains "install-staged-splash.sh takes no args (sudo-safe)" \
     "$REPO_ROOT/install/install-staged-splash.sh" 'set -euo pipefail'
 assert_contains "install-staged-splash.sh copies from fixed staging path" \
     "$REPO_ROOT/install/install-staged-splash.sh" '/var/lib/splash-updater/staged.png'
-assert_contains "install-staged-splash.sh writes to /home/kiosk/splash.png" \
-    "$REPO_ROOT/install/install-staged-splash.sh" '/home/kiosk/splash.png'
+assert_contains "install-staged-splash.sh writes the volunteer slide into the rotation folder" \
+    "$REPO_ROOT/install/install-staged-splash.sh" '/home/kiosk/splash.d/00-volunteer.png'
 assert_contains "install-staged-splash.sh restarts kiosk so new splash shows" \
     "$REPO_ROOT/install/install-staged-splash.sh" 'systemctl --machine=kiosk@.host --user restart kiosk.service'
 
@@ -1484,6 +1484,113 @@ assert_contains "create_splash only prompts on an interactive tty (no CI hang)" 
     "$SETUP" '&& -t 0'
 assert_contains "create_splash keeps the ImageMagick placeholder fallback" \
     "$SETUP" 'convert -size 1920x1080'
+assert_contains "create_splash creates the rotation folder /home/kiosk/splash.d" \
+    "$SETUP" 'splash.d'
+
+# ============================================================================
+echo ""
+echo "=== Splash rotation Tests ==="
+# ============================================================================
+#
+# The kiosk rotates through the images in /home/kiosk/splash.d, advancing one
+# image each time the idle splash is (re)entered (NO timer). next_splash_image()
+# runs in the parent shell (the $(show_splash) subshell can't carry the cursor)
+# and returns the path via the global SPLASH_NEXT, falling back to the legacy
+# single SPLASH_IMAGE, else failing loudly rather than showing a blank screen.
+PLAYER="$REPO_ROOT/install/player.sh"
+DEPLOY="$REPO_ROOT/dev/deploy.sh"
+STAGED_INSTALL="$REPO_ROOT/install/install-staged-splash.sh"
+
+assert_contains "player.sh defaults SPLASH_DIR to the rotation folder" \
+    "$PLAYER" 'SPLASH_DIR:-/home/kiosk/splash.d'
+assert_contains "player.sh keeps a legacy single-image fallback" \
+    "$PLAYER" 'SPLASH_IMAGE:-/home/kiosk/splash.png'
+assert_contains "player.sh has an in-memory rotation cursor" \
+    "$PLAYER" 'SPLASH_INDEX=0'
+assert_contains "player.sh has a next_splash_image picker" \
+    "$PLAYER" '^next_splash_image()'
+assert_contains "player.sh enumerates the folder deterministically" \
+    "$PLAYER" 'sort -z'
+assert_contains "player.sh show_splash takes the image as an argument" \
+    "$PLAYER" '"\$1" </dev/null'
+assert_contains "player.sh still holds a single splash forever (no flicker)" \
+    "$PLAYER" 'image-display-duration=inf'
+assert_contains "player.sh errors loudly when no splash is available" \
+    "$PLAYER" 'no splash image'
+assert_contains "player.sh guards kill/wait against an empty splash PID" \
+    "$PLAYER" '\-n "\$SPLASH_PID"'
+
+assert_contains "deploy.sh syncs the splash.d rotation folder" \
+    "$DEPLOY" 'splash.d'
+assert_contains "deploy.sh preserves the volunteer drop-in on sync" \
+    "$DEPLOY" 'volunteer.png'
+
+assert_contains "install-staged-splash.sh ensures the rotation folder exists" \
+    "$STAGED_INSTALL" 'splash.d'
+
+assert_file_exists "repo ships a splash.d rotation folder (seed image)" \
+    "$REPO_ROOT/images/splash.d/01-rcc.png"
+
+# Behavior test: extract next_splash_image and exercise it against temp dirs.
+# Same pattern as nearest_refresh_behavior_test above.
+next_splash_behavior_test() {
+    local fn_body
+    fn_body=$(sed -n '/^next_splash_image()/,/^}/p' "$PLAYER")
+    if [[ -z "$fn_body" ]]; then
+        FAIL=$((FAIL + 1))
+        ERRORS+=("next_splash_image behavior: function not found")
+        printf "${RED}  FAIL${RESET} next_splash_image behavior (function missing)\n"
+        return
+    fi
+    local tmpdir emptydir got want fallback rc
+    tmpdir=$(mktemp -d)
+    : > "$tmpdir/01-a.png"; : > "$tmpdir/02-b.png"; : > "$tmpdir/03-c.png"
+
+    # Cursor persists in-process: four calls cycle A,B,C,A in filename order.
+    got=$(bash -c "$fn_body
+SPLASH_DIR='$tmpdir'; SPLASH_IMAGE='$tmpdir/none.png'; SPLASH_INDEX=0
+for i in 1 2 3 4; do next_splash_image && basename \"\$SPLASH_NEXT\"; done")
+    want=$'01-a.png\n02-b.png\n03-c.png\n01-a.png'
+    if [[ "$got" == "$want" ]]; then
+        PASS=$((PASS + 1))
+        printf "${GREEN}  PASS${RESET} next_splash_image cycles images A,B,C,A\n"
+    else
+        FAIL=$((FAIL + 1))
+        ERRORS+=("next_splash_image cycle: want '$want' got '$got'")
+        printf "${RED}  FAIL${RESET} next_splash_image cycles A,B,C,A (got: %s)\n" "${got//$'\n'/,}"
+    fi
+
+    # Empty folder but legacy fallback present -> returns the fallback path.
+    emptydir=$(mktemp -d)
+    fallback="$tmpdir/legacy.png"; : > "$fallback"
+    got=$(bash -c "$fn_body
+SPLASH_DIR='$emptydir'; SPLASH_IMAGE='$fallback'; SPLASH_INDEX=0
+next_splash_image && printf '%s' \"\$SPLASH_NEXT\"")
+    if [[ "$got" == "$fallback" ]]; then
+        PASS=$((PASS + 1))
+        printf "${GREEN}  PASS${RESET} next_splash_image falls back to the legacy single image\n"
+    else
+        FAIL=$((FAIL + 1))
+        ERRORS+=("next_splash_image fallback: want '$fallback' got '$got'")
+        printf "${RED}  FAIL${RESET} next_splash_image falls back to legacy image (got: %s)\n" "$got"
+    fi
+
+    # Nothing usable anywhere -> non-zero return (caller surfaces it loudly).
+    bash -c "$fn_body
+SPLASH_DIR='$emptydir'; SPLASH_IMAGE='$emptydir/missing.png'; SPLASH_INDEX=0
+next_splash_image" >/dev/null 2>&1 && rc=0 || rc=$?
+    if [[ "$rc" -ne 0 ]]; then
+        PASS=$((PASS + 1))
+        printf "${GREEN}  PASS${RESET} next_splash_image returns non-zero when no image exists\n"
+    else
+        FAIL=$((FAIL + 1))
+        ERRORS+=("next_splash_image empty: expected non-zero exit, got 0")
+        printf "${RED}  FAIL${RESET} next_splash_image returns non-zero when no image exists\n"
+    fi
+
+    rm -rf "$tmpdir" "$emptydir"
+}
+next_splash_behavior_test
 
 # ============================================================================
 echo ""

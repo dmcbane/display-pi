@@ -4,6 +4,39 @@ All notable changes to display-pi are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.0] - 2026-06-16
+
+### Added
+- **Rotating splash.** The kiosk now cycles through the images in
+  `/home/kiosk/splash.d/` whenever the stream is idle, **advancing one
+  image each time the splash is (re)entered** — no timer, so the image
+  only changes when the stream drops and the splash returns. New images
+  are picked up at the next splash entry (or kiosk restart).
+  - `install/player.sh`: new `SPLASH_DIR`/`SPLASH_IMAGE` env defaults
+    (overridable via `/etc/default/kiosk`), an in-memory rotation cursor
+    (`SPLASH_INDEX`), and a `next_splash_image()` picker that enumerates
+    the folder (`sort -z`, deterministic) and advances in the **parent**
+    shell — the `SPLASH_PID=$(show_splash)` subshell can't carry the
+    cursor. `show_splash` now takes the image as an argument; its mpv
+    flags and the `$(...)`-deadlock redirect are unchanged. Single-image
+    folders still hold forever (no flicker); an empty folder falls back
+    to the legacy `splash.png`, and a total absence is logged loudly
+    rather than showing a blank screen.
+  - `images/splash.d/`: new repo-side rotation source (seeded with the
+    branded boards). `images/splash.png` remains the single fallback.
+  - `dev/deploy.sh`: mirrors `images/splash.d/` → `/home/kiosk/splash.d/`
+    as the kiosk user, `--exclude='*-volunteer.png'` so a deploy never
+    wipes the volunteer slide.
+  - `install/setup-kiosk.sh`: creates and seeds `/home/kiosk/splash.d/`
+    (idempotent), and the generated bootstrap player rotates too.
+
+### Changed
+- **Volunteer splash-update now joins the rotation.**
+  `install/install-staged-splash.sh` writes the validated upload to the
+  fixed `/home/kiosk/splash.d/00-volunteer.png` (was `splash.png`).
+  Repeat uploads overwrite it — latest wins, no stale buildup. The
+  validator (`accept-splash.sh`) and the sudoers grant are unchanged.
+
 ## [0.10.0] - 2026-06-15
 
 ### Added

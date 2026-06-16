@@ -8,8 +8,9 @@
 # destination is hardcoded.
 #
 # Side effects:
-#   1. Copies the staged PNG into /home/kiosk/splash.png with the
-#      correct ownership and mode.
+#   1. Copies the staged PNG into the kiosk's splash rotation folder as
+#      the volunteer slide (a fixed name, so repeat uploads overwrite —
+#      latest wins, no stale buildup), with correct ownership and mode.
 #   2. Restarts kiosk.service so player.sh re-enters the splash loop
 #      and mpv loads the new file (mpv with --loop on an image does
 #      not re-read the file on its own).
@@ -17,13 +18,17 @@
 set -euo pipefail
 
 STAGED=/var/lib/splash-updater/staged.png
-DEST=/home/kiosk/splash.png
+# The kiosk rotates through /home/kiosk/splash.d; the volunteer slide lives
+# there under a fixed, order-leading name. Repeat uploads overwrite it.
+DEST=/home/kiosk/splash.d/00-volunteer.png
+SPLASH_DIR="$(dirname "$DEST")"
 
 if [[ ! -f "$STAGED" ]]; then
     echo "ERROR: no staged splash at $STAGED" >&2
     exit 2
 fi
 
+install -d -o kiosk -g kiosk -m 0755 "$SPLASH_DIR"
 install -o kiosk -g kiosk -m 0644 "$STAGED" "$DEST"
 rm -f "$STAGED"
 

@@ -228,9 +228,23 @@ All from the workstation, in the `display-pi/` checkout:
 | `make reboot`        | Reboot the Pi.                                          |
 | `make sudoers`       | One-time: install the deploy sudoers whitelist (only needed if you skip step 5 or rebuild the Pi without re-running setup-kiosk.sh). |
 
-To replace the splash image: drop your branded PNG at
-`~/display-pi/images/splash.png` on the workstation and `make deploy`.
-The deploy will copy it to `/home/kiosk/splash.png` if it differs.
+### Splash images
+
+The kiosk cycles through the images in `/home/kiosk/splash.d/` whenever the
+stream is idle, **advancing one image each time the splash comes back up**
+(when the stream drops). There is no timer — a single continuous idle period
+shows one image until the stream toggles, so newly added images appear at the
+next splash entry (or after a kiosk restart).
+
+- **Rotation set:** drop 1920×1080 PNGs into `~/display-pi/images/splash.d/` on
+  the workstation (prefix `01-`, `02-`, … to order them) and `make deploy`. The
+  deploy mirrors that folder to the Pi, **preserving** the volunteer slide
+  (`00-volunteer.png`). With one image the same slide shows every time.
+- **Single fallback:** if the folder is ever empty, the kiosk falls back to
+  `/home/kiosk/splash.png` (seeded from `~/display-pi/images/splash.png`).
+- **Volunteers** can replace their slide over SSH — see
+  [`docs/admin-splash-update.md`](admin-splash-update.md); their image joins the
+  rotation.
 
 To change the stream key, RTMP allow-list, or any other config: re-run
 `bash install/setup-kiosk.sh` on the Pi after editing the config block at

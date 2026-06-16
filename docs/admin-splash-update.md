@@ -1,9 +1,17 @@
 # Admin: Splash-Update Workflow
 
 This is the operator-side runbook for the volunteer splash-update
-feature added in v0.9.0. Volunteers replace `/home/kiosk/splash.png`
-on the kiosk Pi over SSH using a hand-delivered bundle. This doc covers
-what you (the AV admin) do.
+feature added in v0.9.0. Volunteers upload a splash slide to the kiosk
+Pi over SSH using a hand-delivered bundle. This doc covers what you (the
+AV admin) do.
+
+> **Rotation (v0.11.0+):** the kiosk now cycles through the images in
+> `/home/kiosk/splash.d/`, advancing one image each time the splash is
+> re-entered (no timer). The volunteer upload lands in that folder as
+> `00-volunteer.png` and **joins the rotation** — repeat uploads
+> overwrite it (latest wins). Admin slides are managed from the repo's
+> `images/splash.d/` via `make deploy`; that sync excludes
+> `*-volunteer.png` so it never wipes the volunteer's slide.
 
 For the volunteer-facing instructions, see
 [`docs/volunteer-splash-update.md`](volunteer-splash-update.md) — that
@@ -94,7 +102,8 @@ the user (e.g. during a security incident), comment out or delete
 ## What the Pi enforces (security recap)
 
 Even if a volunteer's bundle leaks, the worst anyone with the key can
-do is replace `splash.png` with a valid 1920×1080 PNG. The full chain:
+do is overwrite the one volunteer slide with a valid 1920×1080 PNG. The
+full chain:
 
 1. **SSH layer.** Only key-based auth (password is locked); only the
    one key in `authorized_keys` is accepted.
@@ -110,9 +119,10 @@ do is replace `splash.png` with a valid 1920×1080 PNG. The full chain:
    sudo — `/usr/local/libexec/install-staged-splash`, with zero
    arguments allowed. No wildcards, no parameter injection.
 6. **Installer.** That helper reads from a fixed staging path
-   (`/var/lib/splash-updater/staged.png`) and writes to
-   `/home/kiosk/splash.png`, then restarts the kiosk so the new image
-   appears within ~2 seconds.
+   (`/var/lib/splash-updater/staged.png`) and writes to the fixed
+   `/home/kiosk/splash.d/00-volunteer.png` (no arguments, no path
+   choice), then restarts the kiosk so the new slide joins the rotation
+   within ~2 seconds.
 
 End-to-end verified on the live Pi during initial deployment: full
 PNGs accepted, truncated PNGs rejected, shell attempts rejected, scp
@@ -128,7 +138,7 @@ to arbitrary paths blocked, port forwards refused.
 | `Connection refused` | sshd not running, or Pi off network | `systemctl status ssh`, `ping displaypi` |
 | `ERROR: PNG file appears truncated` | Genuine corrupt input, or upload interrupted | Ask volunteer to re-export the image |
 | `ERROR: image must be 1920x1080` | Volunteer's resize step missed | Their problem; the validator caught it |
-| Splash didn't change visibly | Service restart raced or hung | `become-kiosk systemctl --user status kiosk.service` |
+| Splash didn't change visibly | Stream was live (splash only shows when idle), or the restart raced/hung | `become-kiosk systemctl --user status kiosk.service` |
 | Disk filling | Stuck staged file (rare) | `ls -lh /var/lib/splash-updater/` |
 
 Live debugging: `sudo journalctl _SYSTEMD_USER_UNIT=kiosk.service -n 50`

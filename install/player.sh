@@ -15,7 +15,14 @@ LOG=/tmp/player.log
 exec >> "$LOG" 2>&1
 
 STREAM_URL="rtmp://127.0.0.1/live/restoration"
-SPLASH_IMAGE="/home/kiosk/splash.png"
+# Splash images. The kiosk cycles through the images in $SPLASH_DIR, advancing
+# by ONE each time the idle splash is (re)entered (no timer — the image only
+# changes when the stream drops and the splash comes back up). $SPLASH_IMAGE is
+# the legacy single-image fallback used when the folder is empty/missing. Both
+# are overridable via /etc/default/kiosk (kiosk.service EnvironmentFile).
+SPLASH_DIR="${SPLASH_DIR:-/home/kiosk/splash.d}"
+SPLASH_IMAGE="${SPLASH_IMAGE:-/home/kiosk/splash.png}"
+SPLASH_INDEX=0
 VOLUME=80
 SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 ASSESS_SCRIPT="${SCRIPT_DIR}/assess.sh"
@@ -120,16 +127,48 @@ fi
 # Helper functions
 # ---------------------------------------------------------------------------
 
+# Pick the next splash image and advance the rotation cursor. MUST run in the
+# parent shell — `SPLASH_PID=$(show_splash ...)` runs show_splash in a subshell,
+# so a cursor advanced there would be lost. We therefore return the path via the
+# global SPLASH_NEXT and mutate SPLASH_INDEX directly here. The folder is
+# re-read every call so images added between services appear at the next splash
+# entry. Returns non-zero (touching nothing) when no usable image exists, so the
+# caller can surface that loudly rather than silently showing a blank screen.
+next_splash_image() {
+    local images=()
+    if [[ -d "$SPLASH_DIR" ]]; then
+        while IFS= read -r -d '' f; do
+            images+=("$f")
+        done < <(find "$SPLASH_DIR" -maxdepth 1 -type f \
+            \( -iname '*.png' -o -iname '*.jpg' -o -iname '*.jpeg' \) -print0 \
+            2>/dev/null | sort -z)
+    fi
+    if (( ${#images[@]} == 0 )); then
+        # Empty/missing folder — fall back to the legacy single image.
+        if [[ -f "$SPLASH_IMAGE" ]]; then
+            SPLASH_NEXT="$SPLASH_IMAGE"
+            return 0
+        fi
+        return 1
+    fi
+    SPLASH_NEXT="${images[SPLASH_INDEX % ${#images[@]}]}"
+    SPLASH_INDEX=$(( SPLASH_INDEX + 1 ))
+    return 0
+}
+
 show_splash() {
-    # Redirect mpv's stdout/stderr to $LOG explicitly. Without this, mpv
-    # inherits the command-substitution pipe from SPLASH_PID=$(show_splash)
-    # and bash blocks on pipe_read waiting for EOF that never arrives.
+    # $1 is the splash image to display. Redirect mpv's stdout/stderr to $LOG
+    # explicitly. Without this, mpv inherits the command-substitution pipe from
+    # SPLASH_PID=$(show_splash ...) and bash blocks on pipe_read waiting for EOF
+    # that never arrives. --loop + --image-display-duration=inf holds the single
+    # decoded frame forever (zero flicker); rotation happens between entries via
+    # next_splash_image, not inside mpv.
     mpv --fullscreen --really-quiet --loop \
         --image-display-duration=inf \
         --no-input-default-bindings \
         --no-audio \
         "${OVERLAY_FLAG[@]}" \
-        "$SPLASH_IMAGE" </dev/null >>"$LOG" 2>&1 &
+        "$1" </dev/null >>"$LOG" 2>&1 &
     echo $!
 }
 
@@ -173,15 +212,24 @@ while true; do
     wait_for_nginx
 
     if ! stream_live; then
-        echo "[$(date)] stream not live, showing splash"
-        SPLASH_PID=$(show_splash)
+        if next_splash_image; then
+            echo "[$(date)] stream not live, showing splash: $SPLASH_NEXT"
+            SPLASH_PID=$(show_splash "$SPLASH_NEXT")
+        else
+            # Don't fail silently: a blank idle screen is itself a fault.
+            echo "[$(date)] ERROR: no splash image in $SPLASH_DIR or $SPLASH_IMAGE"
+            show_error_diagnostics
+            SPLASH_PID=""
+        fi
         while ! stream_live; do
             echo "[$(date)] still waiting for stream..."
             sleep 3
         done
-        echo "[$(date)] stream detected, killing splash $SPLASH_PID"
-        kill "$SPLASH_PID" 2>/dev/null || true
-        wait "$SPLASH_PID" 2>/dev/null || true
+        if [[ -n "$SPLASH_PID" ]]; then
+            echo "[$(date)] stream detected, killing splash $SPLASH_PID"
+            kill "$SPLASH_PID" 2>/dev/null || true
+            wait "$SPLASH_PID" 2>/dev/null || true
+        fi
     fi
 
     echo "[$(date)] launching mpv"

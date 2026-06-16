@@ -113,13 +113,29 @@ if ! diff -q ${REMOTE_DIR}/install/nginx.conf /etc/nginx/nginx.conf &>/dev/null 
     echo "nginx config updated and reloaded"
 fi
 
-# Install splash image if present and different
+# Install splash image if present and different (legacy single-image fallback)
 if [[ -f ${REMOTE_DIR}/images/splash.png ]]; then
     if ! diff -q ${REMOTE_DIR}/images/splash.png /home/${KIOSK_USER}/splash.png &>/dev/null 2>&1; then
         sudo cp ${REMOTE_DIR}/images/splash.png /home/${KIOSK_USER}/splash.png
         sudo chown ${KIOSK_USER}:${KIOSK_USER} /home/${KIOSK_USER}/splash.png
         echo "Splash image updated"
     fi
+fi
+
+# Sync the splash rotation folder (the slides player.sh cycles through). Run as
+# the kiosk user — the diff/-f checks above can't read /home/kiosk (mode 0700).
+# Repo stays authoritative for admin slides via --delete, but the volunteer
+# drop-in (00-volunteer.png) is excluded so a deploy never wipes it.
+if [[ -d ${REMOTE_DIR}/images/splash.d ]]; then
+    sudo -u ${KIOSK_USER} mkdir -p /home/${KIOSK_USER}/splash.d
+    if command -v rsync >/dev/null 2>&1; then
+        sudo -u ${KIOSK_USER} rsync -a --delete --exclude='*-volunteer.png' \
+            ${REMOTE_DIR}/images/splash.d/ /home/${KIOSK_USER}/splash.d/
+    else
+        sudo -u ${KIOSK_USER} cp ${REMOTE_DIR}/images/splash.d/*.png \
+            /home/${KIOSK_USER}/splash.d/ 2>/dev/null || true
+    fi
+    echo "Splash rotation folder synced"
 fi
 REMOTE
 

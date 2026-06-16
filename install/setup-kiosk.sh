@@ -546,6 +546,51 @@ create_splash() {
 }
 
 # =============================================================================
+# Step 6b: Splash rotation folder
+# =============================================================================
+# The kiosk cycles through the images in /home/<user>/splash.d, advancing one
+# image each time the idle splash is (re)entered (see player.sh
+# next_splash_image). Create the folder and seed it so rotation has something
+# to show: prefer the repo's images/splash.d/, else seed with the single
+# splash.png we just installed. Idempotent — leaves an already-populated folder
+# alone so re-runs and operator-added slides survive.
+seed_splash_dir() {
+    local splash_dir="/home/${KIOSK_USER}/splash.d"
+    local splash_path="/home/${KIOSK_USER}/splash.png"
+    local images_dir
+    images_dir="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../images"
+
+    sudo -u "$KIOSK_USER" mkdir -p "$splash_dir"
+
+    if sudo -u "$KIOSK_USER" find "$splash_dir" -maxdepth 1 -type f \
+        \( -iname '*.png' -o -iname '*.jpg' -o -iname '*.jpeg' \) | grep -q .; then
+        log "Splash rotation folder $splash_dir already populated (leaving it alone)."
+        return
+    fi
+
+    if [[ -d "${images_dir}/splash.d" ]]; then
+        log "Seeding $splash_dir from ${images_dir}/splash.d/ ..."
+        local img
+        while IFS= read -r -d '' img; do
+            sudo -u "$KIOSK_USER" cp "$img" "$splash_dir/"
+        done < <(find "${images_dir}/splash.d" -maxdepth 1 -type f \
+            \( -iname '*.png' -o -iname '*.jpg' -o -iname '*.jpeg' \) -print0 \
+            2>/dev/null | sort -z)
+    fi
+
+    # Still empty? Seed with the single splash.png so rotation has one slide.
+    if ! sudo -u "$KIOSK_USER" find "$splash_dir" -maxdepth 1 -type f \
+        \( -iname '*.png' -o -iname '*.jpg' -o -iname '*.jpeg' \) | grep -q .; then
+        if [[ -f "$splash_path" ]]; then
+            log "Seeding $splash_dir with the installed splash.png ..."
+            sudo -u "$KIOSK_USER" cp "$splash_path" "$splash_dir/01-splash.png"
+        fi
+    fi
+    sudo chmod 644 "$splash_dir"/* 2>/dev/null || true
+    log "Splash rotation folder ready at $splash_dir."
+}
+
+# =============================================================================
 # Step 7: Player script
 # =============================================================================
 create_player_script() {
@@ -569,15 +614,45 @@ create_player_script() {
 set -u
 
 STREAM_URL="${stream_url}"
-SPLASH_IMAGE="/home/${KIOSK_USER}/splash.png"
+# Rotation folder (cycled one image per splash entry) + legacy single-image
+# fallback. Overridable via /etc/default/kiosk.
+SPLASH_DIR="\${SPLASH_DIR:-/home/${KIOSK_USER}/splash.d}"
+SPLASH_IMAGE="\${SPLASH_IMAGE:-/home/${KIOSK_USER}/splash.png}"
+SPLASH_INDEX=0
 VOLUME=${PLAYBACK_VOLUME}
 
+# Pick the next splash image and advance the cursor. Runs in the parent shell
+# (the \$(show_splash) subshell can't carry the cursor); returns the path via
+# SPLASH_NEXT. Re-reads the folder each call; non-zero when nothing is usable.
+next_splash_image() {
+    local images=()
+    if [[ -d "\$SPLASH_DIR" ]]; then
+        while IFS= read -r -d '' f; do
+            images+=("\$f")
+        done < <(find "\$SPLASH_DIR" -maxdepth 1 -type f \\
+            \\( -iname '*.png' -o -iname '*.jpg' -o -iname '*.jpeg' \\) -print0 \\
+            2>/dev/null | sort -z)
+    fi
+    if (( \${#images[@]} == 0 )); then
+        if [[ -f "\$SPLASH_IMAGE" ]]; then
+            SPLASH_NEXT="\$SPLASH_IMAGE"
+            return 0
+        fi
+        return 1
+    fi
+    SPLASH_NEXT="\${images[SPLASH_INDEX % \${#images[@]}]}"
+    SPLASH_INDEX=\$(( SPLASH_INDEX + 1 ))
+    return 0
+}
+
 show_splash() {
+    # \$1 is the image to show. Redirect mpv off the \$(...) pipe so the
+    # command substitution that captures the PID doesn't block on EOF.
     mpv --fullscreen --really-quiet --loop \\
         --image-display-duration=inf \\
         --no-input-default-bindings \\
         --no-audio \\
-        "\$SPLASH_IMAGE" &
+        "\$1" </dev/null >/dev/null 2>&1 &
     echo \$!
 }
 
@@ -594,12 +669,19 @@ stream_live() {
 
 while true; do
     if ! stream_live; then
-        SPLASH_PID=\$(show_splash)
+        if next_splash_image; then
+            SPLASH_PID=\$(show_splash "\$SPLASH_NEXT")
+        else
+            echo "ERROR: no splash image in \$SPLASH_DIR or \$SPLASH_IMAGE" >&2
+            SPLASH_PID=""
+        fi
         while ! stream_live; do
             sleep 3
         done
-        kill "\$SPLASH_PID" 2>/dev/null || true
-        wait "\$SPLASH_PID" 2>/dev/null || true
+        if [[ -n "\$SPLASH_PID" ]]; then
+            kill "\$SPLASH_PID" 2>/dev/null || true
+            wait "\$SPLASH_PID" 2>/dev/null || true
+        fi
     fi
 
     mpv --fullscreen \\
@@ -840,6 +922,7 @@ main() {
     configure_runtime_mode
     install_become_kiosk
     create_splash
+    seed_splash_dir
     create_player_script
     install_kiosk_service
     configure_watchdog
