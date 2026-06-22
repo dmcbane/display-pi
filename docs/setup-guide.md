@@ -14,13 +14,20 @@ upstream is different.
 
 | Item            | Pi 4 (recommended)                  | Pi 5 (also supported, see caveats) |
 |-----------------|-------------------------------------|------------------------------------|
-| Board           | Pi 4 Model B, 4 GB or 8 GB          | Pi 5, 4 GB or 8 GB                 |
+| Board           | Pi 4 Model B, 2 GB is enough (4/8 GB for headroom) | Pi 5, 4 GB or 8 GB                 |
 | Power supply    | Official 5 V / 3 A USB-C            | Official 5 V / 5 A USB-C-PD        |
 | Cooling         | Passive heatsink fine               | Active cooler strongly recommended |
 | Storage         | 32 GB+ SD card (Samsung Pro / SanDisk Extreme — avoid no-name) |
 | HDMI            | Micro-HDMI to HDMI cable, port 0    | Same                               |
 | Network         | Ethernet preferred — RTMP video on Wi-Fi is unreliable |
 | Capture (optional) | USB3 HDMI capture (e.g. MACROSILICON 345f:2131) on the workstation for visual debugging |
+
+> **On RAM:** a 2 GB Pi 4 is fine for the relay-only kiosk role. nginx
+> *relays* the RTMP push (no transcode) and mpv decodes in hardware
+> (`--hwdec=v4l2m2m-copy`), so the whole stack sits well under 1 GB. The
+> real reliability levers are cooling, SD-card quality, and Ethernet —
+> not memory. Step up to 4/8 GB only if you add a second job to the same
+> Pi (recording, a browser overlay, a MediaMTX relay).
 
 HDMI 0 is the **micro-HDMI port closer to the USB-C power input**. The
 script and player are pinned to `vc4hdmi0` (HDMI 0); use HDMI 1 only if
