@@ -234,6 +234,7 @@ All from the workstation, in the `display-pi/` checkout:
 | `make ssh-password`  | Toggle SSH password login: `STATE=on` (key OR password), `STATE=off` (key-only), `STATE=status` (default, just report). |
 | `make ping`          | 3 pings to verify the Pi is reachable.                  |
 | `make reboot`        | Reboot the Pi.                                          |
+| `make shutdown`      | Power off the Pi (`sudo poweroff`).                     |
 | `make sudoers`       | One-time: install the deploy sudoers whitelist (only needed if you skip step 5 or rebuild the Pi without re-running setup-kiosk.sh). |
 
 ### Splash images
