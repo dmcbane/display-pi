@@ -34,11 +34,15 @@ HDMI_MODE                ?=
 # to the Pi (consumed by `make set-time`). Positive = anticipate SSH lag.
 TIME_OFFSET              ?= 0
 
+# SSH password-login state for `make ssh-password`. on = allow public key OR
+# password; off = key-only; status = just report (the safe default).
+STATE                    ?= status
+
 export KIOSK_HOST  := $(HOST)
 export KIOSK_USER
 export STREAM_KEY
 
-.PHONY: help setup deploy sudoers test-stream test-stream-long ssh logs status diag judder-tree judder-probe judder-monitor stream-key hdmi-mode set-time test lint check ping reboot restart volunteer-bundle
+.PHONY: help setup deploy sudoers test-stream test-stream-long ssh ssh-password logs status diag judder-tree judder-probe judder-monitor stream-key hdmi-mode set-time test lint check ping reboot restart shutdown volunteer-bundle
 
 help:
 	@echo "display-pi — Church Worship Stream Kiosk"
@@ -58,6 +62,7 @@ help:
 	@echo ""
 	@echo "Remote operations:"
 	@echo "  ssh               Interactive shell on Pi"
+	@echo "  ssh-password      Toggle SSH password login (STATE=on|off|status)"
 	@echo "  logs              Tail kiosk + nginx logs"
 	@echo "  status            Show kiosk service status"
 	@echo "  diag              Run diagnostics on Pi"
@@ -70,6 +75,7 @@ help:
 	@echo "  ping              Ping the Pi"
 	@echo "  reboot            Reboot the Pi"
 	@echo "  restart           Restart the kiosk service (advances splash rotation)"
+	@echo "  shutdown          Shutdown the Pi"
 	@echo ""
 	@echo "Volunteer workflow:"
 	@echo "  volunteer-bundle  Build volunteer-bundle.zip (scripts + README + key)"
@@ -170,6 +176,20 @@ check: lint test
 ssh:
 	@./dev/pi-shell.sh $(HOST) shell
 
+# Allow SSH login by public key OR password (STATE=on), flip back to
+# key-only (STATE=off), or just report the effective setting (STATE=status,
+# the default). Pubkey auth always stays enabled, so STATE=off can't lock
+# out key-based logins. The toggle validates with `sshd -t` and applies via
+# reload, so the live SSH session survives. Runs the deployed copy of the
+# script as root on the Pi (prompts once for the Pi sudo password).
+#   make ssh-password STATE=on
+#   make ssh-password STATE=off
+#   make ssh-password               # STATE=status
+ssh-password:
+	@case "$(STATE)" in on|off|status) ;; *) \
+	    echo "ERROR: STATE must be on, off, or status (got '$(STATE)')"; exit 2 ;; esac
+	@ssh -t $(HOST) "sudo bash /home/$(KIOSK_USER)/display-pi/install/sshd-password-toggle.sh $(STATE)"
+
 logs:
 	@./dev/pi-shell.sh $(HOST) logs
 
@@ -227,6 +247,12 @@ reboot:
 	@echo "Rebooting $(HOST)..."
 	@ssh $(HOST) "sudo reboot" || true
 	@echo "Reboot command sent. Pi will come back in ~30s."
+
+shutdown:
+	@echo "Shutting down $(HOST)..."
+	@ssh $(HOST) "sudo poweroff" || true
+	@echo "Shutdown command sent. Pi will poweroff."
+
 
 # Restart the kiosk service without a full deploy. Handy during testing: the
 # player re-enters the splash loop on restart, so each `make restart` advances

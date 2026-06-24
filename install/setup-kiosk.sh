@@ -804,6 +804,28 @@ configure_deploy_sudoers() {
 }
 
 # =============================================================================
+# Step 10c: SSH auth — allow login by public key OR password
+# =============================================================================
+#
+# Delegates to `install/sshd-password-toggle.sh on`, which writes the
+# /etc/ssh/sshd_config.d/00-display-pi-auth.conf drop-in (pubkey always on,
+# password on), validates with `sshd -t`, and reloads sshd. Flip password
+# auth off later with `sudo bash install/sshd-password-toggle.sh off` or, from
+# the workstation, `make ssh-password STATE=off`.
+configure_ssh_auth() {
+    local src
+    src="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/sshd-password-toggle.sh"
+
+    if [[ ! -f "$src" ]]; then
+        warn "sshd-password-toggle.sh not found at $src; skipping SSH auth config."
+        return
+    fi
+
+    log "Enabling SSH login by public key OR password..."
+    sudo bash "$src" on
+}
+
+# =============================================================================
 # Step 11: Log rotation for /tmp/player.log
 # =============================================================================
 configure_logrotate() {
@@ -892,6 +914,7 @@ main() {
     configure_watchdog
     configure_pipewire
     configure_deploy_sudoers
+    configure_ssh_auth
     configure_logrotate
     configure_healthcheck
 

@@ -231,6 +231,7 @@ All from the workstation, in the `display-pi/` checkout:
 | `make logs`          | Tail kiosk + nginx logs.                                |
 | `make status`        | Show kiosk service status.                              |
 | `make diag`          | Run diagnostics on the Pi (text output).                |
+| `make ssh-password`  | Toggle SSH password login: `STATE=on` (key OR password), `STATE=off` (key-only), `STATE=status` (default, just report). |
 | `make ping`          | 3 pings to verify the Pi is reachable.                  |
 | `make reboot`        | Reboot the Pi.                                          |
 | `make sudoers`       | One-time: install the deploy sudoers whitelist (only needed if you skip step 5 or rebuild the Pi without re-running setup-kiosk.sh). |
@@ -261,6 +262,29 @@ scripts — there are no separate copies to keep in sync.
 - **Volunteers** can replace their slide over SSH — see
   [`docs/admin-splash-update.md`](admin-splash-update.md); their image joins the
   rotation.
+
+### SSH password login
+
+`setup-kiosk.sh` configures the Pi to accept SSH login by **public key OR
+password**. The setting lives in a single drop-in,
+`/etc/ssh/sshd_config.d/00-display-pi-auth.conf`, whose `00-` prefix makes it
+sort first and win sshd's first-value-wins resolution over any later drop-in
+(including the key-only file rpi-imager writes) and the stock config.
+
+Flip it without hand-editing config:
+
+```bash
+# From the workstation:
+make ssh-password STATE=off      # key-only (hardened)
+make ssh-password STATE=on       # allow public key OR password again
+make ssh-password                # STATE=status — show the effective setting
+```
+
+Public-key auth is **always** kept enabled, so `STATE=off` can never lock out
+key-based logins. The toggle validates with `sshd -t` and applies with a
+reload (not a restart), so the SSH session you run it from stays up even if the
+new config were rejected. On the Pi directly:
+`sudo bash install/sshd-password-toggle.sh on|off|status`.
 
 To change the stream key, RTMP allow-list, or any other config: re-run
 `bash install/setup-kiosk.sh` on the Pi after editing the config block at

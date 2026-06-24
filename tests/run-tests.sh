@@ -1643,6 +1643,57 @@ next_splash_behavior_test
 
 # ============================================================================
 echo ""
+echo "=== SSH Password Toggle Tests ==="
+# ============================================================================
+
+TOGGLE="$REPO_ROOT/install/sshd-password-toggle.sh"
+
+assert_file_exists "install/sshd-password-toggle.sh exists" "$TOGGLE"
+assert_executable  "install/sshd-password-toggle.sh is executable" "$TOGGLE"
+assert_contains "sshd-password-toggle.sh has shebang" "$TOGGLE" "^#!/bin/bash"
+assert_contains "sshd-password-toggle.sh has set -euo pipefail" "$TOGGLE" "^set -euo pipefail"
+
+# Drop-in must sort first (00-) so it wins sshd's first-value-wins resolution
+# over later drop-ins (e.g. rpi-imager's key-only file) and the stock config.
+assert_contains "toggle writes a 00- drop-in (sorts first, overrides others)" \
+    "$TOGGLE" "sshd_config.d/00-display-pi-auth.conf"
+
+# Pubkey auth is ALWAYS forced on, so STATE=off can't lock out key logins.
+assert_contains "toggle always keeps PubkeyAuthentication yes" \
+    "$TOGGLE" "PubkeyAuthentication yes"
+assert_contains "toggle manages PasswordAuthentication" \
+    "$TOGGLE" "PasswordAuthentication"
+
+# Validate before applying; reload (not restart) so the live session survives.
+assert_contains "toggle validates config with sshd -t before applying" \
+    "$TOGGLE" "sshd -t"
+assert_contains "toggle reloads (not restarts) sshd to keep sessions alive" \
+    "$TOGGLE" "systemctl reload"
+assert_not_contains "toggle never restarts ssh (would drop the live session)" \
+    "$TOGGLE" "systemctl restart ssh"
+
+# status reads the effective, resolved config — the real source of truth.
+assert_contains "toggle status reads effective config via sshd -T" \
+    "$TOGGLE" "sshd -T"
+
+# Handles on/off/status, requires root for mutations.
+assert_contains "toggle handles on|off|status" "$TOGGLE" "on|off"
+assert_contains "toggle requires root to change config" "$TOGGLE" 'EUID'
+
+# Makefile wrapper for easy invocation from the workstation.
+assert_contains "Makefile has ssh-password target" "$REPO_ROOT/Makefile" "^ssh-password:"
+assert_contains "Makefile ssh-password runs the toggle on the Pi" \
+    "$REPO_ROOT/Makefile" "sshd-password-toggle.sh"
+assert_contains "Makefile declares ssh-password .PHONY" "$REPO_ROOT/Makefile" "ssh-password"
+
+# Fresh-Pi setup enables password auth (public key OR password) by default.
+assert_contains "setup-kiosk.sh wires in SSH auth config" \
+    "$REPO_ROOT/install/setup-kiosk.sh" "configure_ssh_auth"
+assert_contains "setup-kiosk.sh enables password auth on a fresh Pi" \
+    "$REPO_ROOT/install/setup-kiosk.sh" "sshd-password-toggle.sh on"
+
+# ============================================================================
+echo ""
 echo "=== Consistency Tests ==="
 # ============================================================================
 

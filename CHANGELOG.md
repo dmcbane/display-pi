@@ -4,6 +4,21 @@ All notable changes to display-pi are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.0] - 2026-06-23
+
+### Added
+- **SSH login by public key OR password, with a one-command toggle.**
+  `setup-kiosk.sh` now installs `/etc/ssh/sshd_config.d/00-display-pi-auth.conf`
+  so a fresh Pi accepts both auth methods out of the box. The new
+  `install/sshd-password-toggle.sh` (`on` / `off` / `status`) flips password
+  auth without hand-editing config, wrapped by `make ssh-password STATE=…`.
+  The `00-` prefix makes the drop-in sort first, so it wins sshd's
+  first-value-wins resolution over later drop-ins (e.g. rpi-imager's key-only
+  file) and the stock `/etc/ssh/sshd_config`. Pubkey auth is always kept on, so
+  `off` can't lock out key logins; the config is validated with `sshd -t` and
+  applied with a `reload` (not `restart`), so the live SSH session survives a
+  rejected config. See docs/setup-guide.md ("SSH password login").
+
 ## [0.12.1] - 2026-06-16
 
 ### Fixed
