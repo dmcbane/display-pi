@@ -4,6 +4,18 @@ All notable changes to display-pi are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.1] - 2026-06-23
+
+### Fixed
+- **`sshd-password-toggle.sh on/off` aborted with `tmp: unbound variable`.**
+  Temp-file cleanup used `trap 'rm -f "$tmp"' RETURN`, but a RETURN trap is
+  global and re-fires on every later function return — so when `main()`
+  returned, the trap ran again with `$tmp` out of scope and `set -u` killed
+  the script (after the drop-in was already written, but before the operator
+  saw a clean exit). Replaced the trap with explicit `rm -f "$tmp"` right
+  after the `install`. Added a regression test that forbids a RETURN trap in
+  the script.
+
 ## [0.13.0] - 2026-06-23
 
 ### Added

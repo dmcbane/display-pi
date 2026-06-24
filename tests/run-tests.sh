@@ -1676,6 +1676,14 @@ assert_not_contains "toggle never restarts ssh (would drop the live session)" \
 assert_contains "toggle status reads effective config via sshd -T" \
     "$TOGGLE" "sshd -T"
 
+# Regression: a RETURN trap is global and re-fires on every later function
+# return. With a deferred ('$tmp') temp-file cleanup that tripped
+# `set -u: tmp: unbound variable` once main() returned. Use explicit cleanup.
+assert_not_contains "toggle avoids global RETURN trap (set -u unbound-var footgun)" \
+    "$TOGGLE" "RETURN"
+assert_contains "toggle cleans up its temp file explicitly" \
+    "$TOGGLE" 'rm -f "\$tmp"'
+
 # Handles on/off/status, requires root for mutations.
 assert_contains "toggle handles on|off|status" "$TOGGLE" "on|off"
 assert_contains "toggle requires root to change config" "$TOGGLE" 'EUID'

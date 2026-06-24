@@ -59,7 +59,6 @@ write_dropin() {
 
     local tmp
     tmp=$(mktemp)
-    trap 'rm -f "$tmp"' RETURN
     cat > "$tmp" <<EOF
 # Managed by display-pi — install/sshd-password-toggle.sh. Do not edit by hand.
 # Sorts first in sshd_config.d/ so it overrides later drop-ins and the stock
@@ -71,6 +70,7 @@ EOF
 
     install -d -m 0755 "$(dirname "$DROPIN")"
     install -o root -g root -m 0644 "$tmp" "$DROPIN"
+    rm -f "$tmp"
 
     # Validate the merged config before reloading. On failure, leave sshd
     # running on its current (still-loaded) config and tell the operator.
