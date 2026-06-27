@@ -4,6 +4,22 @@ All notable changes to display-pi are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.0] - 2026-06-27
+
+### Changed
+- **Hostname/IP watermark removed from the splash and live stream.** The mpv
+  overlay used to paint the Pi's `hostname IP` in the bottom-left corner of
+  every screen, so it sat permanently on top of the lobby splash and the live
+  worship stream. That address now appears only where it's actually needed —
+  the full-screen diagnostic/error screen (`render-status.sh`), which already
+  reports Hostname and Network as status lines. The bottom-right health
+  watermark (yellow WARN / red FAIL / gray STALE, hidden when OK) is unchanged
+  and still shows on every screen so operators keep an at-a-glance
+  "something's wrong" signal.
+- **`health-monitor.sh` no longer writes the now-unused `ip`/`hostname` JSON
+  fields** to `/tmp/kiosk-health.json`; the overlay no longer reads them. The
+  file is back to the documented `{status, message, updated}` shape.
+
 ## [0.13.1] - 2026-06-23
 
 ### Fixed

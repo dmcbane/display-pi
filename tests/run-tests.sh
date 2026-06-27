@@ -303,12 +303,16 @@ echo "=== Health Overlay Tests ==="
 assert_file_exists "install/mpv-health-overlay.lua exists" "$REPO_ROOT/install/mpv-health-overlay.lua"
 assert_contains "overlay reads /tmp/kiosk-health.json" "$REPO_ROOT/install/mpv-health-overlay.lua" "/tmp/kiosk-health.json"
 assert_contains "overlay positions health bottom-right" "$REPO_ROOT/install/mpv-health-overlay.lua" "\\\\an3"
-assert_contains "overlay positions info bottom-left" "$REPO_ROOT/install/mpv-health-overlay.lua" "\\\\an1"
-assert_contains "overlay uses two independent OSD layers" "$REPO_ROOT/install/mpv-health-overlay.lua" "create_osd_overlay"
-assert_contains "overlay parses ip from json" "$REPO_ROOT/install/mpv-health-overlay.lua" "\"ip\""
+assert_contains "overlay uses create_osd_overlay" "$REPO_ROOT/install/mpv-health-overlay.lua" "create_osd_overlay"
 assert_contains "overlay detects stale data" "$REPO_ROOT/install/mpv-health-overlay.lua" "STALE_THRESHOLD"
-assert_contains "health-monitor writes ip field" "$REPO_ROOT/diagnostics/health-monitor.sh" '"ip"'
-assert_contains "health-monitor writes hostname field" "$REPO_ROOT/diagnostics/health-monitor.sh" '"hostname"'
+# Hostname/IP watermark belongs only on the error/diagnostic screen
+# (render-status.sh), never overlaid on the splash or live stream. The
+# overlay must keep the bottom-right health corner but render no info corner.
+assert_not_contains "overlay no longer renders an info corner (bottom-left)" "$REPO_ROOT/install/mpv-health-overlay.lua" "\\\\an1"
+assert_not_contains "overlay no longer reads ip from json" "$REPO_ROOT/install/mpv-health-overlay.lua" "\"ip\""
+assert_not_contains "overlay no longer reads hostname from json" "$REPO_ROOT/install/mpv-health-overlay.lua" "\"hostname\""
+assert_not_contains "health-monitor no longer writes ip field" "$REPO_ROOT/diagnostics/health-monitor.sh" '"ip"'
+assert_not_contains "health-monitor no longer writes hostname field" "$REPO_ROOT/diagnostics/health-monitor.sh" '"hostname"'
 assert_file_exists "diagnostics/health-monitor.sh exists" "$REPO_ROOT/diagnostics/health-monitor.sh"
 assert_executable "diagnostics/health-monitor.sh is executable" "$REPO_ROOT/diagnostics/health-monitor.sh"
 assert_contains "health-monitor reuses check_health from healthcheck.sh" "$REPO_ROOT/diagnostics/health-monitor.sh" "healthcheck.sh"

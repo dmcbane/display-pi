@@ -58,19 +58,15 @@ json_escape() {
 }
 
 write_snapshot() {
-    local reason status_code level ip host
+    local reason status_code level
     reason=$(check_health 2>&1)
     status_code=$?
     level=$(classify "$reason" "$status_code")
-    ip=$(hostname -I 2>/dev/null | awk '{print $1}')
-    host=$(hostname 2>/dev/null)
 
     local tmp="${HEALTH_FILE}.tmp"
-    printf '{"status":"%s","message":"%s","ip":"%s","hostname":"%s","updated":"%s"}\n' \
+    printf '{"status":"%s","message":"%s","updated":"%s"}\n' \
         "$level" \
         "$(json_escape "$reason")" \
-        "$(json_escape "$ip")" \
-        "$(json_escape "$host")" \
         "$(date -Iseconds)" \
         > "$tmp"
     mv -f "$tmp" "$HEALTH_FILE"
