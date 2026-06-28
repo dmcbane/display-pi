@@ -62,6 +62,12 @@ sudo chown -h ${KIOSK_USER}:${KIOSK_USER} /home/${KIOSK_USER}/bin/healthcheck.sh
 sudo ln -sf ${REMOTE_DIR}/diagnostics/health-monitor.sh /home/${KIOSK_USER}/bin/health-monitor.sh
 sudo chown -h ${KIOSK_USER}:${KIOSK_USER} /home/${KIOSK_USER}/bin/health-monitor.sh
 
+# Install become-kiosk helper (system-wide, so any SSH/deploy user can use it)
+if ! diff -q ${REMOTE_DIR}/install/become-kiosk.sh /usr/local/bin/become-kiosk &>/dev/null; then
+    sudo install -m 0755 -o root -g root ${REMOTE_DIR}/install/become-kiosk.sh /usr/local/bin/become-kiosk
+    echo "become-kiosk helper updated"
+fi
+
 # Install logrotate config if changed
 if ! diff -q ${REMOTE_DIR}/install/logrotate-kiosk /etc/logrotate.d/kiosk-player &>/dev/null 2>&1; then
     sudo cp ${REMOTE_DIR}/install/logrotate-kiosk /etc/logrotate.d/kiosk-player
