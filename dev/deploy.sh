@@ -138,6 +138,19 @@ sudo chown -h ${KIOSK_USER}:${KIOSK_USER} /home/${KIOSK_USER}/splash.png
 echo "Splash images symlinked"
 REMOTE
 
+# Update kiosk-web app if the web manager has been set up on this Pi
+ssh "${HOST}" bash <<REMOTE
+set -euo pipefail
+if [[ -d /opt/kiosk-web ]]; then
+    if ! diff -q ${REMOTE_DIR}/web/kiosk_manager.py /opt/kiosk-web/kiosk_manager.py &>/dev/null; then
+        sudo install -m 0644 -o root -g root \
+            ${REMOTE_DIR}/web/kiosk_manager.py /opt/kiosk-web/kiosk_manager.py
+        sudo systemctl restart kiosk-web
+        echo "kiosk-web app updated and restarted"
+    fi
+fi
+REMOTE
+
 # Reload kiosk service
 log "Reloading kiosk service..."
 ssh "${HOST}" bash <<REMOTE

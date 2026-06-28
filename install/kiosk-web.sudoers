@@ -1,0 +1,10 @@
+# /etc/sudoers.d/kiosk-web — volunteer web manager privileges
+#
+# Installed by install/kiosk-web-setup.sh.
+
+# Restart the kiosk service as the kiosk user (same XDG_RUNTIME_DIR pattern
+# as deploy.sh). SETENV allows the env var to pass through to systemctl --user.
+kiosk-web ALL=(kiosk) NOPASSWD:SETENV: /usr/bin/systemctl --user restart kiosk.service
+
+# Reboot the Pi (volunteer reboot button).
+kiosk-web ALL=(root) NOPASSWD: /sbin/reboot, /usr/sbin/reboot

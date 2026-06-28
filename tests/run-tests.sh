@@ -102,6 +102,11 @@ assert_file_exists "install/become-kiosk.sh exists" "$REPO_ROOT/install/become-k
 assert_executable  "install/become-kiosk.sh is executable" "$REPO_ROOT/install/become-kiosk.sh"
 assert_file_exists "Makefile exists" "$REPO_ROOT/Makefile"
 assert_file_exists "images/splash.png exists" "$REPO_ROOT/images/splash.png"
+assert_file_exists "web/kiosk_manager.py exists" "$REPO_ROOT/web/kiosk_manager.py"
+assert_file_exists "install/kiosk-web.service exists" "$REPO_ROOT/install/kiosk-web.service"
+assert_file_exists "install/kiosk-web.sudoers exists" "$REPO_ROOT/install/kiosk-web.sudoers"
+assert_file_exists "install/kiosk-web-setup.sh exists" "$REPO_ROOT/install/kiosk-web-setup.sh"
+assert_executable  "install/kiosk-web-setup.sh is executable" "$REPO_ROOT/install/kiosk-web-setup.sh"
 
 # ============================================================================
 echo ""
@@ -1718,6 +1723,34 @@ assert_contains "player.sh references splash.png" "$REPO_ROOT/install/player.sh"
 
 # pix_fmt yuv420p in test stream (gotcha #6)
 assert_contains "test-stream.sh uses yuv420p" "$REPO_ROOT/dev/test-stream.sh" "yuv420p"
+
+# ============================================================================
+echo ""
+echo "=== Kiosk Web Manager Tests (Python) ==="
+# ============================================================================
+# Auto-create a small venv with flask+pillow+pytest on first run; re-use after.
+
+KIOSK_WEB_VENV="$SCRIPT_DIR/kiosk-web-venv"
+if [[ ! -x "$KIOSK_WEB_VENV/bin/pytest" ]]; then
+    echo "  Setting up Python test venv (first run only)…"
+    python3 -m venv "$KIOSK_WEB_VENV"
+    "$KIOSK_WEB_VENV/bin/pip" install --quiet \
+        -r "$SCRIPT_DIR/requirements-kiosk-web.txt"
+fi
+
+PY_OUTPUT=$("$KIOSK_WEB_VENV/bin/pytest" "$SCRIPT_DIR/test_kiosk_manager.py" \
+    -v --tb=short 2>&1) && PY_EXIT=0 || PY_EXIT=$?
+echo "$PY_OUTPUT"
+
+if [[ $PY_EXIT -eq 0 ]]; then
+    PY_PASS=$(echo "$PY_OUTPUT" | grep -oP '\d+(?= passed)' | tail -1 || echo 0)
+    PASS=$((PASS + ${PY_PASS:-0}))
+    printf "${GREEN}  PASS${RESET} kiosk_manager.py unit tests (%s assertions)\n" "${PY_PASS:-?}"
+else
+    FAIL=$((FAIL + 1))
+    ERRORS+=("kiosk_manager.py Python unit tests failed (see pytest output above)")
+    printf "${RED}  FAIL${RESET} kiosk_manager.py unit tests\n"
+fi
 
 # ============================================================================
 echo ""

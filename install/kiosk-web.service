@@ -1,0 +1,15 @@
+[Unit]
+Description=Kiosk Web Manager
+After=network.target
+
+[Service]
+Type=simple
+User=kiosk-web
+Group=kiosk-web
+EnvironmentFile=/etc/kiosk-web.conf
+ExecStart=/opt/kiosk-web/venv/bin/python /opt/kiosk-web/kiosk_manager.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

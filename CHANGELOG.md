@@ -4,6 +4,59 @@ All notable changes to display-pi are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.0] - 2026-06-28
+
+### Added
+- **Browser-based volunteer kiosk manager** (`web/kiosk_manager.py`). A
+  minimal Flask single-page app (nginx → :5000) lets volunteers manage splash
+  images and control the kiosk without any command-line skills. Features:
+  upload (PNG/JPEG, exactly 1920×1080, ≤ 10 MB), delete, download, drag-and-
+  drop or ↑↓ reorder, Restart Service, and Reboot Pi. Auth is a static token
+  embedded in the URL; volunteers just double-click a shortcut file.
+- **`install/kiosk-web-setup.sh`** — idempotent one-time setup: creates the
+  `kiosk-web` system user, `/var/lib/kiosk-splash/` splash directory,
+  `/opt/kiosk-web/` app + venv, `/etc/kiosk-web.conf` auth token, sudoers
+  grant, and `kiosk-web.service`. Run once via `make setup-web`.
+- **`make volunteer-web-url`** — reads the live token from the Pi and writes
+  `volunteer-kiosk.webloc` (macOS) and `volunteer-kiosk.url` (Windows/Linux)
+  shortcut files. Both are gitignored to keep the token out of version control.
+- **`install/kiosk-web.service`** and **`install/kiosk-web.sudoers`** — systemd
+  service definition and least-privilege sudoers grants for the `kiosk-web` user.
+- **Splash images moved to `/var/lib/kiosk-splash/`** when the web manager is
+  set up. `setup-kiosk.sh` seeds the directory from the repo's `images/splash.d/`
+  on first run; `SPLASH_DIR` in `/etc/default/kiosk` directs `player.sh` to the
+  new location. The legacy SSH volunteer path (`accept-splash` / splash-updater)
+  is **superseded** — `SPLASH_DIR` now points away from `/home/kiosk/splash.d`,
+  so the SSH pipeline no longer feeds the player.
+- **Python unit tests** for `kiosk_manager.py` (`tests/test_kiosk_manager.py`,
+  17 cases): `_strip_prefix` idempotency, token auth (missing/wrong/correct),
+  upload validation (type, dimensions, size, filename sanitization), and reorder
+  correctness/rejection. `tests/run-tests.sh` auto-creates a venv on first run.
+
+### Fixed
+- **`become-kiosk` helper was installed locally instead of on the Pi.** The
+  `check_become_kiosk()` function in `deploy.sh` ran `sudo install` on the
+  workstation (wrong machine), read from `dev/become-kiosk.sh` (wrong path),
+  and was never called. Removed the dead function; added a remote SSH block
+  that installs from `${REMOTE_DIR}/install/become-kiosk.sh` on the Pi.
+- **Stored XSS via uploaded filename.** Uploaded filenames are now sanitized to
+  `[A-Za-z0-9._-]` before being stored, preventing HTML injection when names are
+  rendered in the management UI.
+- **`systemctl --user restart` from a system service.** Added
+  `DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/<uid>/bus` alongside
+  `XDG_RUNTIME_DIR` in the restart subprocess call — required when running as a
+  system daemon with no login session (see `become-kiosk.sh` incident 2026-06-13).
+
+### Changed
+- `deploy.sh` now updates `/opt/kiosk-web/kiosk_manager.py` and restarts
+  `kiosk-web.service` when `/opt/kiosk-web/` exists on the target Pi.
+- `install/nginx.conf` adds an HTTP server block on port 80 proxying to the
+  Flask app. The rtmp-stat endpoint (localhost:8080) is unchanged.
+
+> **Note:** On-device paths (nginx proxy, `systemctl --user` via kiosk-web
+> service, reboot) are tested only by `make setup-web` and manual verification
+> on real hardware. The unit tests above cover all pure-Python logic.
+
 ## [0.14.0] - 2026-06-27
 
 ### Changed

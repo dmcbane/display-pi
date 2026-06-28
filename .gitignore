@@ -6,5 +6,12 @@ splash-updater
 splash-updater_ed25519
 splash-updater_ed25519.pub
 
+# Volunteer web URL shortcuts — contain auth token, never commit.
+volunteer-kiosk.webloc
+volunteer-kiosk.url
+
+# Python test venv (auto-created by run-tests.sh on first run).
+tests/kiosk-web-venv/
+
 # Local scratch: kiosk home-dir tree dumps captured for debugging.
 kiosk_home.txt

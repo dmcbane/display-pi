@@ -42,7 +42,7 @@ export KIOSK_HOST  := $(HOST)
 export KIOSK_USER
 export STREAM_KEY
 
-.PHONY: help setup deploy sudoers test-stream test-stream-long ssh ssh-password logs status diag judder-tree judder-probe judder-monitor stream-key hdmi-mode set-time test lint check ping reboot restart shutdown volunteer-bundle
+.PHONY: help setup deploy sudoers test-stream test-stream-long ssh ssh-password logs status diag judder-tree judder-probe judder-monitor stream-key hdmi-mode set-time test lint check ping reboot restart shutdown volunteer-bundle setup-web volunteer-web-url
 
 help:
 	@echo "display-pi — Church Worship Stream Kiosk"
@@ -78,7 +78,9 @@ help:
 	@echo "  shutdown          Shutdown the Pi"
 	@echo ""
 	@echo "Volunteer workflow:"
-	@echo "  volunteer-bundle  Build volunteer-bundle.zip (scripts + README + key)"
+	@echo "  setup-web         One-time: install volunteer web manager on Pi"
+	@echo "  volunteer-web-url Generate volunteer URL shortcut files (.webloc / .url)"
+	@echo "  volunteer-bundle  Build volunteer-bundle.zip (legacy SSH scripts + key)"
 	@echo ""
 	@echo "Variables (override on command line):"
 	@echo "  HOST=$(HOST)"
@@ -297,3 +299,28 @@ volunteer-bundle:
 	@echo "Hand-deliver this zip on a USB stick. Do NOT email it — the SSH"
 	@echo "private key inside is what proves the holder is authorized to"
 	@echo "replace the splash."
+
+# --- Volunteer web manager ---
+
+# One-time setup: install the web manager on the Pi (requires internet on Pi
+# for the first `pip install flask pillow`). Safe to re-run.
+setup-web:
+	@echo "Setting up kiosk-web on $(HOST)..."
+	@ssh -t $(HOST) "sudo bash /home/$(KIOSK_USER)/display-pi/install/kiosk-web-setup.sh"
+
+# Generate volunteer URL shortcut files from the live token on the Pi.
+# Outputs volunteer-kiosk.webloc (Mac) and volunteer-kiosk.url (Windows/Linux).
+# Both are gitignored — they contain the auth token.
+volunteer-web-url:
+	@TOKEN=$$(ssh $(HOST) "sudo grep '^TOKEN=' /etc/kiosk-web.conf 2>/dev/null | cut -d= -f2-"); \
+	if [ -z "$$TOKEN" ]; then \
+	    echo "ERROR: kiosk-web not set up on $(HOST). Run: make setup-web HOST=$(HOST)"; \
+	    exit 1; \
+	fi; \
+	URL="http://$(HOST)/?token=$$TOKEN"; \
+	printf '<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0">\n<dict>\n\t<key>URL</key>\n\t<string>%s</string>\n</dict>\n</plist>\n' \
+	    "$$URL" > volunteer-kiosk.webloc; \
+	printf '[InternetShortcut]\nURL=%s\n' "$$URL" > volunteer-kiosk.url; \
+	echo "[volunteer-web-url] URL: $$URL"; \
+	echo "[volunteer-web-url] wrote volunteer-kiosk.webloc  (Mac: double-click to open)"; \
+	echo "[volunteer-web-url] wrote volunteer-kiosk.url     (Windows / Linux: double-click to open)"
