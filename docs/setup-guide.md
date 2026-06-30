@@ -53,6 +53,20 @@ Have an answer for these before you start:
 
 ## Installation procedure
 
+> **Fast path:** once steps 1–4 are done (flash, first boot, SSH config, repo
+> checkout on the workstation), a single command takes the Pi the rest of the
+> way — base kiosk, full deploy, volunteer web manager, and shortcut files:
+>
+> ```sh
+> make provision HOST=displaypi STREAM_KEY=restoration
+> ```
+>
+> It runs `setup` → `deploy` → `setup-web` → `volunteer-web-url` in that order
+> (the order matters — see `make help`), and every step is idempotent so it's
+> safe to re-run. Steps 5–8 below do the same work by hand and explain each
+> piece; read them to understand what `provision` automates, or to run a step
+> on its own.
+
 ### 1. Flash the SD card
 
 Use the [Raspberry Pi Imager](https://www.raspberrypi.com/software/).

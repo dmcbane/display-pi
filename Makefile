@@ -42,13 +42,14 @@ export KIOSK_HOST  := $(HOST)
 export KIOSK_USER
 export STREAM_KEY
 
-.PHONY: help setup deploy sudoers test-stream test-stream-long ssh ssh-password logs status diag judder-tree judder-probe judder-monitor stream-key hdmi-mode set-time test lint check ping reboot restart shutdown volunteer-bundle setup-web volunteer-web-url
+.PHONY: help setup provision deploy sudoers test-stream test-stream-long ssh ssh-password logs status diag judder-tree judder-probe judder-monitor stream-key hdmi-mode set-time test lint check ping reboot restart shutdown volunteer-bundle setup-web volunteer-web-url
 
 help:
 	@echo "display-pi — Church Worship Stream Kiosk"
 	@echo ""
 	@echo "Bootstrap:"
-	@echo "  setup             First-time Pi setup (creates kiosk user, installs services)"
+	@echo "  provision         New kiosk, end to end: setup + deploy + setup-web + volunteer-web-url"
+	@echo "  setup             First-time Pi setup only (creates kiosk user, installs services)"
 	@echo ""
 	@echo "Deployment:"
 	@echo "  deploy            Sync repo to Pi and restart kiosk service"
@@ -105,6 +106,7 @@ help:
 	@echo "      Use a small positive value (e.g. 1.0) to compensate for SSH lag."
 	@echo ""
 	@echo "Examples:"
+	@echo "  make provision STREAM_KEY=mykey HOST=192.168.0.106"
 	@echo "  make deploy HOST=192.168.0.106"
 	@echo "  make setup STREAM_KEY=mykey RTMP_ALLOW_PUBLISH_CIDRS='192.168.1.42/32'"
 	@echo "  make hdmi-mode HDMI_MODE=1920x1080@30"
@@ -135,6 +137,23 @@ setup:
 	    RTMP_ALLOW_PUBLISH_CIDRS='$(RTMP_ALLOW_PUBLISH_CIDRS)' \
 	    HDMI_MODE='$(HDMI_MODE)' \
 	    bash install/setup-kiosk.sh"
+
+# One command to take a fresh Pi all the way to a working, volunteer-managed
+# kiosk. Runs the four one-time steps IN ORDER — the order is load-bearing:
+#   1. setup             bootstrap the base kiosk (creates kiosk user/services)
+#   2. deploy            create the canonical /home/$(KIOSK_USER)/display-pi repo
+#   3. setup-web         install the volunteer web manager (reads from #2's path)
+#   4. volunteer-web-url generate the .webloc/.url shortcut files (hold the token)
+# Each step is a recursive $(MAKE) so the sequence holds even under `make -j`,
+# and command-line overrides (HOST, STREAM_KEY, …) propagate to every step.
+# Every step is idempotent, so re-running provision on an existing Pi is safe.
+provision:
+	@echo "[provision] New-kiosk setup on $(HOST): setup -> deploy -> setup-web -> volunteer-web-url"
+	@$(MAKE) setup
+	@$(MAKE) deploy
+	@$(MAKE) setup-web
+	@$(MAKE) volunteer-web-url
+	@echo "[provision] Done. $(HOST) is provisioned; volunteer shortcut files written."
 
 # --- Deployment ---
 

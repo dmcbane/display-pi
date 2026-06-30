@@ -1711,6 +1711,31 @@ assert_contains "setup-kiosk.sh enables password auth on a fresh Pi" \
 
 # ============================================================================
 echo ""
+echo "=== Provision Aggregate Target Tests ==="
+# ============================================================================
+# `make provision` is the one-command new-kiosk flow. It must drive the four
+# one-time steps in strict order: setup → deploy → setup-web → volunteer-web-url.
+# A fresh Pi has no canonical /home/kiosk/display-pi until `deploy` runs, and
+# `setup-web` reads its install script from that path — so the order is load-
+# bearing, not cosmetic. Each step is invoked via a recursive $(MAKE) so the
+# ordering survives even under `make -j`.
+assert_contains "Makefile has provision target" \
+    "$REPO_ROOT/Makefile" "^provision:"
+assert_contains "provision runs setup (step 1)" \
+    "$REPO_ROOT/Makefile" "(MAKE) setup$"
+assert_contains "provision runs deploy (step 2)" \
+    "$REPO_ROOT/Makefile" "(MAKE) deploy"
+assert_contains "provision runs setup-web (step 3)" \
+    "$REPO_ROOT/Makefile" "(MAKE) setup-web"
+assert_contains "provision runs volunteer-web-url (step 4)" \
+    "$REPO_ROOT/Makefile" "(MAKE) volunteer-web-url"
+assert_contains "Makefile .PHONY includes provision" \
+    "$REPO_ROOT/Makefile" '\.PHONY:.* provision'
+assert_contains "Makefile help mentions provision" \
+    "$REPO_ROOT/Makefile" "provision "
+
+# ============================================================================
+echo ""
 echo "=== Consistency Tests ==="
 # ============================================================================
 

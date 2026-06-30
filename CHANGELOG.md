@@ -4,6 +4,19 @@ All notable changes to display-pi are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.0] - 2026-06-29
+
+### Added
+- **`make provision`** — one command to take a fresh Pi end to end: it runs
+  the four one-time steps in order (`setup` → `deploy` → `setup-web` →
+  `volunteer-web-url`). The order is load-bearing — a fresh Pi has no canonical
+  `/home/kiosk/display-pi` until `deploy` runs, and `setup-web` reads its
+  install script from that path. Each step is invoked via a recursive `$(MAKE)`
+  so the sequence holds even under `make -j`, and command-line overrides
+  (`HOST`, `STREAM_KEY`, …) propagate to every step. Every step is idempotent,
+  so re-running `provision` on an existing Pi is safe. `make help` now lists it
+  under Bootstrap; `make setup` remains available for the base-kiosk step alone.
+
 ## [0.15.0] - 2026-06-28
 
 ### Added
