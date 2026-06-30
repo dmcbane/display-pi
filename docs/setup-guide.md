@@ -1,3 +1,8 @@
+---
+title: Setup Guide — display-pi
+description: End-to-end procedure for turning a blank Raspberry Pi into a working RTMP-driven kiosk display.
+---
+
 # display-pi setup guide — fresh Pi to Sunday-morning ready
 
 End-to-end procedure for turning a blank Raspberry Pi into a working

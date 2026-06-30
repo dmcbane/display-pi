@@ -1,3 +1,8 @@
+---
+title: Splash Image Guide — display-pi
+description: How a volunteer replaces the worship display splash image shown before the stream goes live.
+---
+
 # Replacing the Worship Display Splash Image
 
 The splash image is the background shown on the worship display before

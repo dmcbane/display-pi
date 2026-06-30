@@ -1,0 +1,25 @@
+# Jekyll configuration for the display-pi GitHub Pages site.
+title: display-pi — Church Worship Stream Kiosk
+description: >-
+  Turn a Raspberry Pi into a zero-touch lobby display: it shows a splash
+  image until the worship stream goes live, then switches to the feed —
+  and back — automatically. Volunteers manage it from a browser.
+
+# No Jekyll theme: the site uses custom layouts in _layouts/ and assets/style.css.
+
+# Project information (used by includes).
+github:
+  repository_url: https://github.com/dmcbane/display-pi
+  releases_url:   https://github.com/dmcbane/display-pi/releases
+  issues_url:     https://github.com/dmcbane/display-pi/issues
+
+defaults:
+  - scope:
+      path: ""
+    values:
+      layout: default
+
+# Keep engineering notes out of the rendered site nav; they remain readable
+# as plain Markdown on github.com.
+exclude:
+  - dev-journal

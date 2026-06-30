@@ -1,0 +1,171 @@
+---
+layout: home
+title: display-pi — Church Worship Stream Kiosk
+description: >-
+  Turn a Raspberry Pi into a zero-touch lobby display that shows a splash
+  image until the worship stream goes live, switches to the feed, and
+  switches back automatically. Volunteers manage it from a browser.
+---
+
+<!-- Hero -->
+<header class="hero">
+  <h1>The worship stream,<br>on the lobby TV <span>automatically</span>.</h1>
+  <p class="tagline">
+    A Raspberry Pi that shows a splash image until your service goes live,
+    cuts to the stream the instant it starts, and falls back to the splash
+    when it ends — no laptop, no operator, no Sunday-morning scramble.
+  </p>
+  <div class="badge-row">
+    <span class="badge red">Raspberry Pi</span>
+    <span class="badge purple">RTMP</span>
+    <span class="badge blue">nginx + mpv</span>
+    <span class="badge green">Browser-managed</span>
+    <span class="badge">Apache-2.0</span>
+    <span class="badge">v0.16.0</span>
+  </div>
+  <div class="hero-buttons">
+    <a href="#quickstart" class="btn btn-primary">Get Started</a>
+    <a href="https://github.com/dmcbane/display-pi" class="btn btn-secondary">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+      View on GitHub
+    </a>
+  </div>
+
+  <div class="tree-block">
+    <div class="tree-header">
+      <span class="tree-dot red"></span>
+      <span class="tree-dot yellow"></span>
+      <span class="tree-dot green"></span>
+    </div>
+<pre><span class="prompt">$</span> <span class="cmd">make provision HOST=displaypi STREAM_KEY=restoration</span>
+<span class="comment">[provision] setup -&gt; deploy -&gt; setup-web -&gt; volunteer-web-url</span>
+<span class="comment">  base kiosk installed, repo deployed, web manager up</span>
+<span class="comment">  Volunteer URL: http://displaypi/?token=7f40&hellip;</span>
+<span class="prompt">$</span> <span class="comment"># point the ATEM at rtmp://displaypi/live and press LIVE</span></pre>
+  </div>
+</header>
+
+<!-- Features -->
+<section id="features">
+  <h2 class="section-title">What it does</h2>
+  <p class="section-sub">
+    Built for one job and done with the fewest moving parts: a single Pi that
+    receives an RTMP push and drives an HDMI display, with no state machine to
+    babysit.
+  </p>
+
+  <div class="features">
+    <div class="feature-card">
+      <span class="icon">&#128250;</span>
+      <h3>Automatic switching</h3>
+      <p>Shows the splash image while idle and cuts to the live feed the moment a publisher starts pushing RTMP — then back to the splash when the stream stops. No button to press.</p>
+    </div>
+    <div class="feature-card">
+      <span class="icon">&#127760;</span>
+      <h3>Browser-managed</h3>
+      <p>A volunteer opens one bookmarked URL to swap splash images, reorder the rotation, restart the player, or reboot the Pi — drag-and-drop, no terminal, no SSH key.</p>
+    </div>
+    <div class="feature-card">
+      <span class="icon">&#128640;</span>
+      <h3>Zero-touch deploy</h3>
+      <p><code>make deploy</code> rsyncs the repo, symlinks the player, reloads nginx, and restarts the service — no password prompts, thanks to a narrow sudoers whitelist.</p>
+    </div>
+    <div class="feature-card">
+      <span class="icon">&#10084;</span>
+      <h3>Self-healing</h3>
+      <p>A hardware watchdog, a healthcheck cron that pings an uptime monitor, and a player that relaunches on crash keep the display alive through power blips and network hiccups.</p>
+    </div>
+    <div class="feature-card">
+      <span class="icon">&#128421;</span>
+      <h3>Predictable HDMI</h3>
+      <p>Display mode is a single source of truth: set it once and the boot config and the runtime <code>wlr-randr</code> layer agree, so the TV comes up in the right resolution every time.</p>
+    </div>
+    <div class="feature-card">
+      <span class="icon">&#129520;</span>
+      <h3>One-command setup</h3>
+      <p><code>make provision</code> takes a blank Pi all the way to a working, volunteer-managed kiosk in a single ordered step. Every piece is idempotent and safe to re-run.</p>
+    </div>
+  </div>
+</section>
+
+<!-- Architecture -->
+<section id="architecture">
+  <h2 class="section-title">How it fits together</h2>
+  <p class="section-sub">
+    Your switcher pushes a stream; the Pi receives it, plays it full-screen,
+    and falls back to a splash when nothing is live.
+  </p>
+
+  <div class="flow">
+    <div class="flow-node">
+      <span class="icon">&#127909;</span>
+      <h4>ATEM / OBS</h4>
+      <p>Pushes RTMP to <code>rtmp://pi/live</code></p>
+    </div>
+    <div class="flow-arrow">&rarr;</div>
+    <div class="flow-node">
+      <span class="icon">&#128225;</span>
+      <h4>nginx-rtmp</h4>
+      <p>Receives the stream on the Pi</p>
+    </div>
+    <div class="flow-arrow">&rarr;</div>
+    <div class="flow-node">
+      <span class="icon">&#9654;</span>
+      <h4>mpv in cage</h4>
+      <p>Plays live feed, else the splash</p>
+    </div>
+    <div class="flow-arrow">&rarr;</div>
+    <div class="flow-node">
+      <span class="icon">&#128250;</span>
+      <h4>HDMI</h4>
+      <p>The lobby TV</p>
+    </div>
+  </div>
+</section>
+
+<!-- Quick Start -->
+<section id="quickstart">
+  <h2 class="section-title">Quick Start</h2>
+  <p class="section-sub">From a freshly flashed SD card to a working kiosk.</p>
+
+  <div class="steps">
+    <div class="step">
+      <span class="step-num">1</span>
+      <h3>Flash &amp; boot</h3>
+      <p>Raspberry Pi OS Lite (64-bit), SSH enabled, hostname <code>displaypi</code>. Add an SSH alias on your workstation.</p>
+    </div>
+    <div class="step">
+      <span class="step-num">2</span>
+      <h3>Provision</h3>
+      <p>One command installs the kiosk, deploys the repo, and brings up the volunteer web manager.</p>
+    </div>
+    <div class="step">
+      <span class="step-num">3</span>
+      <h3>Point your switcher</h3>
+      <p>Aim the ATEM (or OBS) at <code>rtmp://pi/live</code> and press LIVE. The Pi cuts to the feed.</p>
+    </div>
+  </div>
+
+  <p class="code-label">Provision the Pi (runs setup &rarr; deploy &rarr; setup-web &rarr; volunteer-web-url)</p>
+  <div class="code-block">
+<pre><span class="cmd">make provision</span> <span class="flag">HOST</span>=<span class="str">displaypi</span> <span class="flag">STREAM_KEY</span>=<span class="str">restoration</span></pre>
+  </div>
+
+  <p class="code-label">Day to day</p>
+  <div class="code-block">
+<pre><span class="cmd">make deploy</span>            <span class="comment"># push code changes + restart the player</span>
+<span class="cmd">make status</span>            <span class="comment"># is the kiosk service healthy?</span>
+<span class="cmd">make logs</span>              <span class="comment"># tail player + nginx logs</span>
+<span class="cmd">make volunteer-web-url</span> <span class="comment"># regenerate the volunteer shortcut files</span></pre>
+  </div>
+
+  <div class="callout">
+    <h3>&#128161; New in v0.16.0 — <code>make provision</code></h3>
+    <p>One command takes a fresh Pi end to end. It runs the four one-time steps in the order they depend on each other, and every step is idempotent — so re-running it on an existing Pi just tops everything off.</p>
+  </div>
+
+  <div class="hero-buttons" style="justify-content:flex-start;">
+    <a href="setup-guide.html" class="btn btn-primary">Full Setup Guide</a>
+    <a href="volunteer-splash-update.html" class="btn btn-secondary">Splash Image Guide</a>
+  </div>
+</section>
