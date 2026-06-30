@@ -4,7 +4,8 @@ title: display-pi — Church Worship Stream Kiosk
 description: >-
   Turn a Raspberry Pi into a zero-touch lobby display that shows a splash
   image until the worship stream goes live, switches to the feed, and
-  switches back automatically. Volunteers manage it from a browser.
+  switches back automatically. Volunteers swap splash images from a
+  web-based image manager; admins keep full console access over SSH.
 ---
 
 <!-- Hero -->
@@ -19,7 +20,8 @@ description: >-
     <span class="badge red">Raspberry Pi</span>
     <span class="badge purple">RTMP</span>
     <span class="badge blue">nginx + mpv</span>
-    <span class="badge green">Browser-managed</span>
+    <span class="badge green">Web image manager</span>
+    <span class="badge orange">Full console access</span>
     <span class="badge">Apache-2.0</span>
     <span class="badge">v0.16.0</span>
   </div>
@@ -56,14 +58,19 @@ description: >-
 
   <div class="features">
     <div class="feature-card">
+      <span class="icon">&#127760;</span>
+      <h3>Web-based image manager</h3>
+      <p>A volunteer opens one bookmarked URL — no terminal, no SSH key, works from a phone. Upload PNG/JPEG splash images, delete or download existing ones, drag-and-drop (or &uarr;&darr;) to reorder the rotation, then Restart Service or Reboot Pi, all from the browser.</p>
+    </div>
+    <div class="feature-card">
+      <span class="icon">&#128187;</span>
+      <h3>Full console access</h3>
+      <p>Everything the browser tool does has a command-line counterpart, plus the deeper stuff: <code>make deploy</code>, <code>make logs</code>, <code>make status</code>, and <code>make ssh</code> drop an admin straight into the Pi.</p>
+    </div>
+    <div class="feature-card">
       <span class="icon">&#128250;</span>
       <h3>Automatic switching</h3>
       <p>Shows the splash image while idle and cuts to the live feed the moment a publisher starts pushing RTMP — then back to the splash when the stream stops. No button to press.</p>
-    </div>
-    <div class="feature-card">
-      <span class="icon">&#127760;</span>
-      <h3>Browser-managed</h3>
-      <p>A volunteer opens one bookmarked URL to swap splash images, reorder the rotation, restart the player, or reboot the Pi — drag-and-drop, no terminal, no SSH key.</p>
     </div>
     <div class="feature-card">
       <span class="icon">&#128640;</span>
@@ -120,6 +127,51 @@ description: >-
       <h4>HDMI</h4>
       <p>The lobby TV</p>
     </div>
+  </div>
+</section>
+
+<!-- Management -->
+<section id="management">
+  <h2 class="section-title">Manage it your way</h2>
+  <p class="section-sub">
+    Swapping this Sunday's splash image and digging into a config file are
+    different jobs for different people — display-pi gives each one its own
+    door in.
+  </p>
+
+  <div class="steps">
+    <div class="step">
+      <span class="icon" style="font-size:1.5rem;display:block;margin-bottom:.6rem;">&#127760;</span>
+      <h3>Volunteers: the web image manager</h3>
+      <p>One bookmarked link, no login screen — auth is a token baked into the
+      URL. From a phone or any browser a volunteer can:</p>
+      <p class="note">&bull; Upload a new splash (PNG/JPEG, exactly 1920&times;1080, &le; 10&nbsp;MB)<br>
+      &bull; Delete or download an existing slide<br>
+      &bull; Drag-and-drop (or &uarr;&darr;) to reorder the rotation<br>
+      &bull; Restart Service or Reboot Pi</p>
+    </div>
+    <div class="step">
+      <span class="icon" style="font-size:1.5rem;display:block;margin-bottom:.6rem;">&#128187;</span>
+      <h3>Admins: full console access</h3>
+      <p>Nothing is locked behind the browser tool — every action it offers,
+      and everything it doesn't, is one <code>make</code> command away over
+      SSH:</p>
+      <p class="note">&bull; <code>make ssh</code> &mdash; interactive shell on the Pi<br>
+      &bull; <code>make logs</code> / <code>make status</code> &mdash; tail logs, check service health<br>
+      &bull; <code>make deploy</code> &mdash; push code changes, restart the player<br>
+      &bull; <code>make diag</code> &mdash; full diagnostics dump</p>
+    </div>
+  </div>
+
+  <p class="code-label">Stand up the volunteer web manager</p>
+  <div class="code-block">
+<pre><span class="cmd">make setup-web</span>            <span class="comment"># one-time: installs the kiosk-web service</span>
+<span class="cmd">make volunteer-web-url</span>    <span class="comment"># writes a shortcut file with the live token</span></pre>
+  </div>
+
+  <div class="callout">
+    <h3>&#128161; <code>make provision</code> does both</h3>
+    <p>It runs <code>setup-web</code> and <code>volunteer-web-url</code> as part of the standard sequence, so every kiosk leaves provisioning with the browser tool already live — the console is just always there too.</p>
   </div>
 </section>
 
