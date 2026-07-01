@@ -30,6 +30,12 @@ RTMP_ALLOW_PUBLISH_CIDRS ?= 192.168.0.0/16 10.0.0.0/8
 # initial setup to change it without re-running full setup.
 HDMI_MODE                ?=
 
+# Extra static IPv4 address bound to Ethernet alongside DHCP, so the Pi is
+# reachable on networks without a DHCP server (setup only). Format
+# "<addr>/<prefix>", e.g. 192.168.50.1/24. Empty = DHCP only; "none" removes
+# a static IP added by a previous run.
+STATIC_IP                ?=
+
 # Optional seconds-of-offset added to the laptop clock when pushing time
 # to the Pi (consumed by `make set-time`). Positive = anticipate SSH lag.
 TIME_OFFSET              ?= 0
@@ -101,6 +107,9 @@ help:
 	@echo "  HDMI_MODE='$(HDMI_MODE)'"
 	@echo "      Force HDMI mode via cmdline.txt video= (e.g. 1920x1080@30)."
 	@echo "      Empty = let display pick. Used by 'setup' and 'hdmi-mode'."
+	@echo "  STATIC_IP='$(STATIC_IP)'"
+	@echo "      Extra static IP on Ethernet alongside DHCP (setup only),"
+	@echo "      e.g. 192.168.50.1/24. Empty = DHCP only; 'none' removes it."
 	@echo "  TIME_OFFSET=$(TIME_OFFSET)"
 	@echo "      Seconds to add to the laptop clock when running 'set-time'."
 	@echo "      Use a small positive value (e.g. 1.0) to compensate for SSH lag."
@@ -109,6 +118,7 @@ help:
 	@echo "  make provision STREAM_KEY=mykey HOST=192.168.0.106"
 	@echo "  make deploy HOST=192.168.0.106"
 	@echo "  make setup STREAM_KEY=mykey RTMP_ALLOW_PUBLISH_CIDRS='192.168.1.42/32'"
+	@echo "  make setup STATIC_IP=192.168.50.1/24    # reach the Pi with no DHCP"
 	@echo "  make hdmi-mode HDMI_MODE=1920x1080@30"
 	@echo "  make set-time TIME_OFFSET=1.0"
 
@@ -116,9 +126,9 @@ help:
 
 # One-time setup: rsync the repo to the SSH user's home and run setup-kiosk.sh.
 # Use this on a fresh Pi before `make deploy`. setup-kiosk.sh is idempotent,
-# so re-running is safe. All six setup variables (KIOSK_USER, STREAM_KEY,
-# RTMP_APP, PLAYBACK_VOLUME, SPLASH_TEXT, RTMP_ALLOW_PUBLISH_CIDRS) are
-# forwarded to the remote shell — see `make help`.
+# so re-running is safe. All setup variables (KIOSK_USER, STREAM_KEY,
+# RTMP_APP, PLAYBACK_VOLUME, SPLASH_TEXT, RTMP_ALLOW_PUBLISH_CIDRS, HDMI_MODE,
+# STATIC_IP) are forwarded to the remote shell — see `make help`.
 setup:
 	@echo "Bootstrapping $(HOST)..."
 	@rsync -avz \
@@ -136,6 +146,7 @@ setup:
 	    SPLASH_TEXT='$(SPLASH_TEXT)' \
 	    RTMP_ALLOW_PUBLISH_CIDRS='$(RTMP_ALLOW_PUBLISH_CIDRS)' \
 	    HDMI_MODE='$(HDMI_MODE)' \
+	    STATIC_IP='$(STATIC_IP)' \
 	    bash install/setup-kiosk.sh"
 
 # One command to take a fresh Pi all the way to a working, volunteer-managed

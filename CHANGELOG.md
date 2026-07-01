@@ -4,6 +4,22 @@ All notable changes to display-pi are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.0] - 2026-07-01
+
+### Added
+- **`STATIC_IP` setup option** — bind an extra fixed IPv4 address to the
+  Ethernet adapter *in addition* to DHCP, so the Pi stays reachable on
+  networks with no DHCP server (a laptop patched straight in, a dumb switch, a
+  field rig). `setup-kiosk.sh` gains a `configure_static_ip` step that owns a
+  dedicated NetworkManager profile (`kiosk-static`, method `auto` + the static
+  address, higher autoconnect priority than the stock `Wired connection 1`).
+  The profile is recreated from scratch on every run so re-runs never stack
+  addresses, and the change lands on the next reboot rather than bouncing the
+  live SSH session. `STATIC_IP=none` removes a previously-added address.
+  Exposed via `make setup`/`make provision`
+  (`make setup STATIC_IP=192.168.50.1/24`); documented in `make help` and the
+  setup guide. Empty/unset = DHCP only, so existing deployments are unaffected.
+
 ## [0.16.0] - 2026-06-29
 
 ### Added
