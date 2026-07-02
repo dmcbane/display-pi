@@ -1130,6 +1130,120 @@ assert_contains "Makefile .PHONY includes set-time" \
 
 # ============================================================================
 echo ""
+echo "=== URL Shortcut & SSH Key Helper Tests ==="
+# ============================================================================
+# dev/write-url-shortcut.sh emits the .webloc/.url pair used by
+# `make volunteer-web-url` for BOTH the volunteer manager and the docs site.
+# dev/ssh-copy-key.sh + configure_ssh_pubkey let a user opt into passwordless
+# SSH, either standalone or during setup.
+
+assert_file_exists "dev/write-url-shortcut.sh exists" "$REPO_ROOT/dev/write-url-shortcut.sh"
+assert_executable  "dev/write-url-shortcut.sh is executable" "$REPO_ROOT/dev/write-url-shortcut.sh"
+assert_contains    "write-url-shortcut.sh has set -euo pipefail" \
+    "$REPO_ROOT/dev/write-url-shortcut.sh" "set -euo pipefail"
+
+# Behavioral: writes a valid .webloc (plist) and .url (InternetShortcut) pair.
+url_shortcut_test() {
+    local tmp; tmp=$(mktemp -d); trap "rm -rf '$tmp'" RETURN
+    ( cd "$tmp" && "$REPO_ROOT/dev/write-url-shortcut.sh" "https://example.test/docs/" refsite ) >/dev/null
+    assert_contains "write-url-shortcut .webloc is a plist" "$tmp/refsite.webloc" "<plist"
+    assert_contains "write-url-shortcut .webloc holds the URL" "$tmp/refsite.webloc" "https://example.test/docs/"
+    assert_contains "write-url-shortcut .url is an InternetShortcut" "$tmp/refsite.url" '\[InternetShortcut\]'
+    assert_contains "write-url-shortcut .url holds the URL" "$tmp/refsite.url" "URL=https://example.test/docs/"
+}
+url_shortcut_test
+
+# Behavioral: wrong arg count fails loudly (never silently writes nothing).
+url_shortcut_args_test() {
+    local out rc
+    out=$("$REPO_ROOT/dev/write-url-shortcut.sh" onlyoneargument 2>&1) && rc=0 || rc=$?
+    if [[ "$rc" -eq 0 ]]; then
+        FAIL=$((FAIL + 1))
+        ERRORS+=("write-url-shortcut.sh with 1 arg should exit non-zero")
+        printf "${RED}  FAIL${RESET} write-url-shortcut.sh rejects wrong arg count\n"
+        return
+    fi
+    PASS=$((PASS + 1))
+    printf "${GREEN}  PASS${RESET} write-url-shortcut.sh rejects wrong arg count\n"
+}
+url_shortcut_args_test
+
+assert_file_exists "dev/ssh-copy-key.sh exists" "$REPO_ROOT/dev/ssh-copy-key.sh"
+assert_executable  "dev/ssh-copy-key.sh is executable" "$REPO_ROOT/dev/ssh-copy-key.sh"
+assert_contains    "ssh-copy-key.sh has set -euo pipefail" \
+    "$REPO_ROOT/dev/ssh-copy-key.sh" "set -euo pipefail"
+
+# Behavioral: a file that isn't a public key must be rejected BEFORE any ssh,
+# so we never leak a private key into authorized_keys (never swallow errors).
+ssh_copy_key_reject_test() {
+    local tmp out rc; tmp=$(mktemp -d); trap "rm -rf '$tmp'" RETURN
+    printf -- '-----BEGIN OPENSSH PRIVATE KEY-----\n' > "$tmp/notapub"
+    out=$(SSH_PUBKEY="$tmp/notapub" "$REPO_ROOT/dev/ssh-copy-key.sh" dummyhost 2>&1) && rc=0 || rc=$?
+    if [[ "$rc" -eq 0 ]]; then
+        FAIL=$((FAIL + 1))
+        ERRORS+=("ssh-copy-key.sh accepted a non-public-key file (rc=0): $out")
+        printf "${RED}  FAIL${RESET} ssh-copy-key.sh rejects a non-public-key file\n"
+        return
+    fi
+    PASS=$((PASS + 1))
+    printf "${GREEN}  PASS${RESET} ssh-copy-key.sh rejects a non-public-key file\n"
+}
+ssh_copy_key_reject_test
+
+# Behavioral: DRY_RUN resolves+validates the key and reports intent without ssh.
+ssh_copy_key_dryrun_test() {
+    local tmp out rc; tmp=$(mktemp -d); trap "rm -rf '$tmp'" RETURN
+    echo "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA testkey@example" > "$tmp/id.pub"
+    out=$(DRY_RUN=1 SSH_PUBKEY="$tmp/id.pub" "$REPO_ROOT/dev/ssh-copy-key.sh" dummyhost 2>&1) && rc=0 || rc=$?
+    if [[ "$rc" -ne 0 ]]; then
+        FAIL=$((FAIL + 1))
+        ERRORS+=("ssh-copy-key.sh DRY_RUN should exit 0 for a valid key; rc=$rc out='$out'")
+        printf "${RED}  FAIL${RESET} ssh-copy-key.sh DRY_RUN succeeds for a valid key\n"
+        return
+    fi
+    if ! grep -q "id.pub" <<<"$out"; then
+        FAIL=$((FAIL + 1))
+        ERRORS+=("ssh-copy-key.sh DRY_RUN should report the resolved key; out='$out'")
+        printf "${RED}  FAIL${RESET} ssh-copy-key.sh DRY_RUN reports the resolved key\n"
+        return
+    fi
+    PASS=$((PASS + 1))
+    printf "${GREEN}  PASS${RESET} ssh-copy-key.sh DRY_RUN validates and reports without connecting\n"
+}
+ssh_copy_key_dryrun_test
+
+# setup-kiosk.sh gains the SSH_PUBKEY setting + configure_ssh_pubkey step.
+assert_contains "setup-kiosk.sh declares SSH_PUBKEY setting" \
+    "$REPO_ROOT/install/setup-kiosk.sh" 'SSH_PUBKEY="\${SSH_PUBKEY:-}"'
+assert_contains "setup-kiosk.sh has configure_ssh_pubkey function" \
+    "$REPO_ROOT/install/setup-kiosk.sh" "^configure_ssh_pubkey()"
+assert_contains "configure_ssh_pubkey guards against a private key (public key prefix)" \
+    "$REPO_ROOT/install/setup-kiosk.sh" "ssh-ed25519"
+assert_contains "configure_ssh_pubkey installs idempotently (grep -qxF)" \
+    "$REPO_ROOT/install/setup-kiosk.sh" "grep -qxF"
+assert_contains "setup-kiosk.sh main() calls configure_ssh_pubkey" \
+    "$REPO_ROOT/install/setup-kiosk.sh" "    configure_ssh_pubkey"
+
+# Makefile exposes both mechanisms.
+assert_contains "Makefile declares DOCS_URL variable" \
+    "$REPO_ROOT/Makefile" "^DOCS_URL"
+assert_contains "Makefile volunteer-web-url uses write-url-shortcut.sh" \
+    "$REPO_ROOT/Makefile" "write-url-shortcut.sh"
+assert_contains "Makefile volunteer-web-url generates docs shortcuts (display-pi-docs)" \
+    "$REPO_ROOT/Makefile" "display-pi-docs"
+assert_contains "Makefile has ssh-copy-key target" \
+    "$REPO_ROOT/Makefile" "^ssh-copy-key:"
+assert_contains "Makefile ssh-copy-key invokes dev/ssh-copy-key.sh" \
+    "$REPO_ROOT/Makefile" "ssh-copy-key.sh"
+assert_contains "Makefile declares SSH_PUBKEY variable" \
+    "$REPO_ROOT/Makefile" "^SSH_PUBKEY"
+assert_contains "Makefile setup forwards SSH_PUBKEY to remote setup" \
+    "$REPO_ROOT/Makefile" "SSH_PUBKEY='"
+assert_contains "Makefile .PHONY includes ssh-copy-key" \
+    "$REPO_ROOT/Makefile" '\.PHONY:.* ssh-copy-key'
+
+# ============================================================================
+echo ""
 echo "=== Runtime mode enforcement (wlr-randr layer) Tests ==="
 # ============================================================================
 # Goal: the kernel `video=HDMI-A-1:<mode>` cmdline parameter is a best-effort

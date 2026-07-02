@@ -42,6 +42,18 @@ STATIC_IP                ?=
 # your region if not US English (e.g. en_GB.UTF-8).
 DISPLAY_LOCALE           ?= en_US.UTF-8
 
+# Docs site (GitHub Pages). `make volunteer-web-url` emits a clickable
+# reference-site shortcut (display-pi-docs.webloc/.url) pointing here, alongside
+# the volunteer-manager shortcut. Override if you fork or self-host the docs.
+DOCS_URL                 ?= https://dmcbane.github.io/display-pi/
+
+# Public key to install for passwordless SSH, as a PATH to a .pub file on this
+# workstation. Consumed by `make ssh-copy-key` and, if set, forwarded to
+# `make setup`/`provision` so a fresh Pi trusts the key from the start. Empty =
+# autodetect ~/.ssh/id_ed25519.pub (then id_rsa.pub) for ssh-copy-key; skip for
+# setup. Point at another .pub to install someone else's key.
+SSH_PUBKEY               ?=
+
 # Optional seconds-of-offset added to the laptop clock when pushing time
 # to the Pi (consumed by `make set-time`). Positive = anticipate SSH lag.
 TIME_OFFSET              ?= 0
@@ -54,7 +66,7 @@ export KIOSK_HOST  := $(HOST)
 export KIOSK_USER
 export STREAM_KEY
 
-.PHONY: help setup provision deploy sudoers test-stream test-stream-long ssh ssh-password logs status diag judder-tree judder-probe judder-monitor stream-key hdmi-mode set-time test lint check ping reboot restart shutdown volunteer-bundle setup-web volunteer-web-url
+.PHONY: help setup provision deploy sudoers test-stream test-stream-long ssh ssh-password ssh-copy-key logs status diag judder-tree judder-probe judder-monitor stream-key hdmi-mode set-time test lint check ping reboot restart shutdown volunteer-bundle setup-web volunteer-web-url
 
 help:
 	@echo "display-pi — Church Worship Stream Kiosk"
@@ -76,6 +88,7 @@ help:
 	@echo "Remote operations:"
 	@echo "  ssh               Interactive shell on Pi"
 	@echo "  ssh-password      Toggle SSH password login (STATE=on|off|status)"
+	@echo "  ssh-copy-key      Install a public key for passwordless SSH (opt-in)"
 	@echo "  logs              Tail kiosk + nginx logs"
 	@echo "  status            Show kiosk service status"
 	@echo "  diag              Run diagnostics on Pi"
@@ -119,6 +132,13 @@ help:
 	@echo "  DISPLAY_LOCALE=$(DISPLAY_LOCALE)"
 	@echo "      System default locale (setup only). Stops the 'cannot change"
 	@echo "      locale' SSH login warning. Match your region, e.g. en_GB.UTF-8."
+	@echo "  DOCS_URL=$(DOCS_URL)"
+	@echo "      Docs site the display-pi-docs.* reference shortcuts point at"
+	@echo "      (used by 'volunteer-web-url')."
+	@echo "  SSH_PUBKEY='$(SSH_PUBKEY)'"
+	@echo "      Path to a .pub key for passwordless SSH. Used by 'ssh-copy-key';"
+	@echo "      if set, also forwarded to 'setup'/'provision'. Empty = autodetect"
+	@echo "      ~/.ssh/id_ed25519.pub for ssh-copy-key, skip for setup."
 	@echo "  TIME_OFFSET=$(TIME_OFFSET)"
 	@echo "      Seconds to add to the laptop clock when running 'set-time'."
 	@echo "      Use a small positive value (e.g. 1.0) to compensate for SSH lag."
@@ -128,6 +148,7 @@ help:
 	@echo "  make deploy HOST=192.168.0.106"
 	@echo "  make setup STREAM_KEY=mykey RTMP_ALLOW_PUBLISH_CIDRS='192.168.1.42/32'"
 	@echo "  make setup STATIC_IP=192.168.50.1/24    # reach the Pi with no DHCP"
+	@echo "  make ssh-copy-key                       # passwordless SSH to the Pi"
 	@echo "  make hdmi-mode HDMI_MODE=1920x1080@30"
 	@echo "  make set-time TIME_OFFSET=1.0"
 
@@ -137,7 +158,8 @@ help:
 # Use this on a fresh Pi before `make deploy`. setup-kiosk.sh is idempotent,
 # so re-running is safe. All setup variables (KIOSK_USER, STREAM_KEY,
 # RTMP_APP, PLAYBACK_VOLUME, SPLASH_TEXT, RTMP_ALLOW_PUBLISH_CIDRS, HDMI_MODE,
-# STATIC_IP, DISPLAY_LOCALE) are forwarded to the remote shell — see `make help`.
+# STATIC_IP, DISPLAY_LOCALE, SSH_PUBKEY) are forwarded to the remote shell —
+# see `make help`.
 setup:
 	@echo "Bootstrapping $(HOST)..."
 	@rsync -avz \
@@ -147,7 +169,12 @@ setup:
 	    --exclude='*.swo' \
 	    --exclude='__pycache__/' \
 	    ./ $(HOST):display-pi-bootstrap/
-	@ssh -t $(HOST) "cd display-pi-bootstrap && \
+	@PUBKEY=''; \
+	if [ -n '$(SSH_PUBKEY)' ]; then \
+	    [ -f '$(SSH_PUBKEY)' ] || { echo "ERROR: SSH_PUBKEY not found: $(SSH_PUBKEY)"; exit 1; }; \
+	    PUBKEY="$$(cat '$(SSH_PUBKEY)')"; \
+	fi; \
+	ssh -t $(HOST) "cd display-pi-bootstrap && \
 	    KIOSK_USER='$(KIOSK_USER)' \
 	    STREAM_KEY='$(STREAM_KEY)' \
 	    RTMP_APP='$(RTMP_APP)' \
@@ -157,6 +184,7 @@ setup:
 	    HDMI_MODE='$(HDMI_MODE)' \
 	    STATIC_IP='$(STATIC_IP)' \
 	    DISPLAY_LOCALE='$(DISPLAY_LOCALE)' \
+	    SSH_PUBKEY='$$PUBKEY' \
 	    bash install/setup-kiosk.sh"
 
 # One command to take a fresh Pi all the way to a working, volunteer-managed
@@ -231,6 +259,16 @@ ssh-password:
 	@case "$(STATE)" in on|off|status) ;; *) \
 	    echo "ERROR: STATE must be on, off, or status (got '$(STATE)')"; exit 2 ;; esac
 	@ssh -t $(HOST) "sudo bash /home/$(KIOSK_USER)/display-pi/install/sshd-password-toggle.sh $(STATE)"
+
+# Install a public key into the Pi's authorized_keys so you (or a volunteer)
+# can SSH without a password — a portable, idempotent ssh-copy-id. Connects
+# once using your current access (password or an existing key); afterwards no
+# password is needed. Opt-in: password login stays available unless you turn
+# it off with `make ssh-password STATE=off`.
+#   make ssh-copy-key                              # your default key -> $(HOST)
+#   make ssh-copy-key SSH_PUBKEY=~/.ssh/other.pub  # a specific key
+ssh-copy-key:
+	@./dev/ssh-copy-key.sh $(HOST) $(SSH_PUBKEY)
 
 logs:
 	@./dev/pi-shell.sh $(HOST) logs
@@ -348,19 +386,24 @@ setup-web:
 	@echo "Setting up kiosk-web on $(HOST)..."
 	@ssh -t $(HOST) "sudo bash /home/$(KIOSK_USER)/display-pi/install/kiosk-web-setup.sh"
 
-# Generate volunteer URL shortcut files from the live token on the Pi.
-# Outputs volunteer-kiosk.webloc (Mac) and volunteer-kiosk.url (Windows/Linux).
-# Both are gitignored — they contain the auth token.
+# Generate URL shortcut files volunteers can double-click on any OS.
+# Outputs two pairs of .webloc (Mac) + .url (Windows/Linux) shortcuts:
+#   volunteer-kiosk.*   -> the live web manager on the Pi (gitignored: holds
+#                          the auth token)
+#   display-pi-docs.*   -> the docs site (DOCS_URL), a stable reference for
+#                          whoever picks up the kiosk
+# The docs shortcut needs no Pi, so it is written first and always succeeds
+# even if the Pi is unreachable for the token step.
 volunteer-web-url:
+	@./dev/write-url-shortcut.sh "$(DOCS_URL)" display-pi-docs
 	@TOKEN=$$(ssh $(HOST) "sudo grep '^TOKEN=' /etc/kiosk-web.conf 2>/dev/null | cut -d= -f2-"); \
 	if [ -z "$$TOKEN" ]; then \
 	    echo "ERROR: kiosk-web not set up on $(HOST). Run: make setup-web HOST=$(HOST)"; \
 	    exit 1; \
 	fi; \
 	URL="http://$(HOST)/?token=$$TOKEN"; \
-	printf '<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0">\n<dict>\n\t<key>URL</key>\n\t<string>%s</string>\n</dict>\n</plist>\n' \
-	    "$$URL" > volunteer-kiosk.webloc; \
-	printf '[InternetShortcut]\nURL=%s\n' "$$URL" > volunteer-kiosk.url; \
-	echo "[volunteer-web-url] URL: $$URL"; \
-	echo "[volunteer-web-url] wrote volunteer-kiosk.webloc  (Mac: double-click to open)"; \
-	echo "[volunteer-web-url] wrote volunteer-kiosk.url     (Windows / Linux: double-click to open)"
+	./dev/write-url-shortcut.sh "$$URL" volunteer-kiosk >/dev/null; \
+	echo "[volunteer-web-url] volunteer manager: $$URL"; \
+	echo "[volunteer-web-url] docs reference:    $(DOCS_URL)"; \
+	echo "[volunteer-web-url] wrote volunteer-kiosk.{webloc,url} and display-pi-docs.{webloc,url}"; \
+	echo "[volunteer-web-url] (Mac: open the .webloc; Windows/Linux: open the .url)"

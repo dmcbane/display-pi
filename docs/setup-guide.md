@@ -77,6 +77,11 @@ Have an answer for these before you start:
 > safe to re-run. Steps 5–8 below do the same work by hand and explain each
 > piece; read them to understand what `provision` automates, or to run a step
 > on its own.
+>
+> `volunteer-web-url` writes two pairs of double-clickable shortcuts: one for
+> the volunteer web manager on the Pi, and `display-pi-docs.webloc` /
+> `display-pi-docs.url` pointing at this documentation site — a stable
+> reference to hand to whoever ends up running the kiosk.
 
 ### 1. Flash the SD card
 
@@ -124,11 +129,21 @@ Smoke test:
 ssh displaypi true && echo OK
 ```
 
-If you didn't pre-load your SSH key during imaging:
+If you didn't pre-load your SSH key during imaging, install one for
+passwordless login. Once you've cloned the repo (next step) the project ships a
+portable, idempotent helper that works even where `ssh-copy-id` isn't
+available:
 
 ```sh
-ssh-copy-id displaypi
+make ssh-copy-key                  # your ~/.ssh/id_ed25519.pub -> displaypi
+# or point at a specific key / host:
+make ssh-copy-key SSH_PUBKEY=~/.ssh/other.pub HOST=192.168.0.106
 ```
+
+`ssh-copy-id displaypi` still works too. Passwordless SSH is opt-in — password
+login stays available unless you turn it off with
+`make ssh-password STATE=off`. You can also install a key during setup itself
+with `make setup SSH_PUBKEY=~/.ssh/id_ed25519.pub` (see step 5).
 
 ### 4. Clone the repo onto the workstation
 
