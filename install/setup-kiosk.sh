@@ -94,6 +94,14 @@ STATIC_IP="${STATIC_IP:-}"
 # region if not US English (e.g. "en_GB.UTF-8").
 DISPLAY_LOCALE="${DISPLAY_LOCALE:-en_US.UTF-8}"
 
+# Optional public key to install for passwordless SSH, given as the key
+# *content* (e.g. "ssh-ed25519 AAAA... you@host"), not a path — setup runs on
+# the Pi, where the workstation's key file isn't present. `make setup
+# SSH_PUBKEY=~/.ssh/id_ed25519.pub` reads that file and forwards its contents
+# here. Empty = skip (the default). Passwordless SSH stays opt-in; run
+# `make ssh-copy-key` later to add a key without re-running setup.
+SSH_PUBKEY="${SSH_PUBKEY:-}"
+
 # =============================================================================
 # Below this line you shouldn't need to edit.
 # =============================================================================
@@ -976,6 +984,51 @@ configure_locale() {
 }
 
 # =============================================================================
+# Step 10e: Optional passwordless-SSH key for the deploy user
+# =============================================================================
+#
+# If SSH_PUBKEY holds a public key, install it into the deploy user's
+# authorized_keys so future logins need no password. Opt-in and non-fatal: a
+# missing or malformed key is warned about and skipped rather than aborting
+# setup (the same key can be added later with `make ssh-copy-key`). Mirrors
+# dev/ssh-copy-key.sh, but runs locally on the Pi during setup.
+configure_ssh_pubkey() {
+    if [[ -z "$SSH_PUBKEY" ]]; then
+        log "No SSH_PUBKEY provided; skipping passwordless-SSH key install."
+        return
+    fi
+
+    # Safety rail: must be a PUBLIC key line, never a private key.
+    if [[ ! "$SSH_PUBKEY" =~ ^(ssh-ed25519|ssh-rsa|ssh-dss|ecdsa-sha2-|sk-ssh-ed25519|sk-ecdsa-) ]]; then
+        warn "SSH_PUBKEY does not look like an SSH public key (expected e.g. ssh-ed25519); skipping."
+        return
+    fi
+
+    local home ssh_dir auth
+    home=$(getent passwd "$DEPLOY_USER" | cut -d: -f6)
+    if [[ -z "$home" || ! -d "$home" ]]; then
+        warn "Could not resolve a home directory for '$DEPLOY_USER'; skipping SSH key install."
+        return
+    fi
+    ssh_dir="$home/.ssh"
+    auth="$ssh_dir/authorized_keys"
+
+    log "Installing SSH public key for passwordless login as '$DEPLOY_USER'..."
+    sudo -u "$DEPLOY_USER" mkdir -p "$ssh_dir"
+    sudo -u "$DEPLOY_USER" chmod 700 "$ssh_dir"
+    sudo -u "$DEPLOY_USER" touch "$auth"
+    sudo -u "$DEPLOY_USER" chmod 600 "$auth"
+
+    # Idempotent: append only if the exact key line isn't already present.
+    if sudo -u "$DEPLOY_USER" grep -qxF "$SSH_PUBKEY" "$auth"; then
+        log "Key already present in $auth; nothing to do."
+    else
+        printf '%s\n' "$SSH_PUBKEY" | sudo -u "$DEPLOY_USER" tee -a "$auth" >/dev/null
+        log "Key added to $auth — '$DEPLOY_USER' can now SSH without a password."
+    fi
+}
+
+# =============================================================================
 # Step 11: Log rotation for /tmp/player.log
 # =============================================================================
 configure_logrotate() {
@@ -1067,6 +1120,7 @@ main() {
     configure_deploy_sudoers
     configure_ssh_auth
     configure_locale
+    configure_ssh_pubkey
     configure_logrotate
     configure_healthcheck
 
