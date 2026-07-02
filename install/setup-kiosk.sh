@@ -71,6 +71,20 @@ PLAYBACK_VOLUME="${PLAYBACK_VOLUME:-80}"
 # apply this to an already-deployed Pi without re-running full setup.
 HDMI_MODE="${HDMI_MODE:-}"
 
+# Extra static IPv4 address to bind to the Ethernet adapter *in addition* to
+# DHCP, so the Pi stays reachable at a fixed address on networks with no DHCP
+# server — a laptop patched straight into the Pi, a dumb switch, a temporary
+# field rig. NetworkManager still requests a DHCP lease, so this never breaks
+# normal LAN use; it just adds a second address on the same NIC.
+#
+# Format: "<addr>/<prefix>", e.g. "192.168.50.1/24". Point the connecting
+# machine at another address in the same subnet (192.168.50.2/24) and reach
+# the Pi at 192.168.50.1.
+#
+# Unset / empty leaves addressing to DHCP only. Special value "none" removes
+# a static IP added by a previous run and returns the link to DHCP-only.
+STATIC_IP="${STATIC_IP:-}"
+
 # =============================================================================
 # Below this line you shouldn't need to edit.
 # =============================================================================
@@ -482,6 +496,73 @@ ${marker_end}
 EOF
     fi
     sudo chmod 644 "$env_file"
+}
+
+# =============================================================================
+# Optional: extra static IP on the Ethernet adapter (alongside DHCP)
+# =============================================================================
+# Owns a dedicated NetworkManager profile named "kiosk-static" that does DHCP
+# *and* binds an extra fixed IPv4 address, so the Pi is reachable at a known
+# address even when no DHCP server is present. The profile is recreated from
+# scratch on every run (idempotent — re-runs never stack duplicate addresses)
+# and is given a higher autoconnect priority so it wins over the stock
+# "Wired connection 1" on the next boot.
+#
+# We deliberately do NOT reactivate the link here: `make setup` runs over SSH
+# on that same NIC, and bouncing the connection would drop the session
+# mid-setup. The DHCP address is untouched, so the change lands cleanly on the
+# reboot setup already asks for.
+configure_static_ip() {
+    local profile="kiosk-static"
+
+    if ! command -v nmcli >/dev/null 2>&1; then
+        if [[ -n "$STATIC_IP" ]]; then
+            warn "nmcli not found (NetworkManager not active?); cannot apply STATIC_IP='$STATIC_IP'. Skipping."
+        fi
+        return
+    fi
+
+    # Special value "none" tears down a previously-added static IP.
+    if [[ "$STATIC_IP" == "none" ]]; then
+        if nmcli -t -f NAME connection show 2>/dev/null | grep -qx "$profile"; then
+            log "STATIC_IP=none — removing '$profile' NetworkManager profile (DHCP-only on next boot)."
+            sudo nmcli connection delete "$profile" >/dev/null
+        else
+            log "STATIC_IP=none — no '$profile' profile present; nothing to remove."
+        fi
+        return
+    fi
+
+    if [[ -z "$STATIC_IP" ]]; then
+        log "STATIC_IP unset; leaving Ethernet addressing to DHCP only."
+        return
+    fi
+
+    # Validate <ipv4>/<prefix> before touching NetworkManager.
+    if ! [[ "$STATIC_IP" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}/[0-9]{1,2}$ ]]; then
+        die "STATIC_IP must be <ipv4>/<prefix> (e.g. 192.168.50.1/24); got '$STATIC_IP'."
+    fi
+
+    # Detect the ethernet device (the Pi keeps eth0, but detect to be safe).
+    local dev
+    dev=$(nmcli -t -f DEVICE,TYPE device status 2>/dev/null | awk -F: '$2=="ethernet"{print $1; exit}')
+    dev="${dev:-eth0}"
+
+    log "Configuring extra static IP $STATIC_IP on $dev via '$profile' (applies on next reboot)."
+
+    # Recreate from scratch so re-runs are idempotent and never accumulate
+    # stale addresses. method=auto keeps DHCP; ipv4.addresses adds the fixed
+    # address on top. No gateway/DNS — this is a direct-reach address, not the
+    # default route.
+    if nmcli -t -f NAME connection show 2>/dev/null | grep -qx "$profile"; then
+        sudo nmcli connection delete "$profile" >/dev/null
+    fi
+    sudo nmcli connection add type ethernet \
+        con-name "$profile" ifname "$dev" \
+        ipv4.method auto ipv4.addresses "$STATIC_IP" \
+        connection.autoconnect yes connection.autoconnect-priority 100 \
+        >/dev/null
+    log "Created '$profile' (DHCP + static $STATIC_IP). Reboot to activate."
 }
 
 # =============================================================================
@@ -907,6 +988,7 @@ main() {
     configure_nginx_rtmp
     configure_boot
     configure_runtime_mode
+    configure_static_ip
     install_become_kiosk
     create_splash
     create_player_script
@@ -956,6 +1038,15 @@ Replace /home/${KIOSK_USER}/splash.png with your own branded image
 whenever you like; the kiosk picks it up on the next idle period.
 
 EOF
+
+    if [[ -n "$STATIC_IP" && "$STATIC_IP" != "none" ]]; then
+        cat <<EOF
+Extra static IP: after reboot the Pi also answers at ${STATIC_IP%/*}.
+On a DHCP-less network, give your machine an address in the same subnet
+(e.g. ${STATIC_IP%.*}.2/${STATIC_IP##*/}) and SSH to ${STATIC_IP%/*}.
+
+EOF
+    fi
 }
 
 main "$@"

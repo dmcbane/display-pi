@@ -55,6 +55,12 @@ Have an answer for these before you start:
   better hygiene once it's stable.
 - **Stream key** — defaults to `restoration`. The ATEM and the kiosk
   must agree on this.
+- **Static fallback IP (optional)** — if you ever need to reach the Pi on a
+  network with **no DHCP server** (a laptop patched straight into the Pi, a
+  dumb switch, a field rig), set `STATIC_IP` and the Pi will bind an extra
+  fixed address *in addition* to DHCP. Set it to something outside your normal
+  LAN range so it never collides — e.g. `192.168.50.1/24`. See
+  [Optional: a static fallback IP](#optional-a-static-fallback-ip) below.
 
 ## Installation procedure
 
@@ -165,6 +171,9 @@ You'll be prompted for your sudo password once. The script is idempotent
 4. Configures nginx with the RTMP module
 5. Updates `/boot/firmware/config.txt` and `cmdline.txt` (watchdog,
    `vc4.force_hotplug=1`, `consoleblank=0`)
+5b. If `STATIC_IP` is set, binds an extra static IP on Ethernet alongside
+   DHCP (see [Optional: a static fallback IP](#optional-a-static-fallback-ip)).
+   Skipped when `STATIC_IP` is empty.
 6. Installs the splash image at `/home/kiosk/splash.png`. If the repo
    ships `images/splash.png`, that file is used as-is. If it's absent but
    other images are present in `images/`, setup prompts you to pick one
@@ -188,6 +197,45 @@ sudo reboot
 After ~30 s the Pi will come back into kiosk mode: a brief boot
 diagnostics screen, then the splash image. From here on, you do not
 need to log into the Pi for routine work.
+
+#### Optional: a static fallback IP
+
+On a normal LAN the Pi gets its address from DHCP and you never think about
+this. But sometimes there's no DHCP server — you've patched a laptop straight
+into the Pi with one cable, plugged it into a dumb switch, or set it up in the
+field. Set `STATIC_IP` and the Pi binds a fixed IPv4 address **in addition** to
+its DHCP lease, so it's reachable at a known address in both situations:
+
+```sh
+# During setup (or provision), from the workstation:
+make setup STATIC_IP=192.168.50.1/24 HOST=displaypi
+```
+
+Pick a subnet outside your normal LAN range (e.g. `192.168.50.0/24`) so the
+static address never collides with a real DHCP lease. NetworkManager keeps
+requesting DHCP as usual, so this is purely additive — it does not change how
+the Pi behaves on your regular network.
+
+To reach the Pi over the fallback address, give the connecting machine another
+address in the same subnet and SSH across:
+
+```sh
+# On the laptop, once cabled to the Pi (macOS/Linux example):
+sudo ip addr add 192.168.50.2/24 dev eth0
+ssh rpi@192.168.50.1
+```
+
+Notes:
+
+- The change applies on the **next reboot** — setup does not bounce the live
+  connection (that would drop the SSH session it runs over).
+- It's implemented as a dedicated NetworkManager profile named `kiosk-static`
+  with a higher autoconnect priority than the stock `Wired connection 1`.
+  Re-running setup recreates it cleanly, so addresses never stack up.
+- No gateway or DNS is set on the static address — it's for direct reach, not
+  as the Pi's default route.
+- To remove it later, re-run with `STATIC_IP=none`:
+  `make setup STATIC_IP=none HOST=displaypi`.
 
 ### 6. First deploy from the workstation
 

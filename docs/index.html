@@ -92,6 +92,11 @@ description: >-
       <h3>One-command setup</h3>
       <p><code>make provision</code> takes a blank Pi all the way to a working, volunteer-managed kiosk in a single ordered step. Every piece is idempotent and safe to re-run.</p>
     </div>
+    <div class="feature-card">
+      <span class="icon">&#128268;</span>
+      <h3>Reachable without DHCP</h3>
+      <p>Set <code>STATIC_IP</code> and the Pi binds a fixed address on Ethernet <em>alongside</em> its normal DHCP lease — so you can still SSH in on a dumb switch, a field rig, or a laptop patched straight into the port, with no router in sight.</p>
+    </div>
   </div>
 </section>
 
@@ -201,6 +206,11 @@ description: >-
   <p class="code-label">Provision the Pi (runs setup &rarr; deploy &rarr; setup-web &rarr; volunteer-web-url)</p>
   <div class="code-block">
 <pre><span class="cmd">make provision</span> <span class="flag">HOST</span>=<span class="str">displaypi</span> <span class="flag">STREAM_KEY</span>=<span class="str">restoration</span></pre>
+  </div>
+
+  <p class="code-label">No DHCP on the target network? Add a fixed fallback address</p>
+  <div class="code-block">
+<pre><span class="cmd">make provision</span> <span class="flag">HOST</span>=<span class="str">displaypi</span> <span class="flag">STATIC_IP</span>=<span class="str">192.168.50.1/24</span> <span class="comment"># binds it alongside DHCP</span></pre>
   </div>
 
   <p class="code-label">Day to day</p>
