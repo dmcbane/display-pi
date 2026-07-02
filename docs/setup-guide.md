@@ -185,6 +185,11 @@ You'll be prompted for your sudo password once. The script is idempotent
 9. Configures the hardware watchdog
 10. Configures PipeWire client.conf
 10b. Installs the deploy sudoers whitelist (`/etc/sudoers.d/kiosk-deploy`)
+10c. Generates the system locale (`DISPLAY_LOCALE`, default `en_US.UTF-8`),
+   makes it the default, and strips `LANG`/`LC_*` from sshd's `AcceptEnv` so
+   an SSH login never shows the *cannot change locale* warning — no matter
+   what the client forwards (see
+   [Optional: change the system locale](#optional-change-the-system-locale)).
 11. Installs logrotate config
 12. Installs the healthcheck cron stub
 
@@ -236,6 +241,30 @@ Notes:
   as the Pi's default route.
 - To remove it later, re-run with `STATIC_IP=none`:
   `make setup STATIC_IP=none HOST=displaypi`.
+
+#### Optional: change the system locale
+
+By default the Pi is set to `en_US.UTF-8`, and — importantly — sshd is told to
+**ignore** the locale your SSH client forwards. That combination means every
+login is clean and identical no matter which machine you connect from: no more
+
+```
+-bash: warning: setlocale: LC_ALL: cannot change locale (en_US.UTF-8)
+```
+
+You don't have to do anything to get this; it's part of the base setup. If your
+region isn't US English, set `DISPLAY_LOCALE` so the Pi's default matches:
+
+```sh
+make setup DISPLAY_LOCALE=en_GB.UTF-8 HOST=displaypi
+```
+
+Why the warning happened in the first place: a fresh Raspberry Pi OS image has
+almost no locales generated, but most SSH clients forward `LANG`/`LC_*` from the
+desktop they run on. When the Pi doesn't have that locale, every program that
+reads it complains. Setup fixes both halves — it generates the default locale
+*and* stops sshd from importing the forwarded values — so the result no longer
+depends on the client at all.
 
 ### 6. First deploy from the workstation
 

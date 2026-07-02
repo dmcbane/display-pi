@@ -4,6 +4,25 @@ All notable changes to display-pi are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.0] - 2026-07-01
+
+### Added
+- **`configure_locale` setup step** — a fresh SSH login no longer shows the
+  `-bash: warning: setlocale: LC_ALL: cannot change locale` warning, and the
+  outcome is deterministic regardless of which machine someone connects from.
+  Two independent causes are both fixed: (1) `setup-kiosk.sh` generates
+  `DISPLAY_LOCALE` (default `en_US.UTF-8`) and makes it the system default, and
+  (2) it strips `LANG`/`LC_*` from sshd's `AcceptEnv` so the client's forwarded
+  locale is ignored entirely — the session always uses the Pi's own default.
+  The `AcceptEnv` edit preserves other tokens (`COLORTERM`, `NO_COLOR`),
+  comments the directive out if that empties it, and is validated with
+  `sshd -t -f` on a temp copy before install so a bad edit can never leave sshd
+  unable to start. Idempotent: an already-generated locale and an
+  already-stripped `AcceptEnv` are left untouched on re-run. Exposed via
+  `make setup`/`make provision` as `DISPLAY_LOCALE` (e.g.
+  `make setup DISPLAY_LOCALE=en_GB.UTF-8`); documented in `make help` and the
+  setup guide.
+
 ## [0.17.0] - 2026-07-01
 
 ### Added
