@@ -441,6 +441,32 @@ assert_contains "setup-kiosk.sh installs healthcheck cron" "$REPO_ROOT/install/s
 
 # ============================================================================
 echo ""
+echo "=== Locale / SSH Environment Tests ==="
+# ============================================================================
+# A fresh Raspberry Pi OS Lite image generates almost no locales, so an SSH
+# client that forwards LANG/LC_* (the default on macOS and most desktops)
+# triggers "cannot change locale" warnings at every login. configure_locale
+# makes this deterministic regardless of the client: it generates a real
+# default locale and strips LANG/LC_* from sshd's AcceptEnv so forwarded
+# values are ignored entirely.
+
+assert_contains "setup-kiosk.sh has configure_locale function" \
+    "$REPO_ROOT/install/setup-kiosk.sh" "^configure_locale()"
+assert_contains "setup-kiosk.sh defines a default locale" \
+    "$REPO_ROOT/install/setup-kiosk.sh" "en_US.UTF-8"
+assert_contains "configure_locale generates the locale" \
+    "$REPO_ROOT/install/setup-kiosk.sh" "locale-gen"
+assert_contains "configure_locale sets the system default LANG" \
+    "$REPO_ROOT/install/setup-kiosk.sh" "update-locale LANG="
+assert_contains "configure_locale neutralizes forwarded SSH locales" \
+    "$REPO_ROOT/install/setup-kiosk.sh" "locale forwarding disabled"
+assert_contains "configure_locale validates sshd before reload" \
+    "$REPO_ROOT/install/setup-kiosk.sh" "sshd -t"
+assert_contains "setup-kiosk.sh main() calls configure_locale" \
+    "$REPO_ROOT/install/setup-kiosk.sh" "    configure_locale"
+
+# ============================================================================
+echo ""
 echo "=== Operations & Diagnostics Dependency Tests ==="
 # ============================================================================
 # These packages are required by scripts in install/ and diagnostics/ but

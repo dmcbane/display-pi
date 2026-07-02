@@ -36,6 +36,12 @@ HDMI_MODE                ?=
 # a static IP added by a previous run.
 STATIC_IP                ?=
 
+# System-wide default locale for the Pi (setup only). Generated and set as the
+# default, and stripped from sshd's AcceptEnv so a login never shows the
+# "cannot change locale" warning regardless of what the client forwards. Match
+# your region if not US English (e.g. en_GB.UTF-8).
+DISPLAY_LOCALE           ?= en_US.UTF-8
+
 # Optional seconds-of-offset added to the laptop clock when pushing time
 # to the Pi (consumed by `make set-time`). Positive = anticipate SSH lag.
 TIME_OFFSET              ?= 0
@@ -110,6 +116,9 @@ help:
 	@echo "  STATIC_IP='$(STATIC_IP)'"
 	@echo "      Extra static IP on Ethernet alongside DHCP (setup only),"
 	@echo "      e.g. 192.168.50.1/24. Empty = DHCP only; 'none' removes it."
+	@echo "  DISPLAY_LOCALE=$(DISPLAY_LOCALE)"
+	@echo "      System default locale (setup only). Stops the 'cannot change"
+	@echo "      locale' SSH login warning. Match your region, e.g. en_GB.UTF-8."
 	@echo "  TIME_OFFSET=$(TIME_OFFSET)"
 	@echo "      Seconds to add to the laptop clock when running 'set-time'."
 	@echo "      Use a small positive value (e.g. 1.0) to compensate for SSH lag."
@@ -128,7 +137,7 @@ help:
 # Use this on a fresh Pi before `make deploy`. setup-kiosk.sh is idempotent,
 # so re-running is safe. All setup variables (KIOSK_USER, STREAM_KEY,
 # RTMP_APP, PLAYBACK_VOLUME, SPLASH_TEXT, RTMP_ALLOW_PUBLISH_CIDRS, HDMI_MODE,
-# STATIC_IP) are forwarded to the remote shell — see `make help`.
+# STATIC_IP, DISPLAY_LOCALE) are forwarded to the remote shell — see `make help`.
 setup:
 	@echo "Bootstrapping $(HOST)..."
 	@rsync -avz \
@@ -147,6 +156,7 @@ setup:
 	    RTMP_ALLOW_PUBLISH_CIDRS='$(RTMP_ALLOW_PUBLISH_CIDRS)' \
 	    HDMI_MODE='$(HDMI_MODE)' \
 	    STATIC_IP='$(STATIC_IP)' \
+	    DISPLAY_LOCALE='$(DISPLAY_LOCALE)' \
 	    bash install/setup-kiosk.sh"
 
 # One command to take a fresh Pi all the way to a working, volunteer-managed
