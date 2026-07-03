@@ -4,6 +4,26 @@ All notable changes to display-pi are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.0] - 2026-07-03
+
+### Added
+- **Rotatable access token in the web manager** — an "Access Link" card now
+  shows the current volunteer link with a copy button, downloadable
+  `.webloc` (Mac) and `.url` (Windows/Linux) shortcut files generated
+  server-side from the live token, and a **Rotate Token** button that
+  invalidates every existing link and re-keys the open page in place (no
+  logout). The live token is stored in an app-owned file
+  `/var/lib/kiosk-web/token` (`0600`, written atomically); the `TOKEN=` in
+  `/etc/kiosk-web.conf` becomes a one-time *seed* used only until the first
+  rotation. This needs **no new privilege** — the locked `kiosk-web` user
+  simply owns its own state dir rather than being granted write access to
+  root's config or a setuid helper. New endpoints: `GET /api/token`,
+  `POST /api/token/rotate`, `GET /api/token/webloc`, `GET /api/token/url`.
+  Token comparison now uses `secrets.compare_digest` (constant-time). Shortcut
+  files embed a canonical base URL from `PUBLIC_URL` (falling back to the
+  request host) so a downloadable link can't be poisoned by a spoofed `Host`
+  header. `kiosk-web-setup.sh` and `deploy.sh` create the `0700` state dir.
+
 ## [0.19.0] - 2026-07-03
 
 ### Added

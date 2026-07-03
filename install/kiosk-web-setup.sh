@@ -50,6 +50,16 @@ mkdir -p "$SPLASH_DIR"
 chown "$WEB_USER:$WEB_USER" "$SPLASH_DIR"
 chmod 0755 "$SPLASH_DIR"
 
+# 2b. Create the app state dir for the rotatable token (0700, owned by web user).
+#     The app runs as kiosk-web and cannot create anything under root-owned
+#     /var/lib itself, so we make it here. The token file is written by the app
+#     on first rotation; until then auth uses the seed TOKEN from $CONF.
+STATE_DIR="/var/lib/kiosk-web"
+log "Ensuring $STATE_DIR exists..."
+mkdir -p "$STATE_DIR"
+chown "$WEB_USER:$WEB_USER" "$STATE_DIR"
+chmod 0700 "$STATE_DIR"
+
 # 3. Seed with repo images if empty
 if ! find "$SPLASH_DIR" -maxdepth 1 \( -name '*.png' -o -name '*.jpg' -o -name '*.jpeg' \) \
         2>/dev/null | grep -q .; then

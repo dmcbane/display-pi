@@ -142,6 +142,11 @@ REMOTE
 ssh "${HOST}" bash <<REMOTE
 set -euo pipefail
 if [[ -d /opt/kiosk-web ]]; then
+    # Ensure the rotatable-token state dir exists (older installs predate it).
+    if [[ ! -d /var/lib/kiosk-web ]]; then
+        sudo install -d -m 0700 -o kiosk-web -g kiosk-web /var/lib/kiosk-web
+        echo "created /var/lib/kiosk-web token store"
+    fi
     if ! diff -q ${REMOTE_DIR}/web/kiosk_manager.py /opt/kiosk-web/kiosk_manager.py &>/dev/null; then
         sudo install -m 0644 -o root -g root \
             ${REMOTE_DIR}/web/kiosk_manager.py /opt/kiosk-web/kiosk_manager.py
