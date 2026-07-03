@@ -87,6 +87,8 @@ def test_auth_wrong_token(client):
 
 
 def test_auth_correct_token(client):
+    # A valid ?token= renders the page and mints the hardened cookie; the page's
+    # own JS then scrubs the token from the address bar.
     r = client.get(f'/?token={TEST_TOKEN}')
     assert r.status_code == 200
 
@@ -95,6 +97,90 @@ def test_index_has_documentation_link(client):
     """The manager links out to the published documentation site."""
     body = client.get(f'/?token={TEST_TOKEN}').get_data(as_text=True)
     assert 'https://dmcbane.github.io/display-pi/' in body
+# ── cookie hardening ─────────────────────────────────────────────────────────
+
+def _set_cookie_header(response):
+    """The raw Set-Cookie header for our auth cookie, or '' if none was set."""
+    for h in response.headers.getlist('Set-Cookie'):
+        if h.startswith(kiosk_manager.COOKIE_NAME + '='):
+            return h
+    return ''
+
+
+def test_query_auth_mints_hardened_cookie(client):
+    """A URL-token hit hands back a HttpOnly/SameSite=Strict session cookie."""
+    r = client.get(f'/?token={TEST_TOKEN}')
+    assert r.status_code == 200
+    setc = _set_cookie_header(r)
+    assert f'{kiosk_manager.COOKIE_NAME}={TEST_TOKEN}' in setc
+    assert 'HttpOnly' in setc
+    assert 'SameSite=Strict' in setc
+    assert 'Path=/' in setc
+
+
+def test_cookie_secure_flag_tracks_forwarded_proto(client):
+    """Secure is set behind TLS (X-Forwarded-Proto: https) and omitted on plain HTTP."""
+    over_http = _set_cookie_header(client.get(f'/?token={TEST_TOKEN}'))
+    assert 'Secure' not in over_http
+
+    over_https = _set_cookie_header(
+        client.get(f'/?token={TEST_TOKEN}',
+                   headers={'X-Forwarded-Proto': 'https'}))
+    assert 'Secure' in over_https
+
+
+def test_cookie_is_persistent(client):
+    """The auth cookie carries a Max-Age so a bookmarked clean URL keeps working
+    across browser restarts — the volunteer-friendly choice."""
+    setc = _set_cookie_header(client.get(f'/?token={TEST_TOKEN}'))
+    assert f'Max-Age={kiosk_manager.COOKIE_MAX_AGE}' in setc
+    assert kiosk_manager.COOKIE_MAX_AGE >= 30 * 24 * 3600
+
+
+def test_cookie_alone_authenticates(client):
+    """After the cookie exists, a request with no ?token= is accepted."""
+    client.set_cookie(kiosk_manager.COOKIE_NAME, TEST_TOKEN)
+    r = client.get('/api/status')
+    assert r.status_code == 200
+
+
+def test_wrong_cookie_rejected(client):
+    client.set_cookie(kiosk_manager.COOKIE_NAME, 'forged-value')
+    r = client.get('/api/status')
+    assert r.status_code == 403
+
+
+def test_no_cookie_minted_on_denied_request(client):
+    """A rejected request must never hand out an auth cookie."""
+    r = client.get('/?token=wrong')
+    assert r.status_code == 403
+    assert _set_cookie_header(r) == ''
+
+
+def test_index_scrubs_token_from_address_bar(client):
+    """The page keeps the token in a JS var but strips it from the URL on load,
+    and rotation must not re-plant it in the address bar."""
+    html = client.get(f'/?token={TEST_TOKEN}').get_data(as_text=True)
+    # Defined and invoked (>= one definition + one call site).
+    assert html.count('stripTokenFromUrl') >= 2
+    # The old behaviour — re-writing the token back into the URL — is gone.
+    assert "'/?token=' + encodeURIComponent" not in html
+
+
+def test_rotate_refreshes_cookie_to_new_token(client, tmp_path, monkeypatch):
+    """Rotating via URL token re-keys the cookie to the new token, so the old
+    cookie stops working and the browser is handed the new one."""
+    tf = tmp_path / 'token'
+    monkeypatch.setattr(kiosk_manager, 'STATE_DIR', tmp_path)
+    monkeypatch.setattr(kiosk_manager, 'TOKEN_FILE', tf)
+    r = client.post(f'/api/token/rotate?token={TEST_TOKEN}')
+    assert r.status_code == 200
+    new = r.get_json()['token']
+    setc = _set_cookie_header(r)
+    assert f'{kiosk_manager.COOKIE_NAME}={new}' in setc
+    # The stale cookie no longer authenticates.
+    client.set_cookie(kiosk_manager.COOKIE_NAME, TEST_TOKEN)
+    assert client.get('/api/status').status_code == 403
 
 
 # ── upload validation ────────────────────────────────────────────────────────
@@ -356,7 +442,10 @@ def test_rotate_changes_token_and_invalidates_old(client, tmp_path, monkeypatch)
     assert new and new != TEST_TOKEN
     assert tf.read_text().strip() == new
     assert new in body['url']
-    # Old link no longer works; new one does.
+    # The admin's own session now holds a cookie re-keyed to the new token, so
+    # drop it to model a *different* device that only ever had the old link:
+    # that stale link no longer works, and the new one does.
+    client.delete_cookie(kiosk_manager.COOKIE_NAME)
     assert client.get(f'/?token={TEST_TOKEN}').status_code == 403
     assert client.get(f'/?token={new}').status_code == 200
 
