@@ -10,6 +10,11 @@ splash-updater_ed25519.pub
 volunteer-kiosk.webloc
 volunteer-kiosk.url
 
+# Docs reference shortcuts — generated alongside the volunteer shortcuts by
+# `make volunteer-web-url`. No secret, but a build artifact, not source.
+display-pi-docs.webloc
+display-pi-docs.url
+
 # Python test venv (auto-created by run-tests.sh on first run).
 tests/kiosk-web-venv/
 

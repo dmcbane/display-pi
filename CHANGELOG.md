@@ -4,6 +4,31 @@ All notable changes to display-pi are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.0] - 2026-07-02
+
+### Added
+- **Docs reference shortcut** — `make volunteer-web-url` now also writes
+  `display-pi-docs.webloc` (macOS) and `display-pi-docs.url` (Windows/Linux)
+  pointing at the docs site (`DOCS_URL`, default the project's GitHub Pages),
+  so whoever runs the kiosk gets a stable, double-clickable reference alongside
+  the volunteer manager shortcut. The docs shortcut needs no Pi, so it's
+  written first and succeeds even when the Pi is unreachable. Both shortcut
+  pairs are now produced by a shared, tested helper, `dev/write-url-shortcut.sh`
+  (replacing the inline `printf` blocks in the Makefile). The docs shortcuts
+  are gitignored as build artifacts.
+- **Passwordless-SSH key install** — opt-in, two ways:
+  - `make ssh-copy-key` — a portable, idempotent `ssh-copy-id` stand-in
+    (`dev/ssh-copy-key.sh`) that installs a public key into the Pi's
+    `authorized_keys`. Autodetects `~/.ssh/id_ed25519.pub` (then `id_rsa.pub`),
+    or takes `SSH_PUBKEY=<path>`. Guards against accidentally installing a
+    *private* key, appends only if absent, and supports `DRY_RUN=1`.
+  - `SSH_PUBKEY` setup setting — `make setup`/`provision` reads the given `.pub`
+    file and forwards its contents to a new `configure_ssh_pubkey` step in
+    `setup-kiosk.sh`, so a fresh Pi trusts the key from the start. Same
+    private-key guard and idempotent install. Empty = skip; password login is
+    unaffected either way.
+  Documented in `make help` and the setup guide.
+
 ## [0.18.0] - 2026-07-01
 
 ### Added
