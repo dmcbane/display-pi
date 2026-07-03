@@ -4,6 +4,12 @@ All notable changes to display-pi are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.1] - 2026-07-03
+
+### Added
+- **Documentation link in the web manager** — a footer link to the published
+  documentation site (<https://dmcbane.github.io/display-pi/>) now appears
+  beneath the manager's cards, opening in a new tab.
 ## [0.21.0] - 2026-07-03
 
 ### Added

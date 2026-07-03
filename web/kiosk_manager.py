@@ -715,6 +715,9 @@ INDEX_HTML = r"""<!DOCTYPE html>
                    display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
     .spin { animation: spin 1s linear infinite; display: inline-block; }
     @keyframes spin { to { transform: rotate(360deg); } }
+    .page-foot { text-align: center; margin-top: .25rem; font-size: .82rem; }
+    .page-foot a { color: var(--muted); text-decoration: none; }
+    .page-foot a:hover { color: var(--primary); text-decoration: underline; }
     @media (max-width: 420px) {
       .img-card { flex-wrap: wrap; }
       .img-acts { width: 100%; justify-content: flex-end; }
@@ -781,6 +784,10 @@ INDEX_HTML = r"""<!DOCTYPE html>
         </div>
       </div>
     </div>
+  </div>
+
+  <div class="page-foot">
+    <a href="https://dmcbane.github.io/display-pi/" target="_blank" rel="noopener">&#128214; Documentation</a>
   </div>
 </div>
 
