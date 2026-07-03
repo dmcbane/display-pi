@@ -54,7 +54,7 @@ export KIOSK_HOST  := $(HOST)
 export KIOSK_USER
 export STREAM_KEY
 
-.PHONY: help setup provision deploy sudoers test-stream test-stream-long ssh ssh-password logs status diag judder-tree judder-probe judder-monitor stream-key hdmi-mode set-time test lint check ping reboot restart shutdown volunteer-bundle setup-web setup-web-tls volunteer-web-url
+.PHONY: help setup provision deploy sudoers test-stream test-stream-long ssh ssh-password logs status diag judder-tree judder-probe judder-monitor stream-key hdmi-mode set-time test lint check ping reboot restart shutdown volunteer-bundle setup-web setup-web-tls-local web-ca setup-web-tls volunteer-web-url
 
 help:
 	@echo "display-pi — Church Worship Stream Kiosk"
@@ -91,9 +91,11 @@ help:
 	@echo "  shutdown          Shutdown the Pi"
 	@echo ""
 	@echo "Volunteer workflow:"
-	@echo "  setup-web         One-time: install volunteer web manager on Pi"
-	@echo "  setup-web-tls     Put the web manager behind HTTPS (Let's Encrypt DNS-01; needs DOMAIN=)"
-	@echo "  volunteer-web-url Generate volunteer URL shortcut files (.webloc / .url)"
+	@echo "  setup-web            One-time: install web manager on Pi (HTTPS via local cert by default)"
+	@echo "  setup-web-tls-local  (Re)issue the local HTTPS cert (e.g. after an IP change)"
+	@echo "  web-ca               Fetch the Pi's root CA to import on devices (warning-free padlock)"
+	@echo "  setup-web-tls        Alternative HTTPS: Let's Encrypt DNS-01 (needs DOMAIN=)"
+	@echo "  volunteer-web-url    Generate volunteer URL shortcut files (.webloc / .url)"
 	@echo "  volunteer-bundle  Build volunteer-bundle.zip (legacy SSH scripts + key)"
 	@echo ""
 	@echo "Variables (override on command line):"
@@ -344,14 +346,30 @@ volunteer-bundle:
 # --- Volunteer web manager ---
 
 # One-time setup: install the web manager on the Pi (requires internet on Pi
-# for the first `pip install flask pillow`). Safe to re-run.
+# for the first `pip install flask pillow`). Brings the manager up over HTTPS
+# with a locally-signed cert by default. Safe to re-run.
 setup-web:
 	@echo "Setting up kiosk-web on $(HOST)..."
 	@ssh -t $(HOST) "sudo bash /home/$(KIOSK_USER)/display-pi/install/kiosk-web-setup.sh"
 
-# Put the web manager behind HTTPS with a Let's Encrypt DNS-01 cert. Requires a
-# domain you control. Pass DOMAIN (and ideally CERTBOT_ARGS for your DNS plugin
-# so the cert auto-renews). See docs/web-manager-https.md.
+# (Re)issue the local HTTPS cert — e.g. after the Pi's IP changes, or to switch
+# an existing HTTP/Let's Encrypt install to a locally-signed cert. No domain
+# needed. Override the shareable-link host with PUBLIC_HOST=.
+setup-web-tls-local:
+	@echo "Issuing a locally-signed HTTPS cert for kiosk-web on $(HOST)..."
+	@ssh -t $(HOST) "sudo PUBLIC_HOST='$(PUBLIC_HOST)' \
+	    bash /home/$(KIOSK_USER)/display-pi/install/kiosk-web-tls-local.sh"
+
+# Fetch this Pi's root CA so you can import it on devices (one-time) for a
+# warning-free padlock. Writes display-pi-rootCA.crt to the current directory.
+web-ca:
+	@curl -fsS "http://$(HOST)/rootCA.crt" -o display-pi-rootCA.crt \
+	    && echo "[web-ca] wrote display-pi-rootCA.crt — import it as a trusted root on each device." \
+	    || echo "[web-ca] ERROR: could not fetch http://$(HOST)/rootCA.crt (is the local-cert HTTPS set up?)"
+
+# Alternative HTTPS path: a publicly-trusted Let's Encrypt DNS-01 cert (no
+# per-device CA import), for when you control a domain. Pass DOMAIN (and ideally
+# CERTBOT_ARGS for your DNS plugin so the cert auto-renews). See docs/web-manager-https.md.
 #   make setup-web-tls HOST=displaypi DOMAIN=kiosk.church.org EMAIL=av@church.org \
 #     CERTBOT_ARGS="--dns-cloudflare --dns-cloudflare-credentials /etc/letsencrypt/cloudflare.ini"
 setup-web-tls:
@@ -369,7 +387,9 @@ volunteer-web-url:
 	    echo "ERROR: kiosk-web not set up on $(HOST). Run: make setup-web HOST=$(HOST)"; \
 	    exit 1; \
 	fi; \
-	URL="http://$(HOST)/?token=$$TOKEN"; \
+	BASE=$$(ssh $(HOST) "sudo grep '^PUBLIC_URL=' /etc/kiosk-web.conf 2>/dev/null | cut -d= -f2-"); \
+	BASE=$${BASE:-https://$(HOST)}; \
+	URL="$$BASE/?token=$$TOKEN"; \
 	printf '<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0">\n<dict>\n\t<key>URL</key>\n\t<string>%s</string>\n</dict>\n</plist>\n' \
 	    "$$URL" > volunteer-kiosk.webloc; \
 	printf '[InternetShortcut]\nURL=%s\n' "$$URL" > volunteer-kiosk.url; \

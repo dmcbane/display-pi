@@ -288,8 +288,35 @@ assert_contains "TLS setup validates nginx before reload" \
 # The web manager's rotatable-token state dir is provisioned by both setup paths.
 assert_contains "kiosk-web-setup.sh creates token state dir" \
     "$REPO_ROOT/install/kiosk-web-setup.sh" "/var/lib/kiosk-web"
-assert_contains "kiosk-web-setup.sh installs nginx site block" \
-    "$REPO_ROOT/install/kiosk-web-setup.sh" "kiosk-web-site-http.conf"
+assert_contains "kiosk-web-setup.sh defaults to local HTTPS" \
+    "$REPO_ROOT/install/kiosk-web-setup.sh" "kiosk-web-tls-local.sh"
+
+# Local-cert HTTPS: a per-Pi CA signs the server cert; HTTPS is the default and
+# needs no domain. The root CA is fetchable over HTTP so devices can trust it.
+assert_file_exists "local TLS script exists" \
+    "$REPO_ROOT/install/kiosk-web-tls-local.sh"
+assert_contains "local TLS signs a server cert with the local CA" \
+    "$REPO_ROOT/install/kiosk-web-tls-local.sh" "openssl x509 -req"
+assert_contains "local TLS sets Subject Alt Names (hostname + IPs)" \
+    "$REPO_ROOT/install/kiosk-web-tls-local.sh" "subjectAltName"
+assert_contains "local TLS verifies the cert chains to the CA" \
+    "$REPO_ROOT/install/kiosk-web-tls-local.sh" "openssl verify -CAfile"
+assert_contains "local TLS reuses the root CA across runs" \
+    "$REPO_ROOT/install/kiosk-web-tls-local.sh" "Reusing existing root CA"
+assert_contains "local TLS serves the root CA over HTTP for import" \
+    "$REPO_ROOT/install/kiosk-web-tls-local.sh" "location = /rootCA.crt"
+assert_contains "local TLS redirects HTTP to HTTPS" \
+    "$REPO_ROOT/install/kiosk-web-tls-local.sh" "return 301 https"
+assert_contains "local TLS sets HSTS header" \
+    "$REPO_ROOT/install/kiosk-web-tls-local.sh" "Strict-Transport-Security"
+assert_contains "local TLS pins canonical https PUBLIC_URL" \
+    "$REPO_ROOT/install/kiosk-web-tls-local.sh" "PUBLIC_URL=https"
+assert_contains "local TLS validates nginx before reload" \
+    "$REPO_ROOT/install/kiosk-web-tls-local.sh" "nginx -t"
+assert_contains "Makefile exposes setup-web-tls-local target" \
+    "$REPO_ROOT/Makefile" "setup-web-tls-local:"
+assert_contains "Makefile exposes web-ca fetch target" \
+    "$REPO_ROOT/Makefile" "web-ca:"
 
 # ============================================================================
 echo ""

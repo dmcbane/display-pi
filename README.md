@@ -96,9 +96,10 @@ a volunteer can:
 Stand it up (also done by `make provision`):
 
 ```sh
-make setup-web                       # one-time: installs the kiosk-web service
+make setup-web                       # one-time: installs the manager (HTTPS via a local cert)
+make web-ca                          # fetch the Pi's root CA to trust once per device
 make volunteer-web-url               # writes the volunteer shortcut files
-make setup-web-tls DOMAIN=kiosk.example.org   # optional: HTTPS via Let's Encrypt
+make setup-web-tls DOMAIN=kiosk.example.org   # alternative: publicly-trusted Let's Encrypt cert
 ```
 
 Details in [Web Manager — Splash, Status, HTTPS & Tokens](https://dmcbane.github.io/display-pi/web-manager-https.html).
@@ -135,8 +136,9 @@ The web manager is built to be handed to volunteers safely:
   hardened **persistent cookie** (`HttpOnly`, `SameSite=Strict`, `Secure` over
   TLS) so the secret leaves the URL; the token is **rotatable** from the UI into
   an app-owned `/var/lib/kiosk-web/token` file with no elevated privilege.
-- **HTTPS** via Let's Encrypt **DNS-01** (the Pi never needs to be internet-
-  reachable), and the `?token=` is stripped from nginx access logs.
+- **HTTPS on by default** with a locally-signed cert — a per-Pi CA you trust once
+  per device, no domain or internet required; Let's Encrypt DNS-01 is available
+  if you do have a domain. The `?token=` is stripped from nginx access logs.
 
 ## Project layout
 

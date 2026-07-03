@@ -4,6 +4,26 @@ All notable changes to display-pi are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.22.0] - 2026-07-03
+
+### Changed
+- **HTTPS is now the default for the web manager, via a locally-signed
+  certificate** — `make setup-web` (and `make provision`) generate a per-Pi root
+  CA and a server cert signed by it (Subject Alt Names: the hostname,
+  `<hostname>.local`, and every LAN IP), install an nginx block that serves the
+  manager over TLS with HSTS and 301-redirects `:80`, and set
+  `PUBLIC_URL=https://<hostname>`. No domain, DNS, or internet required. The root
+  CA is fetchable over plain HTTP at `/rootCA.crt` (or `make web-ca`) so each
+  device can trust it once for a warning-free padlock — and because HSTS is only
+  seen after a successful TLS handshake, it can't lock out a device that hasn't
+  imported the CA. The root CA is stable across runs while the server cert is
+  re-issued each run to track a changed hostname/DHCP address
+  (`make setup-web-tls-local`). The Let's Encrypt DNS-01 path
+  (`make setup-web-tls DOMAIN=…`) stays as the alternative for a publicly-trusted
+  cert with no per-device import. New: `install/kiosk-web-tls-local.sh`,
+  `make setup-web-tls-local`, `make web-ca`; `install/kiosk-web-setup.sh` now
+  calls the local-TLS path by default.
+
 ## [0.21.0] - 2026-07-03
 
 ### Added

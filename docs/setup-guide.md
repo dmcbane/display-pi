@@ -365,14 +365,19 @@ scripts — there are no separate copies to keep in sync.
 `make provision` (or `make setup-web`) installs a browser-based manager that lets
 volunteers swap splash images, restart or reboot the Pi, and watch a live
 **System Status** board — all from one bookmarked link, no SSH key required. The
-link carries an access token you can **rotate** in one click if it leaks, and the
-manager can run behind **HTTPS** via Let's Encrypt:
+link carries an access token you can **rotate** in one click if it leaks.
+
+The manager is served over **HTTPS by default** with a certificate signed by a
+small CA generated on the Pi — no domain needed. Trust that CA once per device
+for a warning-free padlock:
 
 ```sh
-make setup-web-tls DOMAIN=kiosk.example.org   # optional, needs a domain you control
+make web-ca HOST=displaypi   # saves display-pi-rootCA.crt — import it as a trusted root
 ```
 
-Full walkthrough: [Web Manager — Splash, Status, HTTPS & Tokens](web-manager-https.html).
+If you control a domain, `make setup-web-tls DOMAIN=…` swaps in a publicly-trusted
+Let's Encrypt cert instead (no per-device import). Full walkthrough:
+[Web Manager — Splash, Status, HTTPS & Tokens](web-manager-https.html).
 
 ### SSH password login
 
