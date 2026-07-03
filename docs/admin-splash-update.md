@@ -1,4 +1,13 @@
+---
+title: "Admin: SSH-Bundle Splash Workflow — display-pi"
+description: Operator runbook for the older SSH-key splash-update bundle — the offline fallback to the browser-based web manager.
+---
+
 # Admin: Splash-Update Workflow
+
+> **This is the offline / SSH fallback.** The primary way volunteers manage
+> splash images is now the browser-based [web manager](web-manager-https.html).
+> Use this SSH-bundle workflow when a browser or HTTPS isn't available.
 
 This is the operator-side runbook for the volunteer splash-update
 feature added in v0.9.0. Volunteers upload a splash slide to the kiosk

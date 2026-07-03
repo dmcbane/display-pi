@@ -23,7 +23,7 @@ description: >-
     <span class="badge green">Web image manager</span>
     <span class="badge orange">Full console access</span>
     <span class="badge">Apache-2.0</span>
-    <span class="badge">v0.16.0</span>
+    <a class="badge" href="https://github.com/dmcbane/display-pi/releases">Releases</a>
   </div>
   <div class="hero-buttons">
     <a href="#quickstart" class="btn btn-primary">Get Started</a>
@@ -60,7 +60,12 @@ description: >-
     <div class="feature-card">
       <span class="icon">&#127760;</span>
       <h3>Web-based image manager</h3>
-      <p>A volunteer opens one bookmarked URL — no terminal, no SSH key, works from a phone. Upload PNG/JPEG splash images, delete or download existing ones, drag-and-drop (or &uarr;&darr;) to reorder the rotation, then Restart Service or Reboot Pi, all from the browser.</p>
+      <p>A volunteer opens one bookmarked URL — no terminal, no SSH key, works from a phone. Upload PNG/JPEG splash images, delete or download existing ones, drag-and-drop (or &uarr;&darr;) to reorder the rotation, then Restart Service or Reboot Pi, all from the browser. The access link is rotatable in one click, and the manager can run behind HTTPS.</p>
+    </div>
+    <div class="feature-card">
+      <span class="icon">&#128202;</span>
+      <h3>System status at a glance</h3>
+      <p>The same health board shown on the HDMI boot screen streams live into the web manager: network, gateway, link speed, nginx/RTMP, disk, memory, CPU temperature, time sync, watchdog, and player liveness — each green, amber, or red, auto-refreshing every 15&nbsp;seconds.</p>
     </div>
     <div class="feature-card">
       <span class="icon">&#128187;</span>
@@ -148,12 +153,17 @@ description: >-
     <div class="step">
       <span class="icon" style="font-size:1.5rem;display:block;margin-bottom:.6rem;">&#127760;</span>
       <h3>Volunteers: the web image manager</h3>
-      <p>One bookmarked link, no login screen — auth is a token baked into the
-      URL. From a phone or any browser a volunteer can:</p>
+      <p>One bookmarked link, no login screen. The link carries a token; on first
+      visit the manager hands the browser a hardened, persistent cookie so the
+      secret drops out of the address bar. From a phone or any browser a
+      volunteer can:</p>
       <p class="note">&bull; Upload a new splash (PNG/JPEG, exactly 1920&times;1080, &le; 10&nbsp;MB)<br>
       &bull; Delete or download an existing slide<br>
       &bull; Drag-and-drop (or &uarr;&darr;) to reorder the rotation<br>
-      &bull; Restart Service or Reboot Pi</p>
+      &bull; Restart Service or Reboot Pi<br>
+      &bull; Watch the live <strong>System Status</strong> board<br>
+      &bull; Copy the link or download a <code>.webloc</code>/<code>.url</code> shortcut<br>
+      &bull; <strong>Rotate Token</strong> to instantly invalidate a leaked link</p>
     </div>
     <div class="step">
       <span class="icon" style="font-size:1.5rem;display:block;margin-bottom:.6rem;">&#128187;</span>
@@ -174,9 +184,14 @@ description: >-
 <span class="cmd">make volunteer-web-url</span>    <span class="comment"># writes a shortcut file with the live token</span></pre>
   </div>
 
+  <p class="code-label">Optional: put the manager behind HTTPS (needs a domain)</p>
+  <div class="code-block">
+<pre><span class="cmd">make setup-web-tls</span> <span class="flag">DOMAIN</span>=<span class="str">kiosk.example.org</span> <span class="comment"># Let's Encrypt via DNS-01</span></pre>
+  </div>
+
   <div class="callout">
     <h3>&#128161; <code>make provision</code> does both</h3>
-    <p>It runs <code>setup-web</code> and <code>volunteer-web-url</code> as part of the standard sequence, so every kiosk leaves provisioning with the browser tool already live — the console is just always there too.</p>
+    <p>It runs <code>setup-web</code> and <code>volunteer-web-url</code> as part of the standard sequence, so every kiosk leaves provisioning with the browser tool already live — the console is just always there too. See the <a href="web-manager-https.html">Web Manager guide</a> for HTTPS, token rotation, and the status board. Prefer no browser at all? The older <a href="volunteer-splash-update.html">SSH-bundle splash workflow</a> still works as an offline fallback.</p>
   </div>
 </section>
 
@@ -228,6 +243,7 @@ description: >-
 
   <div class="hero-buttons" style="justify-content:flex-start;">
     <a href="setup-guide.html" class="btn btn-primary">Full Setup Guide</a>
-    <a href="volunteer-splash-update.html" class="btn btn-secondary">Splash Image Guide</a>
+    <a href="web-manager-https.html" class="btn btn-secondary">Web Manager &amp; HTTPS</a>
+    <a href="volunteer-splash-update.html" class="btn btn-secondary">Splash Guide (offline / SSH)</a>
   </div>
 </section>

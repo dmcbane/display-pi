@@ -356,9 +356,23 @@ scripts — there are no separate copies to keep in sync.
   single `/home/kiosk/splash.png` (→ `images/splash.png`).
 - **Cycle manually while testing:** `make restart` (advances one slide), or send
   a `make test-stream` and let it end (a stream toggle also advances one).
-- **Volunteers** can replace their slide over SSH — see
-  [`docs/admin-splash-update.md`](admin-splash-update.md); their image joins the
-  rotation.
+- **Volunteers** replace their slide from the browser-based web manager (below);
+  their image joins the rotation. An offline SSH-bundle path also exists — see
+  [`docs/admin-splash-update.md`](admin-splash-update.md).
+
+### The volunteer web manager
+
+`make provision` (or `make setup-web`) installs a browser-based manager that lets
+volunteers swap splash images, restart or reboot the Pi, and watch a live
+**System Status** board — all from one bookmarked link, no SSH key required. The
+link carries an access token you can **rotate** in one click if it leaks, and the
+manager can run behind **HTTPS** via Let's Encrypt:
+
+```sh
+make setup-web-tls DOMAIN=kiosk.example.org   # optional, needs a domain you control
+```
+
+Full walkthrough: [Web Manager — Splash, Status, HTTPS & Tokens](web-manager-https.html).
 
 ### SSH password login
 
