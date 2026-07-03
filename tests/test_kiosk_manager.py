@@ -91,6 +91,12 @@ def test_auth_correct_token(client):
     assert r.status_code == 200
 
 
+def test_index_has_documentation_link(client):
+    """The manager links out to the published documentation site."""
+    body = client.get(f'/?token={TEST_TOKEN}').get_data(as_text=True)
+    assert 'https://dmcbane.github.io/display-pi/' in body
+
+
 # ── upload validation ────────────────────────────────────────────────────────
 
 def test_upload_no_file(client):
