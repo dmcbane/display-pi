@@ -25,6 +25,9 @@ TEST_TOKEN = 'test-token-abc123'
 @pytest.fixture
 def client(tmp_path, monkeypatch):
     monkeypatch.setattr(kiosk_manager, 'TOKEN', TEST_TOKEN)
+    # Point the rotatable token store at a path that does not exist, so
+    # current_token() falls back to the seed TOKEN for the auth tests.
+    monkeypatch.setattr(kiosk_manager, 'TOKEN_FILE', tmp_path / 'no-token-file')
     monkeypatch.setattr(kiosk_manager, 'SPLASH_DIR', tmp_path)
     kiosk_manager.app.config['TESTING'] = True
     with kiosk_manager.app.test_client() as c:
@@ -293,6 +296,102 @@ def test_kiosk_health_stale_file_warns(tmp_path, monkeypatch):
     check = kiosk_manager._check_kiosk_player()
     assert check['status'] == 'WARN'
     assert 'stale' in check['detail'].lower()
+
+
+# ── token store & rotation ───────────────────────────────────────────────────
+
+def test_current_token_prefers_state_file(tmp_path, monkeypatch):
+    tf = tmp_path / 'token'
+    tf.write_text('file-token\n')
+    monkeypatch.setattr(kiosk_manager, 'TOKEN_FILE', tf)
+    monkeypatch.setattr(kiosk_manager, 'TOKEN', 'seed-token')
+    assert kiosk_manager.current_token() == 'file-token'
+
+
+def test_current_token_falls_back_to_seed(tmp_path, monkeypatch):
+    monkeypatch.setattr(kiosk_manager, 'TOKEN_FILE', tmp_path / 'nope')
+    monkeypatch.setattr(kiosk_manager, 'TOKEN', 'seed-token')
+    assert kiosk_manager.current_token() == 'seed-token'
+
+
+def test_current_token_ignores_empty_state_file(tmp_path, monkeypatch):
+    tf = tmp_path / 'token'
+    tf.write_text('   \n')
+    monkeypatch.setattr(kiosk_manager, 'TOKEN_FILE', tf)
+    monkeypatch.setattr(kiosk_manager, 'TOKEN', 'seed-token')
+    assert kiosk_manager.current_token() == 'seed-token'
+
+
+def test_write_token_atomic_and_perms(tmp_path, monkeypatch):
+    import os as _os
+    import stat as _stat
+    state = tmp_path / 'state'
+    tf = state / 'token'
+    monkeypatch.setattr(kiosk_manager, 'STATE_DIR', state)
+    monkeypatch.setattr(kiosk_manager, 'TOKEN_FILE', tf)
+    kiosk_manager._write_token('hello')
+    assert tf.read_text().strip() == 'hello'
+    assert _stat.S_IMODE(_os.stat(tf).st_mode) == 0o600
+
+
+def test_rotate_requires_token(client):
+    r = client.post('/api/token/rotate')
+    assert r.status_code == 403
+
+
+def test_rotate_changes_token_and_invalidates_old(client, tmp_path, monkeypatch):
+    tf = tmp_path / 'token'
+    monkeypatch.setattr(kiosk_manager, 'STATE_DIR', tmp_path)
+    monkeypatch.setattr(kiosk_manager, 'TOKEN_FILE', tf)
+    r = client.post(f'/api/token/rotate?token={TEST_TOKEN}')
+    assert r.status_code == 200
+    body = r.get_json()
+    new = body['token']
+    assert new and new != TEST_TOKEN
+    assert tf.read_text().strip() == new
+    assert new in body['url']
+    # Old link no longer works; new one does.
+    assert client.get(f'/?token={TEST_TOKEN}').status_code == 403
+    assert client.get(f'/?token={new}').status_code == 200
+
+
+# ── external URL resolution ──────────────────────────────────────────────────
+
+def test_volunteer_url_prefers_public_url(monkeypatch):
+    monkeypatch.setenv('PUBLIC_URL', 'https://kiosk.church.org')
+    with kiosk_manager.app.test_request_context('http://10.0.0.5/'):
+        assert kiosk_manager._volunteer_url('ABC') == 'https://kiosk.church.org/?token=ABC'
+
+
+def test_volunteer_url_falls_back_to_request_host(monkeypatch):
+    monkeypatch.delenv('PUBLIC_URL', raising=False)
+    with kiosk_manager.app.test_request_context('http://displaypi.local/'):
+        assert kiosk_manager._volunteer_url('XYZ') == 'http://displaypi.local/?token=XYZ'
+
+
+# ── shortcut file downloads ──────────────────────────────────────────────────
+
+def test_webloc_download(client):
+    r = client.get(f'/api/token/webloc?token={TEST_TOKEN}')
+    assert r.status_code == 200
+    assert 'attachment' in r.headers.get('Content-Disposition', '')
+    body = r.get_data(as_text=True)
+    assert '<plist' in body
+    assert TEST_TOKEN in body
+
+
+def test_urlfile_download(client):
+    r = client.get(f'/api/token/url?token={TEST_TOKEN}')
+    assert r.status_code == 200
+    body = r.get_data(as_text=True)
+    assert body.startswith('[InternetShortcut]')
+    assert TEST_TOKEN in body
+
+
+def test_token_info_json(client):
+    body = client.get(f'/api/token?token={TEST_TOKEN}').get_json()
+    assert body['token'] == TEST_TOKEN
+    assert TEST_TOKEN in body['url']
 
 
 # ── uptime humanizer ─────────────────────────────────────────────────────────

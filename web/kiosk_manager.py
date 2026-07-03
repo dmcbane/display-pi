@@ -3,24 +3,30 @@
 kiosk_manager.py — Volunteer kiosk web manager.
 
 Single-page UI for managing splash images and controlling the kiosk service.
-Auth is a static ?token= query parameter stored in /etc/kiosk-web.conf
-(loaded via EnvironmentFile= in kiosk-web.service).
+Auth is a ?token= query parameter. The token from /etc/kiosk-web.conf (loaded
+via EnvironmentFile= in kiosk-web.service) is a one-time *seed*; the live token
+is the app-owned file /var/lib/kiosk-web/token, which the manager can rotate
+without any elevated privilege. See current_token()/rotate_token().
 
-Listens on 127.0.0.1:5000; nginx on port 80 proxies all traffic here.
+Listens on 127.0.0.1:5000; nginx proxies all traffic here (over TLS once
+kiosk-web-tls-setup.sh has run).
 """
 
 import io
 import json
 import os
 import re
+import secrets
 import shutil
 import socket
 import subprocess
 import time
 from datetime import datetime, timezone
+from html import escape
 from pathlib import Path
 
-from flask import Flask, abort, jsonify, request, send_file, send_from_directory
+from flask import (Flask, Response, abort, jsonify, request, send_file,
+                   send_from_directory)
 from PIL import Image
 
 app = Flask(__name__, static_folder=None)
@@ -33,17 +39,62 @@ REQ_SIZE   = (1920, 1080)
 ALLOWED    = {'.png', '.jpg', '.jpeg'}
 THUMB_SIZE = (320, 180)
 
+# The rotatable token store. The app runs as the locked kiosk-web user and
+# cannot write root's /etc/kiosk-web.conf, so the live token lives in a file
+# this user owns (0600). When absent (fresh install) we fall back to the seed
+# TOKEN from the conf until the first rotation writes the file.
+STATE_DIR  = Path(os.environ.get('KIOSK_WEB_STATE', '/var/lib/kiosk-web'))
+TOKEN_FILE = Path(os.environ.get('TOKEN_FILE', str(STATE_DIR / 'token')))
+
 # health-monitor.sh rewrites this every 20s; healthcheck.sh treats 2 min of
 # silence as unhealthy, so we use the same window to flag a stale snapshot.
 HEALTH_FILE      = Path(os.environ.get('HEALTH_FILE', '/tmp/kiosk-health.json'))
 HEALTH_STALE_SEC = 120
 
 
+def current_token():
+    """The live token: the rotatable state file if present, else the seed."""
+    try:
+        t = TOKEN_FILE.read_text().strip()
+        if t:
+            return t
+    except OSError:
+        pass
+    return TOKEN
+
+
+def _write_token(tok):
+    """Persist a new token atomically, 0600, owned by this (kiosk-web) user."""
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    tmp = TOKEN_FILE.with_name(TOKEN_FILE.name + '.tmp')
+    tmp.write_text(tok + '\n')
+    os.chmod(tmp, 0o600)
+    os.replace(tmp, TOKEN_FILE)
+
+
+def _external_base_url():
+    """Canonical https base for shareable links.
+
+    Prefer an explicitly configured PUBLIC_URL (the domain the Let's Encrypt
+    cert is issued for) so a downloadable shortcut never embeds a spoofable or
+    inconsistent Host header. Fall back to the request's own scheme+host when
+    PUBLIC_URL is unset (pre-TLS installs, local testing).
+    """
+    base = os.environ.get('PUBLIC_URL', '').strip().rstrip('/')
+    return base or request.host_url.rstrip('/')
+
+
+def _volunteer_url(token):
+    return f'{_external_base_url()}/?token={token}'
+
+
 @app.before_request
 def auth():
-    if not TOKEN:
+    tok = current_token()
+    if not tok:
         abort(500, description='TOKEN not set in /etc/kiosk-web.conf')
-    if request.args.get('token') != TOKEN:
+    provided = request.args.get('token', '')
+    if not secrets.compare_digest(provided, tok):
         return '<h2>Access denied</h2><p>Missing or invalid token.</p>', 403
 
 
@@ -198,6 +249,55 @@ def restart_kiosk():
 def reboot_pi():
     subprocess.Popen(['sudo', 'reboot'])
     return jsonify({'ok': True})
+
+
+# ── access token: view, rotate, and download shortcut files ──────────────────
+
+def _webloc(url):
+    """A macOS .webloc (an XML plist wrapping the URL)."""
+    return ('<?xml version="1.0" encoding="UTF-8"?>\n'
+            '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" '
+            '"http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n'
+            '<plist version="1.0">\n<dict>\n\t<key>URL</key>\n'
+            f'\t<string>{escape(url)}</string>\n</dict>\n</plist>\n')
+
+
+def _urlfile(url):
+    """A Windows/Linux .url internet shortcut."""
+    return f'[InternetShortcut]\nURL={url}\n'
+
+
+def _download(body, filename, mimetype):
+    return Response(body, mimetype=mimetype, headers={
+        'Content-Disposition': f'attachment; filename="{filename}"'})
+
+
+@app.route('/api/token')
+def token_info():
+    tok = current_token()
+    return jsonify({'token': tok, 'url': _volunteer_url(tok)})
+
+
+@app.route('/api/token/rotate', methods=['POST'])
+def rotate_token():
+    new = secrets.token_urlsafe(32)
+    try:
+        _write_token(new)
+    except OSError as exc:
+        abort(500, description=f'Could not save new token: {exc}')
+    return jsonify({'ok': True, 'token': new, 'url': _volunteer_url(new)})
+
+
+@app.route('/api/token/webloc')
+def token_webloc():
+    body = _webloc(_volunteer_url(current_token()))
+    return _download(body, 'volunteer-kiosk.webloc', 'application/octet-stream')
+
+
+@app.route('/api/token/url')
+def token_urlfile():
+    body = _urlfile(_volunteer_url(current_token()))
+    return _download(body, 'volunteer-kiosk.url', 'application/octet-stream')
 
 
 # ── status board ─────────────────────────────────────────────────────────────
@@ -542,6 +642,10 @@ INDEX_HTML = r"""<!DOCTYPE html>
     .ctrl-row  { display: flex; gap: .75rem; flex-wrap: wrap; }
     .ctrl-row .btn { flex: 1; min-width: 138px; padding: .7rem 1rem; }
     .ctrl-note { margin-top: .7rem; font-size: .78rem; color: var(--muted); }
+    .link-row { display: flex; gap: .5rem; align-items: center; }
+    .link-input { flex: 1; min-width: 0; padding: .5rem .6rem; border-radius: 6px;
+                  border: 1px solid var(--border); background: var(--bg); color: var(--text);
+                  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .76rem; }
     .card-head { display: flex; align-items: center; justify-content: space-between;
                  gap: .5rem; margin-bottom: 1rem; }
     .card-head .card-title { margin-bottom: 0; }
@@ -599,6 +703,23 @@ INDEX_HTML = r"""<!DOCTYPE html>
         </div>
         <p class="ctrl-note">Restart applies image changes immediately. Reboot takes ~30 s.</p>
       </div>
+
+      <div class="card">
+        <div class="card-title">Access Link</div>
+        <div class="link-row">
+          <input class="link-input" id="link-input" type="text" readonly value="loading…">
+          <button class="btn btn-ghost btn-sm" id="copy-btn" title="Copy link">Copy</button>
+        </div>
+        <div class="ctrl-row" style="margin-top:.7rem">
+          <a class="btn btn-ghost" id="dl-webloc" download="volunteer-kiosk.webloc">&#11015; .webloc (Mac)</a>
+          <a class="btn btn-ghost" id="dl-url" download="volunteer-kiosk.url">&#11015; .url (Win/Linux)</a>
+        </div>
+        <div class="ctrl-row" style="margin-top:.7rem">
+          <button class="btn btn-danger" id="rotate-btn">&#x21BB; Rotate Token</button>
+        </div>
+        <p class="ctrl-note">Rotating generates a new link and <strong>immediately invalidates
+          every existing link</strong>. Re-share the new link or download a fresh shortcut.</p>
+      </div>
     </div>
 
     <div class="col">
@@ -619,7 +740,7 @@ INDEX_HTML = r"""<!DOCTYPE html>
 </div>
 
 <script>
-const TOKEN = '%%TOKEN%%';
+let TOKEN = '%%TOKEN%%';
 const qs = (extra) => { const p = new URLSearchParams({token: TOKEN, ...extra}); return '?' + p; };
 
 function apiFetch(path, opts, extra) {
@@ -771,6 +892,43 @@ document.getElementById('reboot-btn').addEventListener('click', () => {
     .catch(err => flash('Reboot failed: ' + err, false));
 });
 
+// ── Access link & token rotation ────────────────────────────────────────────
+function refreshDownloadLinks() {
+  document.getElementById('dl-webloc').href = '/api/token/webloc' + qs();
+  document.getElementById('dl-url').href    = '/api/token/url' + qs();
+}
+
+function refreshLink() {
+  apiFetch('/api/token')
+    .then(data => { document.getElementById('link-input').value = data.url; })
+    .catch(err => flash('Could not load link: ' + err, false));
+  refreshDownloadLinks();
+}
+
+document.getElementById('copy-btn').addEventListener('click', () => {
+  const input = document.getElementById('link-input');
+  const copy = navigator.clipboard
+    ? navigator.clipboard.writeText(input.value)
+    : (input.select(), document.execCommand('copy'), Promise.resolve());
+  Promise.resolve(copy)
+    .then(() => flash('Link copied to clipboard'))
+    .catch(() => flash('Copy failed — select the link manually', false));
+});
+
+document.getElementById('rotate-btn').addEventListener('click', () => {
+  if (!confirm('Rotate the access token?\n\nEvery existing link (including any shared '
+      + 'shortcut files) stops working immediately. This page will switch to the new link.')) return;
+  apiFetch('/api/token/rotate', {method: 'POST'})
+    .then(data => {
+      TOKEN = data.token;                                  // re-key this open page
+      history.replaceState({}, '', '/?token=' + encodeURIComponent(TOKEN));
+      document.getElementById('link-input').value = data.url;
+      refreshDownloadLinks();
+      flash('Token rotated — old links are now invalid. Re-share the new link.');
+    })
+    .catch(err => flash('Rotate failed: ' + err, false));
+});
+
 // ── System status board ─────────────────────────────────────────────────────
 const STATUS_TEXT = {OK: 'All systems OK', WARN: 'Warnings detected', FAIL: 'Errors detected'};
 let statusTimer = null;
@@ -824,6 +982,7 @@ function scheduleStatus() {
 }
 
 loadImages();
+refreshLink();
 loadStatus();
 scheduleStatus();
 </script>

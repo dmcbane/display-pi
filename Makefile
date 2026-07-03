@@ -54,7 +54,7 @@ export KIOSK_HOST  := $(HOST)
 export KIOSK_USER
 export STREAM_KEY
 
-.PHONY: help setup provision deploy sudoers test-stream test-stream-long ssh ssh-password logs status diag judder-tree judder-probe judder-monitor stream-key hdmi-mode set-time test lint check ping reboot restart shutdown volunteer-bundle setup-web volunteer-web-url
+.PHONY: help setup provision deploy sudoers test-stream test-stream-long ssh ssh-password logs status diag judder-tree judder-probe judder-monitor stream-key hdmi-mode set-time test lint check ping reboot restart shutdown volunteer-bundle setup-web setup-web-tls volunteer-web-url
 
 help:
 	@echo "display-pi — Church Worship Stream Kiosk"
@@ -92,6 +92,7 @@ help:
 	@echo ""
 	@echo "Volunteer workflow:"
 	@echo "  setup-web         One-time: install volunteer web manager on Pi"
+	@echo "  setup-web-tls     Put the web manager behind HTTPS (Let's Encrypt DNS-01; needs DOMAIN=)"
 	@echo "  volunteer-web-url Generate volunteer URL shortcut files (.webloc / .url)"
 	@echo "  volunteer-bundle  Build volunteer-bundle.zip (legacy SSH scripts + key)"
 	@echo ""
@@ -347,6 +348,17 @@ volunteer-bundle:
 setup-web:
 	@echo "Setting up kiosk-web on $(HOST)..."
 	@ssh -t $(HOST) "sudo bash /home/$(KIOSK_USER)/display-pi/install/kiosk-web-setup.sh"
+
+# Put the web manager behind HTTPS with a Let's Encrypt DNS-01 cert. Requires a
+# domain you control. Pass DOMAIN (and ideally CERTBOT_ARGS for your DNS plugin
+# so the cert auto-renews). See docs/web-manager-https.md.
+#   make setup-web-tls HOST=displaypi DOMAIN=kiosk.church.org EMAIL=av@church.org \
+#     CERTBOT_ARGS="--dns-cloudflare --dns-cloudflare-credentials /etc/letsencrypt/cloudflare.ini"
+setup-web-tls:
+	@if [ -z "$(DOMAIN)" ]; then echo "ERROR: set DOMAIN=your.kiosk.domain"; exit 1; fi
+	@echo "Enabling HTTPS ($(DOMAIN)) for kiosk-web on $(HOST)..."
+	@ssh -t $(HOST) "sudo DOMAIN='$(DOMAIN)' EMAIL='$(EMAIL)' CERTBOT_ARGS='$(CERTBOT_ARGS)' \
+	    bash /home/$(KIOSK_USER)/display-pi/install/kiosk-web-tls-setup.sh"
 
 # Generate volunteer URL shortcut files from the live token on the Pi.
 # Outputs volunteer-kiosk.webloc (Mac) and volunteer-kiosk.url (Windows/Linux).
