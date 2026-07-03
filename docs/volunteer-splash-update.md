@@ -5,6 +5,11 @@ description: How a volunteer replaces the worship display splash image shown bef
 
 # Replacing the Worship Display Splash Image
 
+> **Most volunteers should use the [web manager](web-manager-https.html)
+> instead** — one bookmarked link, no files to keep, works from a phone. This
+> guide covers the older **SSH-bundle** method, kept as an offline fallback for
+> when a browser or network access to the manager isn't available.
+
 The splash image is the background shown on the worship display before
 the service stream goes live (and during any breaks). This guide walks
 you through replacing that image with one of your own.

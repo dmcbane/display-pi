@@ -1,11 +1,54 @@
 ---
-title: Web Manager HTTPS & Token Rotation — display-pi
-description: Put the volunteer Kiosk Manager behind HTTPS with a Let's Encrypt cert, and rotate its access token when a link leaks.
+title: "Web Manager — Splash, Status, HTTPS & Tokens — display-pi"
+description: What the browser-based Kiosk Manager does, plus putting it behind HTTPS with Let's Encrypt and rotating its access token when a link leaks.
 ---
 
-# Web Manager: HTTPS & Access-Token Rotation
+# The Web Manager
 
-The volunteer Kiosk Manager is protected by a single **access token** that
+The **Kiosk Manager** is the browser-based tool volunteers use to run the
+display — no terminal, no SSH key, works from a phone. It's a small web app the
+kiosk serves on the Pi; you reach it at the volunteer link
+(`http://displaypi/?token=…`, or `https://kiosk.example.org/?token=…` once TLS
+is set up — see below). `make setup-web` installs it; `make provision` includes
+that step.
+
+## What the manager does
+
+**Splash images** (left column)
+: Upload PNG/JPEG slides (exactly 1920×1080, ≤ 10 MB), delete or download
+  existing ones, and drag-and-drop (or use the ↑↓ buttons) to reorder the
+  rotation. Changes take effect on the next **Restart Service**.
+
+**Kiosk controls**
+: **Restart Service** applies image changes immediately; **Reboot Pi** takes
+  about 30 seconds. Both ask for confirmation first.
+
+**Access Link**
+: Shows the current volunteer link with a **Copy** button, downloads a
+  `.webloc` (Mac) or `.url` (Windows/Linux) double-click shortcut generated from
+  the live token, and offers **Rotate Token** — see
+  [token rotation](#2-rotating-the-access-token) below.
+
+**System Status** (right column)
+: A live health board — the same one shown on the HDMI screen at boot — that
+  auto-refreshes every 15 seconds. Each check is green (OK), amber (warning), or
+  red (error), with a summary banner rolling up the worst:
+
+  - **Hostname**, **Network** (IP), **Gateway**, **Link** (carrier + speed),
+    **Link Errors**
+  - **nginx RTMP** (service + port 1935), **RTMP Stream** (is a feed live?)
+  - **Kiosk Player** — player/compositor liveness, read from the health monitor
+  - **Disk**, **Memory**, **CPU Temp**, **Uptime**, **Time Sync**, **Watchdog**
+
+  The board is computed inside the manager with unprivileged reads only, so it
+  adds no new access. (The two session-only boot checks — Display Mode and Audio
+  — are intentionally omitted, since the locked service user can't assess them.)
+
+---
+
+# HTTPS & Access-Token Rotation
+
+The Kiosk Manager is protected by a single **access token** that
 rides in the link (`https://kiosk.example.org/?token=…`). Anyone with the link
 can manage the display, so two things matter:
 
