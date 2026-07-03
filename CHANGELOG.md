@@ -8,17 +8,20 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 - **Cookie-hardened auth for the web manager** — a valid `?token=` now mints a
-  hardened session cookie (`HttpOnly`, `SameSite=Strict`, `Path=/`, and
-  `Secure` whenever the request arrives over TLS, derived from nginx's
-  `X-Forwarded-Proto`). Every request after the first authenticates from the
-  cookie, so the token no longer needs to ride in the URL (keeping it out of
-  browser history, `Referer`, and logs). The cookie carries the live token
+  hardened cookie (`HttpOnly`, `SameSite=Strict`, `Path=/`, and `Secure`
+  whenever the request arrives over TLS, derived from nginx's
+  `X-Forwarded-Proto`). The cookie is **persistent (90 days)** so a bookmarked
+  clean URL keeps working across browser restarts. On load the page scrubs the
+  `?token=` from the address bar (`history.replaceState`, so it isn't one
+  Back-press away), and rotation no longer re-plants it there. Every request
+  after the first authenticates from the cookie, so the token stays out of
+  browser history, `Referer`, and logs. The cookie carries the live token
   verbatim — no server-side session store — so **rotating the token
   invalidates outstanding cookies** just like it does links, and a rotation
   re-keys the admin's own cookie in the same response. Shareable links still
-  carry `?token=` for first contact on a fresh device. Cookie is only issued
-  for requests that authenticated via URL token; denied requests never receive
-  one. See `auth()` / `issue_auth_cookie()` in `web/kiosk_manager.py`.
+  carry `?token=` for first contact on a fresh device. The cookie is only
+  issued for requests that authenticated via URL token; denied requests never
+  receive one. See `auth()` / `issue_auth_cookie()` in `web/kiosk_manager.py`.
 
 ## [0.20.0] - 2026-07-03
 

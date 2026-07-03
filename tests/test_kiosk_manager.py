@@ -87,6 +87,8 @@ def test_auth_wrong_token(client):
 
 
 def test_auth_correct_token(client):
+    # A valid ?token= renders the page and mints the hardened cookie; the page's
+    # own JS then scrubs the token from the address bar.
     r = client.get(f'/?token={TEST_TOKEN}')
     assert r.status_code == 200
 
@@ -123,6 +125,14 @@ def test_cookie_secure_flag_tracks_forwarded_proto(client):
     assert 'Secure' in over_https
 
 
+def test_cookie_is_persistent(client):
+    """The auth cookie carries a Max-Age so a bookmarked clean URL keeps working
+    across browser restarts — the volunteer-friendly choice."""
+    setc = _set_cookie_header(client.get(f'/?token={TEST_TOKEN}'))
+    assert f'Max-Age={kiosk_manager.COOKIE_MAX_AGE}' in setc
+    assert kiosk_manager.COOKIE_MAX_AGE >= 30 * 24 * 3600
+
+
 def test_cookie_alone_authenticates(client):
     """After the cookie exists, a request with no ?token= is accepted."""
     client.set_cookie(kiosk_manager.COOKIE_NAME, TEST_TOKEN)
@@ -141,6 +151,16 @@ def test_no_cookie_minted_on_denied_request(client):
     r = client.get('/?token=wrong')
     assert r.status_code == 403
     assert _set_cookie_header(r) == ''
+
+
+def test_index_scrubs_token_from_address_bar(client):
+    """The page keeps the token in a JS var but strips it from the URL on load,
+    and rotation must not re-plant it in the address bar."""
+    html = client.get(f'/?token={TEST_TOKEN}').get_data(as_text=True)
+    # Defined and invoked (>= one definition + one call site).
+    assert html.count('stripTokenFromUrl') >= 2
+    # The old behaviour — re-writing the token back into the URL — is gone.
+    assert "'/?token=' + encodeURIComponent" not in html
 
 
 def test_rotate_refreshes_cookie_to_new_token(client, tmp_path, monkeypatch):

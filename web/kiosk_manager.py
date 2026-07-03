@@ -50,10 +50,13 @@ STATE_DIR  = Path(os.environ.get('KIOSK_WEB_STATE', '/var/lib/kiosk-web'))
 TOKEN_FILE = Path(os.environ.get('TOKEN_FILE', str(STATE_DIR / 'token')))
 
 # Once a request proves itself with a URL ?token=, we hand the browser this
-# session cookie so every later request authenticates without the secret in the
-# URL (out of history, Referer, and logs). It carries the live token verbatim —
-# no separate session store — so rotating the token invalidates the cookie too.
-COOKIE_NAME = 'kiosk_token'
+# cookie so every later request authenticates without the secret in the URL
+# (out of history, Referer, and logs). It carries the live token verbatim — no
+# separate session store — so rotating the token invalidates the cookie too.
+# Persistent (90 days) so a bookmarked clean URL keeps working across browser
+# restarts; rotation still cuts every old cookie off immediately.
+COOKIE_NAME    = 'kiosk_token'
+COOKIE_MAX_AGE = 90 * 24 * 3600
 
 # health-monitor.sh rewrites this every 20s; healthcheck.sh treats 2 min of
 # silence as unhealthy, so we use the same window to flag a stale snapshot.
@@ -127,12 +130,13 @@ def auth():
 @app.after_request
 def issue_auth_cookie(resp):
     """Hand out the auth cookie only for requests that authenticated via URL
-    token. Session-scoped (no Max-Age), HttpOnly, SameSite=Strict, and Secure
+    token. Persistent (COOKIE_MAX_AGE), HttpOnly, SameSite=Strict, and Secure
     whenever the transport is TLS. Reads current_token() at send time so a
     rotation within this request re-keys the cookie to the new value."""
     if getattr(g, 'mint_cookie', False):
         resp.set_cookie(
             COOKIE_NAME, current_token(),
+            max_age=COOKIE_MAX_AGE,
             httponly=True, samesite='Strict', path='/',
             secure=_request_is_https(),
         )
@@ -784,6 +788,17 @@ INDEX_HTML = r"""<!DOCTYPE html>
 let TOKEN = '%%TOKEN%%';
 const qs = (extra) => { const p = new URLSearchParams({token: TOKEN, ...extra}); return '?' + p; };
 
+// The hardened session cookie now carries auth, so once the page has loaded we
+// scrub ?token= from the address bar (replaceState, not pushState — so the
+// token-bearing URL isn't left one Back-press away). TOKEN stays in memory for
+// building share links; requests authenticate from the cookie.
+function stripTokenFromUrl() {
+  const url = new URL(window.location.href);
+  if (!url.searchParams.has('token')) return;
+  url.searchParams.delete('token');
+  history.replaceState({}, '', url.pathname + url.search + url.hash);
+}
+
 function apiFetch(path, opts, extra) {
   return fetch(path + qs(extra || {}), opts || {}).then(r => {
     if (!r.ok) return r.text().then(t => {
@@ -962,7 +977,7 @@ document.getElementById('rotate-btn').addEventListener('click', () => {
   apiFetch('/api/token/rotate', {method: 'POST'})
     .then(data => {
       TOKEN = data.token;                                  // re-key this open page
-      history.replaceState({}, '', '/?token=' + encodeURIComponent(TOKEN));
+      stripTokenFromUrl();     // the rotate response reset the cookie; keep the bar clean
       document.getElementById('link-input').value = data.url;
       refreshDownloadLinks();
       flash('Token rotated — old links are now invalid. Re-share the new link.');
@@ -1022,6 +1037,7 @@ function scheduleStatus() {
   statusTimer = setInterval(loadStatus, 15000);
 }
 
+stripTokenFromUrl();
 loadImages();
 refreshLink();
 loadStatus();
