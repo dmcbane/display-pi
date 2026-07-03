@@ -113,6 +113,18 @@ if ! sudo -u ${KIOSK_USER} diff -q ${REMOTE_DIR}/install/kiosk.service /home/${K
     echo "Service file updated"
 fi
 
+# Ensure the web-manager nginx include dir exists and, for an existing web
+# install with no site file yet, seed the default HTTP block — BEFORE the
+# nginx.conf reload below, so the new wildcard-include nginx.conf never reloads
+# to an empty dir and drops the manager's server block mid-deploy. A TLS site
+# file (from kiosk-web-tls-setup.sh) is left untouched.
+sudo mkdir -p /etc/nginx/kiosk-web-site.d
+if [[ -d /opt/kiosk-web ]] && ! ls /etc/nginx/kiosk-web-site.d/*.conf &>/dev/null; then
+    sudo install -m 0644 -o root -g root \
+        ${REMOTE_DIR}/install/kiosk-web-site-http.conf /etc/nginx/kiosk-web-site.d/site.conf
+    echo "seeded default HTTP web-manager site block"
+fi
+
 # Install nginx config if changed
 if ! diff -q ${REMOTE_DIR}/install/nginx.conf /etc/nginx/nginx.conf &>/dev/null 2>&1; then
     sudo cp ${REMOTE_DIR}/install/nginx.conf /etc/nginx/nginx.conf

@@ -256,6 +256,41 @@ assert_contains "nginx.conf restricts rtmp_stat to localhost" \
 assert_contains "setup-kiosk.sh nginx config exposes rtmp_stat" \
     "$REPO_ROOT/install/setup-kiosk.sh" "rtmp_stat all"
 
+# Web-manager site block lives in a wildcard include so TLS config survives
+# deploy.sh overwriting nginx.conf; the token is kept out of the access log.
+assert_contains "nginx.conf includes web-manager site dir" \
+    "$REPO_ROOT/install/nginx.conf" "include /etc/nginx/kiosk-web-site.d/\*.conf"
+assert_contains "nginx.conf defines token-redacting log format" \
+    "$REPO_ROOT/install/nginx.conf" "log_format kiosk_redacted"
+assert_file_exists "HTTP web-manager site block exists" \
+    "$REPO_ROOT/install/kiosk-web-site-http.conf"
+assert_contains "web-manager site proxies to the Flask app" \
+    "$REPO_ROOT/install/kiosk-web-site-http.conf" "proxy_pass         http://127.0.0.1:5000"
+assert_contains "web-manager site redacts token from logs" \
+    "$REPO_ROOT/install/kiosk-web-site-http.conf" "access_log /var/log/nginx/access.log kiosk_redacted"
+assert_contains "deploy.sh seeds web-manager site block before reload" \
+    "$REPO_ROOT/dev/deploy.sh" "kiosk-web-site.d"
+
+# TLS setup: DNS-01 Let's Encrypt, HSTS, HTTP->HTTPS redirect, canonical URL.
+assert_file_exists "TLS setup script exists" \
+    "$REPO_ROOT/install/kiosk-web-tls-setup.sh"
+assert_contains "TLS setup uses DNS-01 challenge" \
+    "$REPO_ROOT/install/kiosk-web-tls-setup.sh" "preferred-challenges dns"
+assert_contains "TLS setup sets HSTS header" \
+    "$REPO_ROOT/install/kiosk-web-tls-setup.sh" "Strict-Transport-Security"
+assert_contains "TLS setup redirects HTTP to HTTPS" \
+    "$REPO_ROOT/install/kiosk-web-tls-setup.sh" "return 301 https"
+assert_contains "TLS setup pins canonical PUBLIC_URL" \
+    "$REPO_ROOT/install/kiosk-web-tls-setup.sh" "PUBLIC_URL=https"
+assert_contains "TLS setup validates nginx before reload" \
+    "$REPO_ROOT/install/kiosk-web-tls-setup.sh" "nginx -t"
+
+# The web manager's rotatable-token state dir is provisioned by both setup paths.
+assert_contains "kiosk-web-setup.sh creates token state dir" \
+    "$REPO_ROOT/install/kiosk-web-setup.sh" "/var/lib/kiosk-web"
+assert_contains "kiosk-web-setup.sh installs nginx site block" \
+    "$REPO_ROOT/install/kiosk-web-setup.sh" "kiosk-web-site-http.conf"
+
 # ============================================================================
 echo ""
 echo "=== Kiosk Service Tests ==="

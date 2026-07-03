@@ -23,6 +23,18 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   files embed a canonical base URL from `PUBLIC_URL` (falling back to the
   request host) so a downloadable link can't be poisoned by a spoofed `Host`
   header. `kiosk-web-setup.sh` and `deploy.sh` create the `0700` state dir.
+- **HTTPS for the web manager** — `install/kiosk-web-tls-setup.sh`
+  (`make setup-web-tls DOMAIN=…`) obtains a Let's Encrypt cert via the DNS-01
+  challenge (so the Pi never needs to be internet-reachable), writes an HTTPS
+  nginx server block with an HTTP→HTTPS redirect and HSTS, sets
+  `PUBLIC_URL=https://<domain>`, and installs a renewal hook that reloads
+  nginx. The volunteer server block moved out of `nginx.conf` into a wildcard
+  include (`/etc/nginx/kiosk-web-site.d/*.conf`) so the domain-specific TLS
+  config survives `deploy.sh` overwriting `nginx.conf`; `deploy.sh` seeds the
+  default HTTP block before reloading so existing installs never lose their
+  server block mid-deploy. A new `kiosk_redacted` nginx log format strips the
+  query string, keeping the `?token=` bearer credential out of the access log
+  even before TLS. New doc: `docs/web-manager-https.md`.
 
 ## [0.19.0] - 2026-07-03
 

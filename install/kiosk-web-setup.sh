@@ -137,6 +137,23 @@ systemctl daemon-reload
 systemctl enable kiosk-web
 systemctl restart kiosk-web
 
+# 9b. Install the nginx site block into the wildcard-include dir (unless a site
+#     file — e.g. the TLS variant — is already present) and reload nginx.
+SITE_DIR="/etc/nginx/kiosk-web-site.d"
+mkdir -p "$SITE_DIR"
+if ! ls "$SITE_DIR"/*.conf >/dev/null 2>&1; then
+    log "Installing HTTP nginx site block..."
+    install -m 0644 -o root -g root "$SCRIPT_DIR/kiosk-web-site-http.conf" "$SITE_DIR/site.conf"
+    if nginx -t >/dev/null 2>&1; then
+        systemctl reload nginx
+        echo "  nginx site block installed and reloaded"
+    else
+        log "WARNING: nginx -t failed; not reloading. Check /etc/nginx and reload manually."
+    fi
+else
+    log "nginx site block already present in $SITE_DIR — leaving it."
+fi
+
 # 10. Print volunteer URL
 TOKEN="$(grep '^TOKEN=' "$CONF" | cut -d= -f2-)"
 HOST_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
