@@ -85,6 +85,15 @@ HDMI_MODE="${HDMI_MODE:-}"
 # a static IP added by a previous run and returns the link to DHCP-only.
 STATIC_IP="${STATIC_IP:-}"
 
+# System-wide default locale for the Pi. A fresh Raspberry Pi OS Lite image
+# generates almost no locales, so any SSH client that forwards LANG/LC_* (the
+# default on macOS and most desktops) produces "cannot change locale" warnings
+# at every login. configure_locale generates this locale, makes it the default,
+# and stops sshd from importing the client's forwarded values — so the result
+# is clean and identical no matter where someone logs in from. Match your
+# region if not US English (e.g. "en_GB.UTF-8").
+DISPLAY_LOCALE="${DISPLAY_LOCALE:-en_US.UTF-8}"
+
 # =============================================================================
 # Below this line you shouldn't need to edit.
 # =============================================================================
@@ -907,6 +916,66 @@ configure_ssh_auth() {
 }
 
 # =============================================================================
+# Step 10d: Locale — a clean login from anywhere, no forwarded-locale warnings
+# =============================================================================
+#
+# Two independent things make the "cannot change locale" warning appear at
+# login: (1) the target locale isn't generated on the Pi, and (2) sshd imports
+# the LANG/LC_* the client forwards. We fix both so the outcome is the same no
+# matter which machine someone connects from:
+#
+#   1. Generate DISPLAY_LOCALE and set it as the system-wide default LANG.
+#   2. Strip LANG/LC_* from sshd's AcceptEnv so forwarded values are ignored
+#      entirely — the session always uses the Pi's own default.
+#
+# Idempotent: an already-generated locale and an already-stripped AcceptEnv are
+# left untouched on re-run.
+configure_locale() {
+    log "Configuring system locale '$DISPLAY_LOCALE' and neutralizing forwarded SSH locales..."
+
+    # 1. Uncomment the locale in /etc/locale.gen (the '.' stays a regex dot —
+    #    harmless), then generate it. locale-gen is a cheap no-op if current.
+    if grep -qE "^# *${DISPLAY_LOCALE} " /etc/locale.gen; then
+        sudo sed -i "s/^# *\(${DISPLAY_LOCALE} \)/\1/" /etc/locale.gen
+    fi
+    sudo locale-gen
+
+    # 2. Make it the system-wide default. Set LANG only (not LC_ALL) so it stays
+    #    overridable; step 3 is what keeps forwarded values out of the session.
+    sudo update-locale LANG="$DISPLAY_LOCALE"
+
+    # 3. Stop sshd from importing the client's forwarded LANG/LC_*. AcceptEnv is
+    #    additive and can't be subtracted from a drop-in, so edit the main config
+    #    in place: drop the LANG and LC_* tokens, preserve any others (COLORTERM,
+    #    NO_COLOR, ...), and comment the directive out if that empties it. Edit a
+    #    temp copy and validate with `sshd -t -f` before installing, so a bad
+    #    edit can never leave sshd unable to start.
+    local sshd=/etc/ssh/sshd_config
+    if grep -qE '^[[:space:]]*AcceptEnv[[:space:]].*(LANG|LC_)' "$sshd"; then
+        backup_once "$sshd"
+        local tmp
+        tmp=$(mktemp)
+        trap "rm -f '$tmp'" RETURN
+        sudo sed -E "/^[[:space:]]*AcceptEnv/{
+            s/[[:space:]]+LANG( |\$)/ /g
+            s/[[:space:]]+LC_\*( |\$)/ /g
+            s/[[:space:]]+\$//
+            s/^([[:space:]]*)AcceptEnv[[:space:]]*\$/\1#AcceptEnv (locale forwarding disabled by display-pi)/
+        }" "$sshd" > "$tmp"
+
+        if sudo sshd -t -f "$tmp"; then
+            sudo install -o root -g root -m 0644 "$tmp" "$sshd"
+            sudo systemctl reload ssh
+            log "sshd no longer imports forwarded LANG/LC_*; logins use $DISPLAY_LOCALE."
+        else
+            die "sshd -t rejected the edited config; left $sshd unchanged."
+        fi
+    else
+        log "sshd AcceptEnv already free of LANG/LC_*; nothing to change."
+    fi
+}
+
+# =============================================================================
 # Step 11: Log rotation for /tmp/player.log
 # =============================================================================
 configure_logrotate() {
@@ -997,6 +1066,7 @@ main() {
     configure_pipewire
     configure_deploy_sudoers
     configure_ssh_auth
+    configure_locale
     configure_logrotate
     configure_healthcheck
 
