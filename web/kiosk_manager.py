@@ -3,10 +3,13 @@
 kiosk_manager.py — Volunteer kiosk web manager.
 
 Single-page UI for managing splash images and controlling the kiosk service.
-Auth is a ?token= query parameter. The token from /etc/kiosk-web.conf (loaded
-via EnvironmentFile= in kiosk-web.service) is a one-time *seed*; the live token
-is the app-owned file /var/lib/kiosk-web/token, which the manager can rotate
-without any elevated privilege. See current_token()/rotate_token().
+Auth is a ?token= query parameter; a valid URL token also mints a hardened
+session cookie (HttpOnly, SameSite=Strict, Secure over TLS) so later requests
+authenticate without the secret in the URL. See auth()/issue_auth_cookie().
+The token from /etc/kiosk-web.conf (loaded via EnvironmentFile= in
+kiosk-web.service) is a one-time *seed*; the live token is the app-owned file
+/var/lib/kiosk-web/token, which the manager can rotate without any elevated
+privilege. See current_token()/rotate_token().
 
 Listens on 127.0.0.1:5000; nginx proxies all traffic here (over TLS once
 kiosk-web-tls-setup.sh has run).
@@ -25,7 +28,7 @@ from datetime import datetime, timezone
 from html import escape
 from pathlib import Path
 
-from flask import (Flask, Response, abort, jsonify, request, send_file,
+from flask import (Flask, Response, abort, g, jsonify, request, send_file,
                    send_from_directory)
 from PIL import Image
 
@@ -45,6 +48,12 @@ THUMB_SIZE = (320, 180)
 # TOKEN from the conf until the first rotation writes the file.
 STATE_DIR  = Path(os.environ.get('KIOSK_WEB_STATE', '/var/lib/kiosk-web'))
 TOKEN_FILE = Path(os.environ.get('TOKEN_FILE', str(STATE_DIR / 'token')))
+
+# Once a request proves itself with a URL ?token=, we hand the browser this
+# session cookie so every later request authenticates without the secret in the
+# URL (out of history, Referer, and logs). It carries the live token verbatim —
+# no separate session store — so rotating the token invalidates the cookie too.
+COOKIE_NAME = 'kiosk_token'
 
 # health-monitor.sh rewrites this every 20s; healthcheck.sh treats 2 min of
 # silence as unhealthy, so we use the same window to flag a stale snapshot.
@@ -88,14 +97,46 @@ def _volunteer_url(token):
     return f'{_external_base_url()}/?token={token}'
 
 
+def _request_is_https():
+    """True when the client's transport is TLS.
+
+    nginx terminates TLS and forwards the real scheme in X-Forwarded-Proto, so
+    trust that header (only nginx can reach 127.0.0.1:5000); fall back to the
+    request's own scheme for direct/local access.
+    """
+    return request.headers.get('X-Forwarded-Proto', request.scheme) == 'https'
+
+
 @app.before_request
 def auth():
     tok = current_token()
     if not tok:
         abort(500, description='TOKEN not set in /etc/kiosk-web.conf')
     provided = request.args.get('token', '')
-    if not secrets.compare_digest(provided, tok):
-        return '<h2>Access denied</h2><p>Missing or invalid token.</p>', 403
+    if provided and secrets.compare_digest(provided, tok):
+        # Arrived with the token in the URL — mint/refresh the hardened cookie
+        # so subsequent requests need not carry the secret in the address bar.
+        g.mint_cookie = True
+        return
+    cookie = request.cookies.get(COOKIE_NAME, '')
+    if cookie and secrets.compare_digest(cookie, tok):
+        return
+    return '<h2>Access denied</h2><p>Missing or invalid token.</p>', 403
+
+
+@app.after_request
+def issue_auth_cookie(resp):
+    """Hand out the auth cookie only for requests that authenticated via URL
+    token. Session-scoped (no Max-Age), HttpOnly, SameSite=Strict, and Secure
+    whenever the transport is TLS. Reads current_token() at send time so a
+    rotation within this request re-keys the cookie to the new value."""
+    if getattr(g, 'mint_cookie', False):
+        resp.set_cookie(
+            COOKIE_NAME, current_token(),
+            httponly=True, samesite='Strict', path='/',
+            secure=_request_is_https(),
+        )
+    return resp
 
 
 @app.errorhandler(400)
