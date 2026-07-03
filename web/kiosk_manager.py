@@ -10,9 +10,14 @@ Listens on 127.0.0.1:5000; nginx on port 80 proxies all traffic here.
 """
 
 import io
+import json
 import os
 import re
+import shutil
+import socket
 import subprocess
+import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 from flask import Flask, abort, jsonify, request, send_file, send_from_directory
@@ -27,6 +32,11 @@ MAX_BYTES  = 10 * 1024 * 1024
 REQ_SIZE   = (1920, 1080)
 ALLOWED    = {'.png', '.jpg', '.jpeg'}
 THUMB_SIZE = (320, 180)
+
+# health-monitor.sh rewrites this every 20s; healthcheck.sh treats 2 min of
+# silence as unhealthy, so we use the same window to flag a stale snapshot.
+HEALTH_FILE      = Path(os.environ.get('HEALTH_FILE', '/tmp/kiosk-health.json'))
+HEALTH_STALE_SEC = 120
 
 
 @app.before_request
@@ -190,6 +200,279 @@ def reboot_pi():
     return jsonify({'ok': True})
 
 
+# ── status board ─────────────────────────────────────────────────────────────
+#
+# A Python port of diagnostics/render-status.sh, the health board shown on HDMI
+# at boot. The web manager runs as the locked `kiosk-web` user and is installed
+# as a standalone file (it cannot read the repo under /home/kiosk), so the
+# checks are re-implemented here rather than shelled out. Checks that need the
+# Wayland/PipeWire *session* (Display Mode, Audio) are intentionally omitted —
+# from this context they can't be assessed and would only ever WARN. Instead we
+# surface the authoritative player/compositor liveness from the world-readable
+# /tmp/kiosk-health.json that health-monitor.sh maintains.
+
+RANK = {'OK': 0, 'WARN': 1, 'FAIL': 2}
+
+
+def _overall(checks):
+    """Worst status across all checks (FAIL > WARN > OK); OK when empty."""
+    worst = 'OK'
+    for c in checks:
+        if RANK.get(c['status'], 0) > RANK[worst]:
+            worst = c['status']
+    return worst
+
+
+def _read(path):
+    try:
+        return Path(path).read_text().strip()
+    except OSError:
+        return None
+
+
+def _run(cmd, timeout=5):
+    try:
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    except (subprocess.SubprocessError, OSError):
+        return None
+
+
+def _default_iface():
+    r = _run(['ip', '-4', 'route', 'show', 'default'])
+    if r and r.returncode == 0:
+        for line in r.stdout.splitlines():
+            parts = line.split()
+            if 'dev' in parts:
+                return parts[parts.index('dev') + 1]
+    return None
+
+
+def _port_open(host, port):
+    try:
+        with socket.create_connection((host, port), timeout=1):
+            return True
+    except OSError:
+        return False
+
+
+def _humanize_uptime(seconds):
+    """Render seconds like `uptime -p`: 'up 2 days, 3 hours, 4 minutes'."""
+    seconds = int(seconds)
+    days, rem = divmod(seconds, 86400)
+    hours, rem = divmod(rem, 3600)
+    minutes = rem // 60
+    parts = []
+    for value, unit in ((days, 'day'), (hours, 'hour'), (minutes, 'minute')):
+        if value:
+            parts.append(f'{value} {unit}' + ('s' if value != 1 else ''))
+    if not parts:
+        parts.append('0 minutes')
+    return 'up ' + ', '.join(parts)
+
+
+def _check_hostname():
+    return {'status': 'OK', 'label': 'Hostname', 'detail': socket.gethostname()}
+
+
+def _check_ip():
+    r = _run(['hostname', '-I'])
+    ip = r.stdout.split()[0] if (r and r.returncode == 0 and r.stdout.split()) else ''
+    if ip:
+        return {'status': 'OK', 'label': 'Network', 'detail': ip}
+    return {'status': 'FAIL', 'label': 'Network', 'detail': 'No IP address assigned'}
+
+
+def _check_gateway():
+    r = _run(['ip', 'route', 'show', 'default'])
+    if r and r.returncode == 0 and r.stdout.strip():
+        parts = r.stdout.split()
+        gw = parts[parts.index('via') + 1] if 'via' in parts else '?'
+        return {'status': 'OK', 'label': 'Gateway', 'detail': gw}
+    return {'status': 'FAIL', 'label': 'Gateway', 'detail': 'No default route'}
+
+
+def _check_link():
+    iface = _default_iface()
+    if not iface:
+        return {'status': 'WARN', 'label': 'Link', 'detail': 'No active interface'}
+    base = f'/sys/class/net/{iface}'
+    if _read(f'{base}/carrier') != '1':
+        return {'status': 'FAIL', 'label': 'Link', 'detail': f'{iface} carrier down'}
+    speed = _read(f'{base}/speed') or '?'
+    duplex = _read(f'{base}/duplex') or '?'
+    if speed not in ('1000', '?'):
+        return {'status': 'WARN', 'label': 'Link',
+                'detail': f'{iface} @ {speed}Mb/s (expected 1000)'}
+    return {'status': 'OK', 'label': 'Link', 'detail': f'{iface} @ {speed}Mb/s {duplex}'}
+
+
+def _check_link_errors():
+    iface = _default_iface()
+    if not iface:
+        return {'status': 'WARN', 'label': 'Link Errors', 'detail': 'No active interface'}
+    stats = f'/sys/class/net/{iface}/statistics'
+    rx_errors = int(_read(f'{stats}/rx_errors') or 0)
+    rx_dropped = int(_read(f'{stats}/rx_dropped') or 0)
+    rx_packets = int(_read(f'{stats}/rx_packets') or 1)
+    total = rx_errors + rx_dropped
+    detail = f'{rx_errors} err, {rx_dropped} drop'
+    # Any errors are mildly suspect; above 0.01% of RX packets is a real problem.
+    if total and rx_packets > 10000 and (total * 10000 // rx_packets) > 1:
+        return {'status': 'WARN', 'label': 'Link Errors',
+                'detail': f'{detail} of {rx_packets} rx'}
+    return {'status': 'OK', 'label': 'Link Errors', 'detail': detail}
+
+
+def _check_nginx():
+    r = _run(['systemctl', 'is-active', '--quiet', 'nginx'])
+    active = bool(r) and r.returncode == 0
+    if not active:
+        return {'status': 'FAIL', 'label': 'nginx RTMP', 'detail': 'Service not running'}
+    if _port_open('127.0.0.1', 1935):
+        return {'status': 'OK', 'label': 'nginx RTMP', 'detail': 'Active, port 1935 open'}
+    return {'status': 'WARN', 'label': 'nginx RTMP',
+            'detail': 'Active but port 1935 not listening'}
+
+
+def _check_rtmp_stream():
+    if not _port_open('127.0.0.1', 1935):
+        return {'status': 'WARN', 'label': 'RTMP Stream', 'detail': 'nginx not ready'}
+    r = _run(['ffprobe', '-v', 'quiet', '-show_entries', 'stream=codec_type',
+              '-of', 'default=nw=1:nk=1', 'rtmp://127.0.0.1/live/restoration'],
+             timeout=6)
+    if r and r.returncode == 0 and r.stdout.strip():
+        return {'status': 'OK', 'label': 'RTMP Stream', 'detail': 'Live'}
+    return {'status': 'WARN', 'label': 'RTMP Stream', 'detail': 'No active stream'}
+
+
+def _check_disk():
+    try:
+        usage = shutil.disk_usage('/')
+        pct = round(usage.used * 100 / usage.total)
+    except OSError:
+        return {'status': 'WARN', 'label': 'Disk', 'detail': 'Could not stat /'}
+    detail = f'{pct}% used'
+    if pct >= 90:
+        return {'status': 'FAIL', 'label': 'Disk', 'detail': detail}
+    if pct >= 75:
+        return {'status': 'WARN', 'label': 'Disk', 'detail': detail}
+    return {'status': 'OK', 'label': 'Disk', 'detail': detail}
+
+
+def _check_memory():
+    info = {}
+    for line in (_read('/proc/meminfo') or '').splitlines():
+        key, _, rest = line.partition(':')
+        info[key] = int(rest.split()[0]) if rest.split() else 0
+    total = info.get('MemTotal', 0)
+    avail = info.get('MemAvailable', 0)
+    if not total:
+        return {'status': 'WARN', 'label': 'Memory', 'detail': 'Could not read /proc/meminfo'}
+    pct = (total - avail) * 100 // total
+    detail = f'{pct}% used ({avail // 1024}MB free)'
+    if pct >= 90:
+        return {'status': 'FAIL', 'label': 'Memory', 'detail': detail}
+    if pct >= 75:
+        return {'status': 'WARN', 'label': 'Memory', 'detail': detail}
+    return {'status': 'OK', 'label': 'Memory', 'detail': detail}
+
+
+def _check_temperature():
+    raw = _read('/sys/class/thermal/thermal_zone0/temp')
+    if raw is None or not raw.lstrip('-').isdigit():
+        return {'status': 'WARN', 'label': 'CPU Temp', 'detail': 'Sensor not available'}
+    temp = int(raw) // 1000
+    if temp >= 80:
+        return {'status': 'FAIL', 'label': 'CPU Temp', 'detail': f'{temp}C (throttling likely)'}
+    if temp >= 70:
+        return {'status': 'WARN', 'label': 'CPU Temp', 'detail': f'{temp}C'}
+    return {'status': 'OK', 'label': 'CPU Temp', 'detail': f'{temp}C'}
+
+
+def _check_uptime():
+    raw = _read('/proc/uptime')
+    if not raw:
+        return {'status': 'OK', 'label': 'Uptime', 'detail': 'unknown'}
+    return {'status': 'OK', 'label': 'Uptime',
+            'detail': _humanize_uptime(float(raw.split()[0]))}
+
+
+def _check_time_sync():
+    r = _run(['timedatectl', 'show'])
+    if r and r.returncode == 0 and 'NTPSynchronized=yes' in r.stdout:
+        return {'status': 'OK', 'label': 'Time Sync', 'detail': 'NTP synchronized'}
+    return {'status': 'WARN', 'label': 'Time Sync', 'detail': 'NTP not synchronized'}
+
+
+def _check_watchdog():
+    if Path('/dev/watchdog').is_char_device():
+        return {'status': 'OK', 'label': 'Watchdog', 'detail': 'Device present'}
+    return {'status': 'WARN', 'label': 'Watchdog', 'detail': '/dev/watchdog not found'}
+
+
+def _check_kiosk_player():
+    """Report player/compositor liveness from health-monitor.sh's snapshot.
+
+    This is the one check the web user can't compute itself — it depends on the
+    kiosk user's session — so we trust the file health-monitor.sh writes, and
+    flag it if it has gone stale (the monitor or player loop is stuck).
+    """
+    try:
+        mtime = HEALTH_FILE.stat().st_mtime
+        data = json.loads(HEALTH_FILE.read_text())
+    except (OSError, ValueError):
+        return {'status': 'WARN', 'label': 'Kiosk Player',
+                'detail': 'No health snapshot yet'}
+    age = time.time() - mtime
+    message = data.get('message', '')
+    if age > HEALTH_STALE_SEC:
+        return {'status': 'WARN', 'label': 'Kiosk Player',
+                'detail': f'Snapshot stale ({int(age)}s old): {message}'.rstrip(': ')}
+    status = data.get('status', 'WARN')
+    if status not in RANK:
+        status = 'WARN'
+    return {'status': status, 'label': 'Kiosk Player', 'detail': message or status}
+
+
+STATUS_CHECKS = (
+    _check_hostname,
+    _check_ip,
+    _check_gateway,
+    _check_link,
+    _check_link_errors,
+    _check_nginx,
+    _check_rtmp_stream,
+    _check_kiosk_player,
+    _check_disk,
+    _check_memory,
+    _check_temperature,
+    _check_uptime,
+    _check_time_sync,
+    _check_watchdog,
+)
+
+
+def build_status():
+    checks = []
+    for fn in STATUS_CHECKS:
+        try:
+            checks.append(fn())
+        except Exception as exc:  # a probe must never take the board down
+            checks.append({'status': 'WARN',
+                           'label': fn.__name__.replace('_check_', '').replace('_', ' ').title(),
+                           'detail': f'check error: {exc}'})
+    return {
+        'overall': _overall(checks),
+        'checks': checks,
+        'updated': datetime.now(timezone.utc).isoformat(timespec='seconds'),
+    }
+
+
+@app.route('/api/status')
+def status():
+    return jsonify(build_status())
+
+
 INDEX_HTML = r"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -207,13 +490,17 @@ INDEX_HTML = r"""<!DOCTYPE html>
       --primary: #2563eb;
       --danger:  #dc2626;
       --warn:    #d97706;
+      --ok:      #16a34a;
       --ok-bg:   #dcfce7; --ok-fg:  #14532d;
       --err-bg:  #fee2e2; --err-fg: #7f1d1d;
     }
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
            background: var(--bg); color: var(--text);
            padding: 1.25rem 1rem; line-height: 1.5; }
-    .wrap { max-width: 660px; margin: 0 auto; }
+    .wrap { max-width: 1040px; margin: 0 auto; }
+    .columns { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; align-items: start; }
+    .col { min-width: 0; }
+    @media (max-width: 760px) { .columns { grid-template-columns: 1fr; } }
     h1  { font-size: 1.35rem; font-weight: 700; margin-bottom: 0.2rem; }
     .sub { color: var(--muted); font-size: .85rem; margin-bottom: 1.4rem; }
     .card { background: var(--surface); border: 1px solid var(--border);
@@ -255,6 +542,30 @@ INDEX_HTML = r"""<!DOCTYPE html>
     .ctrl-row  { display: flex; gap: .75rem; flex-wrap: wrap; }
     .ctrl-row .btn { flex: 1; min-width: 138px; padding: .7rem 1rem; }
     .ctrl-note { margin-top: .7rem; font-size: .78rem; color: var(--muted); }
+    .card-head { display: flex; align-items: center; justify-content: space-between;
+                 gap: .5rem; margin-bottom: 1rem; }
+    .card-head .card-title { margin-bottom: 0; }
+    .status-overall { display: inline-flex; align-items: center; gap: .4rem;
+                      padding: .5rem .8rem; border-radius: 8px; font-weight: 600;
+                      font-size: .85rem; margin-bottom: .9rem; }
+    .status-overall.ok   { background: var(--ok-bg);  color: var(--ok-fg); }
+    .status-overall.warn { background: #fef3c7; color: #78350f; }
+    .status-overall.fail { background: var(--err-bg); color: var(--err-fg); }
+    .status-grid { display: grid; grid-template-columns: 1fr; gap: 0; }
+    .status-item { display: flex; align-items: baseline; gap: .6rem;
+                   padding: .5rem .1rem; border-top: 1px solid var(--border); }
+    .status-item:first-child { border-top: none; }
+    .status-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0;
+                  align-self: center; }
+    .status-dot.ok   { background: var(--ok); }
+    .status-dot.warn { background: var(--warn); }
+    .status-dot.fail { background: var(--danger); }
+    .status-label  { font-size: .84rem; font-weight: 500; flex-shrink: 0; width: 108px; }
+    .status-detail { font-size: .8rem; color: var(--muted); word-break: break-word; }
+    .status-foot { margin-top: .8rem; font-size: .74rem; color: var(--muted);
+                   display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
+    .spin { animation: spin 1s linear infinite; display: inline-block; }
+    @keyframes spin { to { transform: rotate(360deg); } }
     @media (max-width: 420px) {
       .img-card { flex-wrap: wrap; }
       .img-acts { width: 100%; justify-content: flex-end; }
@@ -264,27 +575,46 @@ INDEX_HTML = r"""<!DOCTYPE html>
 <body>
 <div class="wrap">
   <h1>&#128247; Kiosk Manager</h1>
-  <div class="sub">Manage splash images and control the display.</div>
+  <div class="sub">Manage splash images, watch system health, and control the display.</div>
   <div id="flash"></div>
 
-  <div class="card">
-    <div class="card-title">Splash Images</div>
-    <div class="upload-row">
-      <input type="file" id="file-input" accept=".png,.jpg,.jpeg" style="display:none">
-      <button class="btn btn-primary" id="upload-btn"
-              onclick="document.getElementById('file-input').click()">&#43; Upload Image</button>
-      <span id="upload-hint">PNG or JPEG &middot; 1920&times;1080 &middot; max 10 MB</span>
-    </div>
-    <div id="image-list"></div>
-  </div>
+  <div class="columns">
+    <div class="col">
+      <div class="card">
+        <div class="card-title">Splash Images</div>
+        <div class="upload-row">
+          <input type="file" id="file-input" accept=".png,.jpg,.jpeg" style="display:none">
+          <button class="btn btn-primary" id="upload-btn"
+                  onclick="document.getElementById('file-input').click()">&#43; Upload Image</button>
+          <span id="upload-hint">PNG or JPEG &middot; 1920&times;1080 &middot; max 10 MB</span>
+        </div>
+        <div id="image-list"></div>
+      </div>
 
-  <div class="card">
-    <div class="card-title">Kiosk Controls</div>
-    <div class="ctrl-row">
-      <button class="btn btn-warn"   id="restart-btn">&#x21BB; Restart Service</button>
-      <button class="btn btn-danger" id="reboot-btn">&#x23FB; Reboot Pi</button>
+      <div class="card">
+        <div class="card-title">Kiosk Controls</div>
+        <div class="ctrl-row">
+          <button class="btn btn-warn"   id="restart-btn">&#x21BB; Restart Service</button>
+          <button class="btn btn-danger" id="reboot-btn">&#x23FB; Reboot Pi</button>
+        </div>
+        <p class="ctrl-note">Restart applies image changes immediately. Reboot takes ~30 s.</p>
+      </div>
     </div>
-    <p class="ctrl-note">Restart applies image changes immediately. Reboot takes ~30 s.</p>
+
+    <div class="col">
+      <div class="card">
+        <div class="card-head">
+          <div class="card-title">System Status</div>
+          <button class="btn btn-ghost btn-sm" id="status-refresh" title="Refresh now">&#x21BB;</button>
+        </div>
+        <div id="status-overall" class="status-overall">Loading…</div>
+        <div id="status-grid" class="status-grid"></div>
+        <div class="status-foot">
+          <span id="status-updated">—</span>
+          <span>auto-refreshes every 15 s</span>
+        </div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -441,7 +771,61 @@ document.getElementById('reboot-btn').addEventListener('click', () => {
     .catch(err => flash('Reboot failed: ' + err, false));
 });
 
+// ── System status board ─────────────────────────────────────────────────────
+const STATUS_TEXT = {OK: 'All systems OK', WARN: 'Warnings detected', FAIL: 'Errors detected'};
+let statusTimer = null;
+
+function esc(s) {
+  const d = document.createElement('div');
+  d.textContent = s == null ? '' : String(s);
+  return d.innerHTML;
+}
+
+function renderStatus(data) {
+  const overall = document.getElementById('status-overall');
+  const cls = (data.overall || 'WARN').toLowerCase();
+  overall.className = 'status-overall ' + cls;
+  overall.textContent = STATUS_TEXT[data.overall] || data.overall || 'Unknown';
+
+  const grid = document.getElementById('status-grid');
+  grid.innerHTML = (data.checks || []).map(c => {
+    const k = (c.status || 'WARN').toLowerCase();
+    return '<div class="status-item">' +
+             '<span class="status-dot ' + k + '"></span>' +
+             '<span class="status-label">' + esc(c.label) + '</span>' +
+             '<span class="status-detail">' + esc(c.detail) + '</span>' +
+           '</div>';
+  }).join('');
+
+  const updated = document.getElementById('status-updated');
+  const d = new Date(data.updated);
+  updated.textContent = isNaN(d) ? 'updated just now'
+    : 'updated ' + d.toLocaleTimeString();
+}
+
+function loadStatus() {
+  const btn = document.getElementById('status-refresh');
+  btn.classList.add('spin');
+  apiFetch('/api/status')
+    .then(renderStatus)
+    .catch(err => {
+      const overall = document.getElementById('status-overall');
+      overall.className = 'status-overall fail';
+      overall.textContent = 'Status unavailable: ' + err;
+    })
+    .finally(() => btn.classList.remove('spin'));
+}
+
+document.getElementById('status-refresh').addEventListener('click', loadStatus);
+
+function scheduleStatus() {
+  clearInterval(statusTimer);
+  statusTimer = setInterval(loadStatus, 15000);
+}
+
 loadImages();
+loadStatus();
+scheduleStatus();
 </script>
 </body>
 </html>"""

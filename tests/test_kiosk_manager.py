@@ -200,3 +200,109 @@ def test_reorder_empty_body_rejected(client):
         content_type='application/json',
     )
     assert r.status_code == 400
+
+
+# ── status board ─────────────────────────────────────────────────────────────
+
+VALID_STATUSES = {'OK', 'WARN', 'FAIL'}
+
+
+def test_status_requires_token(client):
+    r = client.get('/api/status')
+    assert r.status_code == 403
+
+
+def test_status_shape(client):
+    """/api/status returns overall + a non-empty list of well-formed checks."""
+    r = client.get(f'/api/status?token={TEST_TOKEN}')
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body['overall'] in VALID_STATUSES
+    assert isinstance(body['updated'], str) and body['updated']
+    assert isinstance(body['checks'], list) and body['checks']
+    for c in body['checks']:
+        assert set(c) >= {'status', 'label', 'detail'}
+        assert c['status'] in VALID_STATUSES
+        assert isinstance(c['label'], str) and c['label']
+
+
+def test_status_includes_core_checks(client):
+    """The board carries the always-assessable checks ported from render-status.sh."""
+    body = client.get(f'/api/status?token={TEST_TOKEN}').get_json()
+    labels = {c['label'] for c in body['checks']}
+    for expected in ('Hostname', 'Network', 'Disk', 'Memory', 'Uptime'):
+        assert expected in labels, f'missing {expected} in {labels}'
+
+
+def test_status_hostname_reports_actual_host(client):
+    import socket
+    body = client.get(f'/api/status?token={TEST_TOKEN}').get_json()
+    host = next(c for c in body['checks'] if c['label'] == 'Hostname')
+    assert host['status'] == 'OK'
+    assert socket.gethostname() in host['detail']
+
+
+# ── overall aggregation ──────────────────────────────────────────────────────
+
+def test_overall_all_ok():
+    checks = [{'status': 'OK'}, {'status': 'OK'}]
+    assert kiosk_manager._overall(checks) == 'OK'
+
+
+def test_overall_warn_wins_over_ok():
+    checks = [{'status': 'OK'}, {'status': 'WARN'}, {'status': 'OK'}]
+    assert kiosk_manager._overall(checks) == 'WARN'
+
+
+def test_overall_fail_wins_over_warn():
+    checks = [{'status': 'WARN'}, {'status': 'FAIL'}, {'status': 'OK'}]
+    assert kiosk_manager._overall(checks) == 'FAIL'
+
+
+def test_overall_empty_is_ok():
+    assert kiosk_manager._overall([]) == 'OK'
+
+
+# ── kiosk player health (from /tmp/kiosk-health.json) ─────────────────────────
+
+def test_kiosk_health_reads_json(tmp_path, monkeypatch):
+    hf = tmp_path / 'kiosk-health.json'
+    hf.write_text('{"status":"OK","message":"ok (10.0.0.5, iface=eth0)",'
+                  '"updated":"2026-07-03T10:00:00-05:00"}')
+    monkeypatch.setattr(kiosk_manager, 'HEALTH_FILE', hf)
+    check = kiosk_manager._check_kiosk_player()
+    assert check['status'] == 'OK'
+    assert 'iface=eth0' in check['detail']
+
+
+def test_kiosk_health_missing_file_warns(tmp_path, monkeypatch):
+    monkeypatch.setattr(kiosk_manager, 'HEALTH_FILE', tmp_path / 'nope.json')
+    check = kiosk_manager._check_kiosk_player()
+    assert check['status'] == 'WARN'
+
+
+def test_kiosk_health_stale_file_warns(tmp_path, monkeypatch):
+    """A health file older than the freshness window is flagged, not trusted."""
+    import os
+    import time
+    hf = tmp_path / 'kiosk-health.json'
+    hf.write_text('{"status":"OK","message":"ok","updated":"old"}')
+    old = time.time() - 600
+    os.utime(hf, (old, old))
+    monkeypatch.setattr(kiosk_manager, 'HEALTH_FILE', hf)
+    check = kiosk_manager._check_kiosk_player()
+    assert check['status'] == 'WARN'
+    assert 'stale' in check['detail'].lower()
+
+
+# ── uptime humanizer ─────────────────────────────────────────────────────────
+
+def test_humanize_uptime_minutes():
+    assert kiosk_manager._humanize_uptime(90) == 'up 1 minute'
+
+
+def test_humanize_uptime_hours_and_days():
+    # 2 days, 3 hours, 4 minutes
+    secs = 2 * 86400 + 3 * 3600 + 4 * 60
+    out = kiosk_manager._humanize_uptime(secs)
+    assert out == 'up 2 days, 3 hours, 4 minutes'

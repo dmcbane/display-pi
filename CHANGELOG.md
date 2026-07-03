@@ -4,6 +4,28 @@ All notable changes to display-pi are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.0] - 2026-07-03
+
+### Added
+- **System Status board in the web manager** — the volunteer Kiosk Manager now
+  carries the same health board shown on HDMI at boot (`render-status.sh`),
+  turning it into a fuller remote console. A new `GET /api/status` endpoint
+  runs a Python port of the boot-time checks — Hostname, Network, Gateway, Link
+  speed/errors, nginx RTMP, RTMP Stream, Disk, Memory, CPU Temp, Uptime, Time
+  Sync, Watchdog — plus a **Kiosk Player** row sourced from the world-readable
+  `/tmp/kiosk-health.json` that `health-monitor.sh` maintains (the one liveness
+  fact the locked `kiosk-web` user can't compute itself; flagged if the
+  snapshot goes stale). The checks are re-implemented in-process rather than
+  shelled out because the web app is installed as a standalone file and can't
+  read the repo under `/home/kiosk`; the two session-only boot checks (Display
+  Mode, Audio) are omitted since they'd only ever WARN from this context. The
+  page is now a **two-column layout** — splash images and controls on the left,
+  the live status board on the right (auto-refreshing every 15 s, with a manual
+  refresh) — and collapses to a single column on narrow screens. Each check
+  shows a green/amber/red dot with label and detail, and a summary banner rolls
+  up the worst status. No new privileges or deploy paths: every probe is an
+  unprivileged `/proc`, `/sys`, socket, or `systemctl is-active` read.
+
 ## [0.18.0] - 2026-07-01
 
 ### Added
