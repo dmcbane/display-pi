@@ -137,33 +137,34 @@ systemctl daemon-reload
 systemctl enable kiosk-web
 systemctl restart kiosk-web
 
-# 9b. Install the nginx site block into the wildcard-include dir (unless a site
-#     file — e.g. the TLS variant — is already present) and reload nginx.
+# 9b. Bring the manager up over HTTPS with a locally-signed cert — the default,
+#     no domain or internet required. Skipped if a site block already exists
+#     (e.g. a Let's Encrypt or prior local setup) so we never clobber it; switch
+#     explicitly later with kiosk-web-tls-local.sh or kiosk-web-tls-setup.sh.
 SITE_DIR="/etc/nginx/kiosk-web-site.d"
 mkdir -p "$SITE_DIR"
-if ! ls "$SITE_DIR"/*.conf >/dev/null 2>&1; then
-    log "Installing HTTP nginx site block..."
-    install -m 0644 -o root -g root "$SCRIPT_DIR/kiosk-web-site-http.conf" "$SITE_DIR/site.conf"
-    if nginx -t >/dev/null 2>&1; then
-        systemctl reload nginx
-        echo "  nginx site block installed and reloaded"
-    else
-        log "WARNING: nginx -t failed; not reloading. Check /etc/nginx and reload manually."
-    fi
-else
+if ls "$SITE_DIR"/*.conf >/dev/null 2>&1; then
     log "nginx site block already present in $SITE_DIR — leaving it."
+else
+    log "Setting up HTTPS with a locally-signed certificate..."
+    bash "$SCRIPT_DIR/kiosk-web-tls-local.sh"
 fi
 
 # 10. Print volunteer URL
 TOKEN="$(grep '^TOKEN=' "$CONF" | cut -d= -f2-)"
+PUBLIC_URL="$(grep '^PUBLIC_URL=' "$CONF" 2>/dev/null | cut -d= -f2-)"
 HOST_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
 HOST_NAME="$(hostname -s 2>/dev/null || echo 'displaypi')"
+BASE="${PUBLIC_URL:-https://${HOST_NAME}}"
 
 log ""
 log "Setup complete!"
 log ""
-log "  Volunteer URL (IP):       http://${HOST_IP}/?token=${TOKEN}"
-log "  Volunteer URL (hostname): http://${HOST_NAME}/?token=${TOKEN}"
+log "  Volunteer URL:            ${BASE}/?token=${TOKEN}"
+log "  Volunteer URL (IP):       https://${HOST_IP}/?token=${TOKEN}"
+log ""
+log "First time on each device, trust this Pi's CA for a warning-free padlock:"
+log "  download  http://${HOST_IP}/rootCA.crt  and import it as a trusted root."
 log ""
 log "On your workstation, run: make volunteer-web-url"
 log "That generates volunteer-kiosk.webloc (Mac) and volunteer-kiosk.url (Windows/Linux)."

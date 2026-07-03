@@ -57,77 +57,79 @@ can manage the display, so two things matter:
 2. **Be able to rotate the token** the moment a link leaks (a volunteer leaves,
    a screenshot gets shared, etc.) — rotating invalidates every existing link.
 
-This guide covers both. Do **HTTPS first** — rotating a token you're still
-shipping over plain HTTP just re-leaks the new one.
+This guide covers both. HTTPS is **on by default** — `make setup-web` issues a
+locally-signed certificate — so for the common case there's nothing extra to set
+up; jump to [token rotation](#2-rotating-the-access-token) if you don't need a
+publicly-trusted cert.
 
 ---
 
-## 1. HTTPS with Let's Encrypt (DNS-01)
+## 1. HTTPS
 
-We use the **DNS-01** challenge, which proves you control the domain by adding a
-DNS TXT record. Unlike HTTP-01, it does **not** require the Pi to be reachable
-from the public internet — perfect for a kiosk that only lives on the church
-LAN. Volunteers reach it by a domain name (e.g. `kiosk.example.org`) that
-resolves to the Pi's LAN IP, and the browser sees a fully trusted cert with no
-warnings and nothing to install on each device.
+### The default: a locally-signed certificate
 
-### Prerequisites
+`make setup-web` (and `make provision`) bring the manager up over HTTPS using a
+certificate **signed by a small certificate authority generated on the Pi
+itself** — no domain, no DNS, no internet. Volunteers reach the manager at
+`https://displaypi/` (or `https://displaypi.local/`, or by IP); the cert covers
+the hostname, `<hostname>.local`, and every LAN address.
 
-- A **domain you control** (e.g. `kiosk.example.org`).
-- A DNS record pointing that name at the Pi's LAN IP. If the Pi is LAN-only,
-  use a *split-horizon* / internal DNS entry, or a public `A` record pointing
-  at a private IP (that's fine — DNS-01 doesn't need the record to be routable,
-  only the TXT challenge record during issuance).
-- `certbot` and, ideally, the certbot **DNS plugin for your provider** on the
-  Pi. For Cloudflare:
+Because the CA is your own, browsers don't trust it until you say so. **Once per
+device** that manages the kiosk:
 
-  ```bash
-  sudo apt-get install certbot python3-certbot-dns-cloudflare
-  # store an API token scoped to DNS-edit for the zone:
-  sudo install -m 0600 /dev/stdin /etc/letsencrypt/cloudflare.ini <<'EOF'
-  dns_cloudflare_api_token = YOUR_SCOPED_TOKEN
-  EOF
-  ```
+1. Download the Pi's root CA — it's served over plain HTTP so a fresh device can
+   fetch it before it trusts anything:
 
-### Run it
+   ```
+   http://displaypi/rootCA.crt
+   ```
 
-From your workstation:
+   (or run `make web-ca HOST=displaypi` on your workstation, which saves
+   `display-pi-rootCA.crt`).
+2. **Import it as a trusted root / certificate authority** on the device
+   (macOS: Keychain → System, set to *Always Trust*; Windows: *Install
+   Certificate → Trusted Root Certification Authorities*; Android: *Settings →
+   Security → Install a certificate → CA certificate*; iOS: install the profile,
+   then enable it under *Settings → General → About → Certificate Trust
+   Settings*).
+
+After that the device shows a normal padlock with no warning. A device that
+hasn't imported the CA still works — it just shows the usual "not trusted" prompt
+first. (HSTS is only ever seen *after* a successful TLS handshake, so it can
+never lock out a device that doesn't trust the CA.)
+
+The root CA is **stable across re-runs**, so trust you've installed keeps
+working. The **server** cert is re-issued each run, which picks up a changed
+hostname or DHCP address — so after the Pi's IP changes, run:
+
+```bash
+make setup-web-tls-local HOST=displaypi
+```
+
+### Alternative: a publicly-trusted Let's Encrypt cert
+
+If you control a **domain**, you can skip the per-device CA import with a
+Let's Encrypt certificate via the **DNS-01** challenge (the Pi never needs to be
+reachable from the public internet — you only need control of the domain's DNS):
 
 ```bash
 make setup-web-tls HOST=displaypi DOMAIN=kiosk.example.org EMAIL=av@church.org \
   CERTBOT_ARGS="--dns-cloudflare --dns-cloudflare-credentials /etc/letsencrypt/cloudflare.ini"
 ```
 
-Or directly on the Pi:
-
-```bash
-sudo DOMAIN=kiosk.example.org EMAIL=av@church.org \
-     CERTBOT_ARGS="--dns-cloudflare --dns-cloudflare-credentials /etc/letsencrypt/cloudflare.ini" \
-     bash install/kiosk-web-tls-setup.sh
-```
-
-The script:
-
-- obtains the cert via DNS-01,
-- writes an HTTPS nginx server block (with an HTTP→HTTPS redirect and HSTS) to
-  `/etc/nginx/kiosk-web-site.d/site.conf`,
-- sets `PUBLIC_URL=https://kiosk.example.org` in `/etc/kiosk-web.conf` so the
-  manager's shareable links and downloadable shortcuts use the canonical HTTPS
-  address,
-- installs a renewal deploy-hook that reloads nginx after each auto-renewal,
-- runs `nginx -t` and reloads.
-
-> **No DNS plugin?** Omit `CERTBOT_ARGS` and the script falls back to certbot's
-> interactive `--manual` DNS challenge. That works, but the cert **will not
-> auto-renew** — you'd have to re-run the script every ~90 days. For a
-> set-and-forget kiosk, use a provider plugin.
+`CERTBOT_ARGS` holds your DNS provider's certbot plugin flags (install e.g.
+`python3-certbot-dns-cloudflare` first). It sets `PUBLIC_URL=https://<domain>`,
+adds an HTTP→HTTPS redirect + HSTS, and installs a renewal hook that reloads
+nginx after each auto-renewal. Omit `CERTBOT_ARGS` to fall back to certbot's
+interactive `--manual` DNS challenge — that works but **won't auto-renew**, so
+you'd re-run it every ~90 days.
 
 ### Why this survives redeploys
 
 `deploy.sh` overwrites `/etc/nginx/nginx.conf` from the repo on every deploy. So
-the domain-specific TLS block deliberately lives **outside** that file, in a
-wildcard include (`include /etc/nginx/kiosk-web-site.d/*.conf;`). Deploying the
-repo never touches your generated TLS site block.
+the TLS site block deliberately lives **outside** that file, in a wildcard
+include (`include /etc/nginx/kiosk-web-site.d/*.conf;`). Deploying the repo never
+touches your generated TLS site block or certificates.
 
 ---
 
@@ -164,7 +166,9 @@ of nginx's access log by a query-stripping log format.
 
 | Symptom | Fix |
 |---|---|
+| "Not secure" / "certificate not trusted" warning | The device hasn't imported this Pi's root CA yet — download `http://<pi>/rootCA.crt` (or `make web-ca`) and install it as a trusted root. Or use the Let's Encrypt path for a publicly-trusted cert. |
+| Padlock breaks after the Pi's IP changed | The server cert's addresses are stale — re-issue it: `make setup-web-tls-local HOST=<pi>` (your imported CA still works; no re-import needed). |
 | `nginx -t` fails after TLS setup | The site block was written but nginx was **not** reloaded. Read the error, fix `/etc/nginx/kiosk-web-site.d/site.conf`, then `sudo systemctl reload nginx`. |
 | Browser still shows the old cert | `sudo systemctl reload nginx`; hard-refresh. |
-| Link works on `http://` too | Expected only until TLS setup runs; afterward `:80` 301-redirects to `:443`. |
+| Link works on `http://` too | `:80` only serves `/rootCA.crt`; everything else 301-redirects to `:443`. |
 | Downloaded shortcut points at an IP, not the domain | `PUBLIC_URL` isn't set — re-run `setup-web-tls`, or set `PUBLIC_URL=https://your.domain` in `/etc/kiosk-web.conf` and `sudo systemctl restart kiosk-web`. |
