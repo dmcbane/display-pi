@@ -43,8 +43,29 @@ die() { printf '\033[1;31m[kiosk-web-tls] ERROR:\033[0m %s\n' "$*" >&2; exit 1; 
 
 [[ $EUID -eq 0 ]] || die "Must run as root: sudo DOMAIN=... bash $0"
 [[ -n "$DOMAIN" ]] || die "Set DOMAIN=your.domain (the name the cert is for)."
-command -v certbot >/dev/null 2>&1 || die "certbot not installed. Try: apt-get install certbot (plus your DNS plugin, e.g. python3-certbot-dns-cloudflare)."
 command -v nginx   >/dev/null 2>&1 || die "nginx not installed."
+
+# certbot isn't part of the base kiosk install (the default HTTPS path uses a
+# local cert and needs no certbot), so install it on demand when this Let's
+# Encrypt path is actually chosen.
+if ! command -v certbot >/dev/null 2>&1; then
+    if command -v apt-get >/dev/null 2>&1; then
+        log "certbot not found — installing it (apt-get install certbot)..."
+        apt-get update -qq || die "apt-get update failed; install certbot manually."
+        apt-get install -y -qq certbot || die "Could not install certbot; install it manually."
+    else
+        die "certbot not installed and no apt-get available. Install certbot (and your DNS plugin) manually."
+    fi
+fi
+
+# The DNS-01 provider plugin can't be auto-chosen — remind the operator if the
+# flags reference one that isn't present.
+if [[ "$CERTBOT_ARGS" == *--dns-* ]]; then
+    plugin="$(printf '%s\n' "$CERTBOT_ARGS" | grep -oE -- '--dns-[a-z0-9-]+' | head -1 | sed 's/^--//')"
+    if [[ -n "$plugin" ]] && ! certbot plugins 2>/dev/null | grep -q "$plugin"; then
+        log "WARNING: certbot plugin '$plugin' not detected — install it (e.g. apt-get install python3-certbot-$plugin) if issuance fails."
+    fi
+fi
 
 # 1. Obtain the certificate via DNS-01.
 if [[ -n "$CERTBOT_ARGS" ]]; then

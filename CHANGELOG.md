@@ -4,6 +4,17 @@ All notable changes to display-pi are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.22.1] - 2026-07-03
+
+### Fixed
+- **`setup-web-tls` installs certbot on demand.** The Let's Encrypt path is the
+  optional HTTPS alternative and `certbot` isn't part of the base kiosk install
+  (the default local-cert path doesn't need it), so the script now
+  `apt-get install`s certbot when it's missing instead of only erroring out. It
+  also warns if the DNS provider plugin named in `CERTBOT_ARGS` isn't present
+  (that plugin still has to be installed for your provider). Docs updated to
+  match.
+
 ## [0.22.0] - 2026-07-03
 
 ### Changed

@@ -117,12 +117,14 @@ make setup-web-tls HOST=displaypi DOMAIN=kiosk.example.org EMAIL=av@church.org \
   CERTBOT_ARGS="--dns-cloudflare --dns-cloudflare-credentials /etc/letsencrypt/cloudflare.ini"
 ```
 
-`CERTBOT_ARGS` holds your DNS provider's certbot plugin flags (install e.g.
-`python3-certbot-dns-cloudflare` first). It sets `PUBLIC_URL=https://<domain>`,
-adds an HTTP→HTTPS redirect + HSTS, and installs a renewal hook that reloads
-nginx after each auto-renewal. Omit `CERTBOT_ARGS` to fall back to certbot's
-interactive `--manual` DNS challenge — that works but **won't auto-renew**, so
-you'd re-run it every ~90 days.
+The script installs `certbot` itself if it's missing (it isn't part of the base
+kiosk install, since the default local-cert path doesn't need it). `CERTBOT_ARGS`
+holds your DNS provider's certbot plugin flags — install the **plugin** for your
+provider first, e.g. `sudo apt-get install python3-certbot-dns-cloudflare`. It
+sets `PUBLIC_URL=https://<domain>`, adds an HTTP→HTTPS redirect + HSTS, and
+installs a renewal hook that reloads nginx after each auto-renewal. Omit
+`CERTBOT_ARGS` to fall back to certbot's interactive `--manual` DNS challenge —
+that works but **won't auto-renew**, so you'd re-run it every ~90 days.
 
 ### Why this survives redeploys
 

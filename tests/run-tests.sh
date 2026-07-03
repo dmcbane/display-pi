@@ -284,6 +284,8 @@ assert_contains "TLS setup pins canonical PUBLIC_URL" \
     "$REPO_ROOT/install/kiosk-web-tls-setup.sh" "PUBLIC_URL=https"
 assert_contains "TLS setup validates nginx before reload" \
     "$REPO_ROOT/install/kiosk-web-tls-setup.sh" "nginx -t"
+assert_contains "TLS setup installs certbot on demand if missing" \
+    "$REPO_ROOT/install/kiosk-web-tls-setup.sh" "apt-get install -y -qq certbot"
 
 # The web manager's rotatable-token state dir is provisioned by both setup paths.
 assert_contains "kiosk-web-setup.sh creates token state dir" \
