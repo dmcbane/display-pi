@@ -132,6 +132,21 @@ assert_contains "player.sh references assess.sh" "$REPO_ROOT/install/player.sh" 
 assert_contains "player.sh has nginx readiness gate" "$REPO_ROOT/install/player.sh" "nc -z 127.0.0.1 1935"
 assert_contains "player.sh has stream_live function" "$REPO_ROOT/install/player.sh" "^stream_live()"
 assert_contains "player.sh uses ffprobe with timeout" "$REPO_ROOT/install/player.sh" "timeout.*ffprobe"
+
+# Detection latency (2026-07-03): the splash->stream switch is gated by how
+# often the idle loop re-probes for a live publisher. The original `sleep 3`
+# meant up to ~3s of splash-after-live lag — enough that a `make test-stream`
+# looked like it "wasn't triggering." ffprobe fails fast (~0.45s) against an
+# idle stream, so a 1s poll is cheap. The interval is a named, env-overridable
+# constant so it's tunable and self-documenting.
+assert_contains "player.sh defines a stream-detection poll interval" \
+    "$REPO_ROOT/install/player.sh" "STREAM_POLL_INTERVAL"
+assert_contains "player.sh idle re-probe interval defaults to 1s (fast splash->stream switch)" \
+    "$REPO_ROOT/install/player.sh" 'STREAM_POLL_INTERVAL:-1'
+assert_contains "player.sh idle wait loop polls at STREAM_POLL_INTERVAL" \
+    "$REPO_ROOT/install/player.sh" 'sleep "\$STREAM_POLL_INTERVAL"'
+assert_not_contains "player.sh no longer polls every 3s while waiting for the stream (slow switch)" \
+    "$REPO_ROOT/install/player.sh" "sleep 3"
 # Commit 26944db ("trust source PTS") deliberately removed --no-correct-pts
 # and +genpts because they regenerated timestamps and broke smoothness on a
 # clean 1080p30 ATEM feed. Don't reintroduce them without revisiting that fix.

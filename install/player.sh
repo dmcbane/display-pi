@@ -27,6 +27,11 @@ SPLASH_DIR="${SPLASH_DIR:-/home/kiosk/splash.d}"
 SPLASH_IMAGE="${SPLASH_IMAGE:-/home/kiosk/splash.png}"
 SPLASH_STATE="${SPLASH_STATE:-/home/kiosk/.splash-index}"
 VOLUME=80
+# How often the idle loop re-probes for a live publisher. This is the dominant
+# term in splash->stream switch latency: the display stays on splash for up to
+# this long after the ATEM/publisher goes live. ffprobe fails fast (~0.45s)
+# against an idle stream, so a tight 1s poll is cheap. Env-overridable.
+STREAM_POLL_INTERVAL="${STREAM_POLL_INTERVAL:-1}"
 SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 ASSESS_SCRIPT="${SCRIPT_DIR}/assess.sh"
 DIAG_SCRIPT="$(dirname "$SCRIPT_DIR")/diagnostics/render-status.sh"
@@ -234,7 +239,7 @@ while true; do
         fi
         while ! stream_live; do
             echo "[$(date)] still waiting for stream..."
-            sleep 3
+            sleep "$STREAM_POLL_INTERVAL"
         done
         if [[ -n "$SPLASH_PID" ]]; then
             echo "[$(date)] stream detected, killing splash $SPLASH_PID"

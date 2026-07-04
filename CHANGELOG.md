@@ -4,6 +4,17 @@ All notable changes to display-pi are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.22.2] - 2026-07-03
+
+### Fixed
+- **Faster splash→stream switch.** The player's idle loop re-probed for a live
+  publisher only every 3s, so the display could sit on the splash for up to ~3s
+  after the stream went live — enough that `make test-stream` looked like it
+  "wasn't triggering." An idle `ffprobe` fails in ~0.45s, so the poll is cheap;
+  the interval is now a named, env-overridable constant (`STREAM_POLL_INTERVAL`)
+  defaulting to 1s, cutting worst-case switch lag roughly 3×. nginx was not
+  involved — the RTMP config was intact throughout.
+
 ## [0.22.1] - 2026-07-03
 
 ### Fixed
