@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 # parse_stat.py — parse nginx-rtmp /stat XML for judder.sh.
 #
-# Two modes:
+# Three modes:
 #   probe       — verbose per-app/per-stream summary for the probe block.
 #   stream-key  — terse one-line publisher lookup for day-of-event triage.
+#   status      — "STATUS|label|detail" rows for render-status.sh, one per
+#                 publishing stream (WARN on key mismatch, OK otherwise).
 #
 # Reads XML from stdin. --expected-key tags publishers as matching/mismatched
 # the key the player is hardcoded to subscribe to.
@@ -130,9 +132,44 @@ def cmd_stream_key(root, expected_key):
         print(f"(no active publishers; player expects key={expected_key})")
 
 
+def _fmt_bw(bw_in):
+    # nginx-rtmp bw_in is bits/second; render as Mb/s for the status screen.
+    try:
+        bits = int(bw_in)
+    except (TypeError, ValueError):
+        return ""
+    return f" {bits / 1_000_000:.1f} Mb/s"
+
+
+def cmd_status(root, expected_key):
+    # Rows for render-status.sh: "STATUS|label|detail", one per publishing
+    # stream. Keys and app names are publisher-controlled — keep '|' out of
+    # them so the row stays parseable by the bash IFS='|' read.
+    any_pub = False
+    for app in root.findall(".//application"):
+        app_name = (app.findtext("name") or "?").strip().replace("|", "?")
+        for s in _streams_under(app):
+            pub = _publisher(s)
+            if pub is None:
+                continue
+            any_pub = True
+            name = (s.findtext("name") or "?").strip().replace("|", "?")
+            addr = (pub.findtext("address") or "?").strip().replace("|", "?")
+            bw = _fmt_bw((s.findtext("bw_in") or "").strip())
+            if name == expected_key:
+                print(f"OK|Publisher|{app_name}/{name} from {addr}{bw}")
+            else:
+                print(
+                    f"WARN|Publisher|{app_name}/{name} from {addr}{bw}"
+                    f" (player expects {expected_key})"
+                )
+    if not any_pub:
+        print("OK|Publishers|none")
+
+
 def main(argv):
     p = argparse.ArgumentParser(description="Parse nginx-rtmp /stat XML for judder.sh.")
-    p.add_argument("mode", choices=("probe", "stream-key"))
+    p.add_argument("mode", choices=("probe", "stream-key", "status"))
     p.add_argument(
         "--expected-key",
         required=True,
@@ -147,6 +184,8 @@ def main(argv):
     root = _parse(xml_bytes)
     if args.mode == "probe":
         cmd_probe(root, args.expected_key)
+    elif args.mode == "status":
+        cmd_status(root, args.expected_key)
     else:
         cmd_stream_key(root, args.expected_key)
     return 0
