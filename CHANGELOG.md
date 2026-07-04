@@ -4,6 +4,28 @@ All notable changes to display-pi are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.23.0] - 2026-07-04
+
+### Added
+- **Status screen shows the player's stream/key and every publisher connected
+  to the Pi.** `diagnostics/render-status.sh` gains a "Player Stream" row with
+  the key and URL the player subscribes to (env-overridable `STREAM_URL`, same
+  default as player.sh), plus one "Publisher" row per stream currently being
+  pushed to nginx-rtmp — key, source IP, and Mb/s, read from the loopback
+  `rtmp_stat` endpoint via a new `status` mode in `parse_stat.py`. A publisher
+  pushing to the wrong key is flagged WARN with the expected key named, so the
+  2026-05-03 splash-stuck-while-publisher-connected failure mode is readable
+  on the HDMI screen without SSH. The ffprobe stream check now uses the same
+  `STREAM_URL` instead of its own hardcoded copy.
+
+### Changed
+- **Status-screen checks run concurrently.** Each health check runs as a
+  background job and results are collected in display order afterwards, so
+  the screen renders in the time of the slowest single check (~5s ffprobe
+  timeout) instead of the sum of all of them — this script sits on the boot
+  path via assess.sh. A check that crashes now surfaces as its own WARN row
+  instead of taking the whole render down with `set -e`.
+
 ## [0.22.2] - 2026-07-03
 
 ### Fixed

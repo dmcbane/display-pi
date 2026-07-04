@@ -6,12 +6,30 @@
 # can display. Each check gets a colored indicator visible from across
 # the room: green = OK, yellow = warning, red = critical.
 #
+# Checks run concurrently (each in a background job) so total latency is
+# the slowest single check (~5s ffprobe timeout) instead of the sum of
+# all of them — this script sits on the boot path via assess.sh.
+#
 # Usage: render-status.sh [output.png]
 # Default output: /tmp/kiosk-status.png
 
 set -euo pipefail
 
 OUTPUT="${1:-/tmp/kiosk-status.png}"
+SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+
+# Stream the kiosk player subscribes to. Must stay in step with player.sh —
+# both default to setup-kiosk.sh's default (app=live, key=restoration) and
+# both honor the same env override (/etc/default/kiosk via kiosk.service),
+# so the screen reports what the player is actually configured to show.
+STREAM_URL="${STREAM_URL:-rtmp://127.0.0.1/live/restoration}"
+STREAM_KEY="${STREAM_URL##*/}"
+_stream_path="${STREAM_URL#*://}"
+_stream_path="${_stream_path#*/}"
+STREAM_APP="${_stream_path%/*}"
+# nginx rtmp_stat endpoint (loopback-only, see install/nginx.conf) — lists
+# every publisher actually connected, whatever key they are pushing to.
+STAT_URL="${STAT_URL:-http://127.0.0.1:8080/stat}"
 WIDTH=1920
 HEIGHT=1080
 FONT="DejaVu-Sans"
@@ -130,6 +148,13 @@ check_nginx() {
     fi
 }
 
+# The stream/key the player is configured to subscribe to. Informational —
+# always OK — but critical for day-of-event triage: a publisher pushing to
+# the wrong key looks identical to "no stream" without this line on screen.
+check_player_config() {
+    echo "OK|Player Stream|key=${STREAM_KEY}  (${STREAM_URL})"
+}
+
 check_rtmp_stream() {
     if ! nc -z 127.0.0.1 1935 2>/dev/null; then
         echo "WARN|RTMP Stream|nginx not ready"
@@ -138,11 +163,35 @@ check_rtmp_stream() {
     if timeout 5 ffprobe -v quiet \
         -show_entries stream=codec_type \
         -of default=nw=1:nk=1 \
-        "rtmp://127.0.0.1/live/restoration" 2>/dev/null | grep -q .; then
-        echo "OK|RTMP Stream|Live"
+        "$STREAM_URL" 2>/dev/null | grep -q .; then
+        echo "OK|RTMP Stream|Live (${STREAM_APP}/${STREAM_KEY})"
     else
-        echo "WARN|RTMP Stream|No active stream"
+        echo "WARN|RTMP Stream|No active stream on ${STREAM_APP}/${STREAM_KEY}"
     fi
+}
+
+# Publishers currently connected to nginx-rtmp, from the /stat XML. One line
+# per publishing stream: OK when the key matches the player's, WARN on a
+# mismatch (the 2026-05-03 splash-stuck failure mode, visible on screen).
+# Emits multiple result lines when several publishers are connected.
+check_publishers() {
+    local parser="${SCRIPT_DIR}/parse_stat.py"
+    if ! command -v curl >/dev/null 2>&1; then
+        echo "WARN|Publishers|curl not installed"
+        return
+    fi
+    if ! command -v python3 >/dev/null 2>&1 || [[ ! -f "$parser" ]]; then
+        echo "WARN|Publishers|python3 or parse_stat.py missing"
+        return
+    fi
+    local xml
+    if ! xml=$(curl -fsS --max-time 3 "$STAT_URL" 2>/dev/null); then
+        echo "WARN|Publishers|stat endpoint unreachable (${STAT_URL})"
+        return
+    fi
+    printf '%s' "$xml" \
+        | python3 "$parser" status --expected-key "$STREAM_KEY" 2>/dev/null \
+        || echo "WARN|Publishers|stat XML parse failed"
 }
 
 check_disk() {
@@ -288,7 +337,7 @@ check_audio() {
 }
 
 # ---------------------------------------------------------------------------
-# Run all checks and collect results
+# Run all checks concurrently and collect results in display order
 # ---------------------------------------------------------------------------
 
 CHECKS=(
@@ -298,7 +347,9 @@ CHECKS=(
     check_link
     check_link_errors
     check_nginx
+    check_player_config
     check_rtmp_stream
+    check_publishers
     check_disk
     check_memory
     check_temperature
@@ -309,17 +360,43 @@ CHECKS=(
     check_audio
 )
 
+# Checks are independent, so run them all in parallel: each writes to its own
+# file in a scratch dir and results are collected in CHECKS order afterwards
+# (display order stays deterministic). Serial worst case is dominated by the
+# 5s ffprobe timeout plus 3s curl timeout plus assorted nc/systemctl calls;
+# parallel, the wall time is just the slowest single check.
+CHECK_TMP=$(mktemp -d)
+trap 'rm -rf "$CHECK_TMP"' EXIT
+
+for i in "${!CHECKS[@]}"; do
+    "${CHECKS[i]}" > "${CHECK_TMP}/${i}" 2>/dev/null &
+done
+wait
+
 results=()
 overall="OK"
 
-for check_fn in "${CHECKS[@]}"; do
-    result=$($check_fn)
-    results+=("$result")
-    status="${result%%|*}"
-    if [[ "$status" == "FAIL" ]]; then
-        overall="FAIL"
-    elif [[ "$status" == "WARN" && "$overall" != "FAIL" ]]; then
-        overall="WARN"
+for i in "${!CHECKS[@]}"; do
+    got_output=0
+    # A check may emit several result lines (check_publishers: one per
+    # publisher); collect each as its own row on the screen.
+    while IFS= read -r line; do
+        [[ -n "$line" ]] || continue
+        results+=("$line")
+        got_output=1
+        status="${line%%|*}"
+        if [[ "$status" == "FAIL" ]]; then
+            overall="FAIL"
+        elif [[ "$status" == "WARN" && "$overall" != "FAIL" ]]; then
+            overall="WARN"
+        fi
+    done < "${CHECK_TMP}/${i}"
+    # A crashed check (set -e in its subshell) leaves an empty file — surface
+    # that as a warning row instead of silently dropping the line.
+    if (( ! got_output )); then
+        label="${CHECKS[i]#check_}"
+        results+=("WARN|${label//_/ }|check produced no output")
+        [[ "$overall" == "FAIL" ]] || overall="WARN"
     fi
 done
 
@@ -361,6 +438,12 @@ y=$(( y + LINE_HEIGHT ))
 # Status lines
 for result in "${results[@]}"; do
     IFS='|' read -r status label detail <<< "$result"
+
+    # Strip single quotes: label/detail are embedded inside the single-quoted
+    # ImageMagick draw primitive, and incoming-stream keys are chosen by the
+    # publisher — a quote would break the draw command.
+    label="${label//\'/}"
+    detail="${detail//\'/}"
 
     case "$status" in
         OK)   dot_color="$COLOR_OK" ;;

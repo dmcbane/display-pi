@@ -244,6 +244,31 @@ assert_contains "render-status.sh checks audio" "$REPO_ROOT/diagnostics/render-s
 assert_contains "render-status.sh uses DejaVu font" "$REPO_ROOT/diagnostics/render-status.sh" "DejaVu-Sans"
 assert_contains "render-status.sh outputs status summary" "$REPO_ROOT/diagnostics/render-status.sh" "^echo \"status="
 
+# The status screen must show which stream/key the player subscribes to and
+# which publishers are actually connected (via rtmp_stat): a publisher pushing
+# to the wrong key otherwise looks identical to "no stream" on screen (the
+# 2026-05-03 splash-stuck failure mode).
+assert_contains "render-status.sh stream URL is env-overridable, default matches player" \
+    "$REPO_ROOT/diagnostics/render-status.sh" 'STREAM_URL:-rtmp://127\.0\.0\.1/live/restoration'
+assert_contains "render-status.sh shows the configured player stream/key" \
+    "$REPO_ROOT/diagnostics/render-status.sh" "check_player_config"
+assert_contains "render-status.sh lists connected publishers" \
+    "$REPO_ROOT/diagnostics/render-status.sh" "check_publishers"
+assert_contains "render-status.sh queries the rtmp_stat endpoint" \
+    "$REPO_ROOT/diagnostics/render-status.sh" "127\\.0\\.0\\.1:8080/stat"
+assert_contains "render-status.sh delegates stat parsing to parse_stat.py" \
+    "$REPO_ROOT/diagnostics/render-status.sh" "parse_stat.py"
+assert_not_contains "render-status.sh ffprobe check no longer hardcodes the stream URL" \
+    "$REPO_ROOT/diagnostics/render-status.sh" '"rtmp://127\.0\.0\.1/live/restoration"'
+
+# Checks must run concurrently (background jobs + wait): render-status.sh is
+# on the boot path via assess.sh, and the serial worst case sums a 5s ffprobe
+# timeout, a 3s curl timeout, and a dozen smaller probes.
+assert_contains "render-status.sh runs checks as background jobs" \
+    "$REPO_ROOT/diagnostics/render-status.sh" '2>/dev/null &$'
+assert_contains "render-status.sh waits for all checks before rendering" \
+    "$REPO_ROOT/diagnostics/render-status.sh" "^wait$"
+
 # ============================================================================
 echo ""
 echo "=== nginx Config Tests ==="
@@ -1043,6 +1068,37 @@ XML
             printf "${GREEN}  PASS${RESET} parse_stat probe strips XML namespaces\n" ;;
         *) FAIL=$((FAIL + 1)); ERRORS+=("parse_stat probe failed on namespaced XML; got: $out")
             printf "${RED}  FAIL${RESET} parse_stat probe failed on namespaced XML\n" ;;
+    esac
+
+    # Case 9: status mode — render-status.sh rows ("STATUS|label|detail").
+    # Matching publisher is OK, with bw_in rendered as Mb/s (bw_in is bits/s:
+    # 7031032 → 7.0 Mb/s).
+    out=$("$helper" status --expected-key restoration <"$xml_full" 2>&1) || true
+    case "$out" in
+        "OK|Publisher|live/restoration from 192.168.0.108 7.0 Mb/s"*) PASS=$((PASS + 1))
+            printf "${GREEN}  PASS${RESET} parse_stat status emits OK row for matching publisher\n" ;;
+        *) FAIL=$((FAIL + 1)); ERRORS+=("parse_stat status wrong row for matching publisher; got: $out")
+            printf "${RED}  FAIL${RESET} parse_stat status wrong row for matching publisher\n" ;;
+    esac
+
+    # Case 10: status mode flags a wrong-key publisher as WARN and names the
+    # key the player expects, so the mismatch is readable on the HDMI screen.
+    out=$("$helper" status --expected-key restoration <"$xml_mismatch" 2>&1) || true
+    case "$out" in
+        "WARN|Publisher|"*"wrongkey"*"player expects restoration"*) PASS=$((PASS + 1))
+            printf "${GREEN}  PASS${RESET} parse_stat status flags wrong-key publisher as WARN\n" ;;
+        *) FAIL=$((FAIL + 1)); ERRORS+=("parse_stat status missed wrong-key publisher; got: $out")
+            printf "${RED}  FAIL${RESET} parse_stat status missed wrong-key publisher\n" ;;
+    esac
+
+    # Case 11: status mode with no publishers → a single OK "none" row (idle
+    # splash is normal; the RTMP Stream check separately warns on no-stream).
+    out=$("$helper" status --expected-key restoration <"$xml_no_stream" 2>&1) || true
+    case "$out" in
+        "OK|Publishers|none") PASS=$((PASS + 1))
+            printf "${GREEN}  PASS${RESET} parse_stat status reports none when no publishers\n" ;;
+        *) FAIL=$((FAIL + 1)); ERRORS+=("parse_stat status wrong output for no publishers; got: $out")
+            printf "${RED}  FAIL${RESET} parse_stat status wrong output for no publishers\n" ;;
     esac
 }
 parse_stat_behavior_test
