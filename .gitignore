@@ -25,3 +25,4 @@ __pycache__/
 
 # Local Claude Code working directory.
 .claude/
+display-pi-rootCA.crt
