@@ -122,8 +122,8 @@ if [[ ! -d "$APP_DIR/venv" ]]; then
     python3 -m venv "$APP_DIR/venv"
 fi
 
-log "Installing Python deps (flask, pillow)..."
-"$APP_DIR/venv/bin/pip" install --quiet flask pillow
+log "Installing Python deps (flask, pillow, defusedxml)..."
+"$APP_DIR/venv/bin/pip" install --quiet flask pillow defusedxml
 
 # 8. Install sudoers
 log "Installing $SUDOERS_DST..."

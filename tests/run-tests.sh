@@ -289,12 +289,27 @@ assert_contains "nginx.conf drops silent publisher" "$REPO_ROOT/install/nginx.co
 # the *wrong* stream key is "ESTAB on :1935 + ffprobe says No such stream",
 # which is what bit us on 2026-05-02. The probe pulls /stat to surface the
 # actual key in use.
+# nginx-rtmp keeps stream state PER WORKER and does not share it: with
+# worker_processes auto (4 on a Pi 4) the publisher lands on one worker while
+# /stat queries and mpv subscriptions land on random others — /stat usually
+# shows no publisher and the player can sit on splash retrying until it
+# happens to hit the publisher's worker (observed 2026-07-05). One worker is
+# plenty for one RTMP stream + the proxied web manager, and makes /stat and
+# playback deterministic.
+assert_contains "nginx.conf pins a single worker (nginx-rtmp state is per-worker)" \
+    "$REPO_ROOT/install/nginx.conf" "^worker_processes 1;"
+assert_not_contains "nginx.conf does not use worker_processes auto (breaks rtmp_stat/playback)" \
+    "$REPO_ROOT/install/nginx.conf" "worker_processes auto"
+
 assert_contains "nginx.conf exposes rtmp_stat HTTP endpoint" \
     "$REPO_ROOT/install/nginx.conf" "rtmp_stat all"
 assert_contains "nginx.conf restricts rtmp_stat to localhost" \
     "$REPO_ROOT/install/nginx.conf" "allow 127.0.0.1"
-assert_contains "setup-kiosk.sh nginx config exposes rtmp_stat" \
-    "$REPO_ROOT/install/setup-kiosk.sh" "rtmp_stat all"
+# setup-kiosk.sh no longer heredocs its own nginx.conf — it renders the
+# install/nginx.conf template (asserted above to expose rtmp_stat) through
+# render-nginx-conf.sh, so the rtmp_stat guarantee lives in one place now.
+assert_contains "setup-kiosk.sh renders nginx.conf from the shared template" \
+    "$REPO_ROOT/install/setup-kiosk.sh" "render-nginx-conf.sh"
 
 # Web-manager site block lives in a wildcard include so TLS config survives
 # deploy.sh overwriting nginx.conf; the token is kept out of the access log.
@@ -1909,6 +1924,172 @@ assert_contains "player.sh references splash.png" "$REPO_ROOT/install/player.sh"
 
 # pix_fmt yuv420p in test stream (gotcha #6)
 assert_contains "test-stream.sh uses yuv420p" "$REPO_ROOT/dev/test-stream.sh" "yuv420p"
+
+# ============================================================================
+echo ""
+echo "=== Stream Config Single-Source Tests ==="
+# ============================================================================
+# The 2026-07-05 provision failure: setup-kiosk.sh baked STREAM_KEY into a
+# generated /home/kiosk/bin/player.sh, then `make deploy` (provision step 2)
+# replaced that file with a symlink to the repo's install/player.sh, which
+# hardcoded the default key — so a custom STREAM_KEY never survived provision.
+# The fix: /etc/default/kiosk is the ONE persistent config store. setup writes
+# STREAM_URL/STREAM_KEY/RTMP_APP/VOLUME there; kiosk.service loads it via
+# EnvironmentFile; player.sh and the diagnostics honor the env override and
+# fall back to reading the file when run outside the service (ssh, cron).
+
+SETUP="$REPO_ROOT/install/setup-kiosk.sh"
+
+# player.sh must take STREAM_URL from the environment, not hardcode it.
+assert_contains "player.sh stream URL is env-overridable (EnvironmentFile wins)" \
+    "$PLAYER" 'STREAM_URL:-rtmp://127\.0\.0\.1/live/restoration'
+assert_not_contains "player.sh no longer hardcodes STREAM_URL" \
+    "$PLAYER" '^STREAM_URL="rtmp'
+assert_contains "player.sh volume is env-overridable (PLAYBACK_VOLUME survives deploy)" \
+    "$PLAYER" 'VOLUME:-80'
+assert_not_contains "player.sh no longer hardcodes VOLUME" \
+    "$PLAYER" '^VOLUME=80'
+assert_contains "player.sh falls back to /etc/default/kiosk outside the service" \
+    "$PLAYER" '/etc/default/kiosk'
+
+# setup-kiosk.sh persists the stream config to /etc/default/kiosk.
+assert_contains "setup-kiosk.sh has a set_env_kv helper" "$SETUP" '^set_env_kv()'
+assert_contains "setup-kiosk.sh has configure_stream_config" "$SETUP" '^configure_stream_config()'
+assert_contains "setup-kiosk.sh main() calls configure_stream_config" \
+    "$SETUP" '^    configure_stream_config'
+assert_contains "setup-kiosk.sh persists STREAM_URL" "$SETUP" 'set_env_kv .* STREAM_URL'
+assert_contains "setup-kiosk.sh persists STREAM_KEY" "$SETUP" 'set_env_kv .* STREAM_KEY'
+assert_contains "setup-kiosk.sh persists RTMP_APP" "$SETUP" 'set_env_kv .* RTMP_APP'
+assert_contains "setup-kiosk.sh persists VOLUME" "$SETUP" 'set_env_kv .* VOLUME'
+assert_contains "setup-kiosk.sh persists RTMP_ALLOW_PUBLISH_CIDRS" \
+    "$SETUP" 'set_env_kv .* RTMP_ALLOW_PUBLISH_CIDRS'
+
+# On an already-deployed Pi /home/kiosk/bin/player.sh is a symlink into the
+# repo; the bootstrap generator must replace the link, not write through it
+# (tee follows symlinks — that would clobber the deployed repo copy).
+assert_contains "setup-kiosk.sh bootstrap player replaces a deploy symlink" \
+    "$SETUP" '\-L "\$player_script"'
+
+# Re-running setup without an explicit override keeps the persisted value
+# (no silent reset to 'restoration' on a later `make setup HDMI_MODE=…`).
+assert_contains "setup-kiosk.sh reads persisted values as defaults" \
+    "$SETUP" '^persisted_default()'
+assert_contains "Makefile forwards only explicitly-set setup vars (origin check)" \
+    "$REPO_ROOT/Makefile" 'origin'
+
+# Diagnostics honor the same store when run standalone (ssh/cron have no
+# EnvironmentFile), so what they report is what the player actually uses.
+assert_contains "render-status.sh falls back to /etc/default/kiosk" \
+    "$REPO_ROOT/diagnostics/render-status.sh" '/etc/default/kiosk'
+assert_contains "judder.sh falls back to /etc/default/kiosk" \
+    "$REPO_ROOT/diagnostics/judder.sh" '/etc/default/kiosk'
+
+# Behavior: set_env_kv creates, appends, and updates KEY=value lines without
+# touching neighbors. sudo is stubbed to a no-op wrapper for the test.
+set_env_kv_behavior_test() {
+    local fn_body
+    fn_body=$(sed -n '/^set_env_kv()/,/^}/p' "$SETUP")
+    if [[ -z "$fn_body" ]]; then
+        FAIL=$((FAIL + 1))
+        ERRORS+=("set_env_kv behavior: function not found")
+        printf "${RED}  FAIL${RESET} set_env_kv behavior (function missing)\n"
+        return
+    fi
+    local tmpf got
+    tmpf=$(mktemp)
+    echo "SPLASH_DIR=/var/lib/kiosk-splash" > "$tmpf"
+    got=$(bash -c "sudo() { \"\$@\"; }
+$fn_body
+set_env_kv '$tmpf' STREAM_URL 'rtmp://127.0.0.1/live/aaa'
+set_env_kv '$tmpf' STREAM_URL 'rtmp://127.0.0.1/live/bbb'
+set_env_kv '$tmpf' VOLUME 80
+cat '$tmpf'")
+    rm -f "$tmpf"
+    local want=$'SPLASH_DIR=/var/lib/kiosk-splash\nSTREAM_URL=rtmp://127.0.0.1/live/bbb\nVOLUME=80'
+    if [[ "$got" == "$want" ]]; then
+        PASS=$((PASS + 1))
+        printf "${GREEN}  PASS${RESET} set_env_kv appends, updates in place, preserves neighbors\n"
+    else
+        FAIL=$((FAIL + 1))
+        ERRORS+=("set_env_kv behavior: want '$want' got '$got'")
+        printf "${RED}  FAIL${RESET} set_env_kv behavior (got: %s)\n" "${got//$'\n'/,}"
+    fi
+}
+set_env_kv_behavior_test
+
+# ============================================================================
+echo ""
+echo "=== nginx.conf Single-Source Render Tests ==="
+# ============================================================================
+# deploy.sh used to overwrite /etc/nginx/nginx.conf with the repo's static
+# copy, reverting any RTMP_APP / allow-publish CIDRs that setup-kiosk.sh had
+# generated (and setup's heredoc copy lacked idle_streams/drop_idle_publisher/
+# the kiosk-web include — two diverging sources of truth). Both paths now
+# render install/nginx.conf through render-nginx-conf.sh with values from
+# /etc/default/kiosk, so a deploy can never clobber configured values.
+
+RENDER="$REPO_ROOT/install/render-nginx-conf.sh"
+assert_file_exists "install/render-nginx-conf.sh exists" "$RENDER"
+assert_executable  "install/render-nginx-conf.sh is executable" "$RENDER"
+assert_contains "setup-kiosk.sh renders nginx.conf via render-nginx-conf.sh" \
+    "$SETUP" 'render-nginx-conf.sh'
+assert_not_contains "setup-kiosk.sh no longer heredocs its own nginx.conf" \
+    "$SETUP" 'sudo tee /etc/nginx/nginx.conf'
+assert_contains "deploy.sh renders nginx.conf via render-nginx-conf.sh" \
+    "$DEPLOY" 'render-nginx-conf.sh'
+assert_not_contains "deploy.sh no longer raw-copies nginx.conf (clobbered custom app/CIDRs)" \
+    "$DEPLOY" 'cp \${REMOTE_DIR}/install/nginx.conf'
+
+# Behavior: rendering with explicit values substitutes app + CIDRs and keeps
+# the template's operational directives; rendering with the template defaults
+# reproduces the template byte-for-byte (no drift between the two sources).
+render_nginx_behavior_test() {
+    local out
+    out=$(RTMP_APP=customapp RTMP_ALLOW_PUBLISH_CIDRS='192.168.9.0/24 172.16.0.0/12' \
+        KIOSK_ENV_FILE=/nonexistent "$RENDER" "$REPO_ROOT/install/nginx.conf" 2>/dev/null) || out=""
+    local ok=1
+    grep -q 'application customapp {' <<<"$out" || ok=0
+    grep -q 'allow publish 192.168.9.0/24;' <<<"$out" || ok=0
+    grep -q 'allow publish 172.16.0.0/12;' <<<"$out" || ok=0
+    grep -q 'allow publish 192.168.0.0/16;' <<<"$out" && ok=0
+    grep -q 'idle_streams off;' <<<"$out" || ok=0
+    grep -q 'kiosk-web-site.d' <<<"$out" || ok=0
+    if [[ $ok -eq 1 ]]; then
+        PASS=$((PASS + 1))
+        printf "${GREEN}  PASS${RESET} render-nginx-conf.sh substitutes app + CIDRs, keeps directives\n"
+    else
+        FAIL=$((FAIL + 1))
+        ERRORS+=("render-nginx-conf.sh substitution failed")
+        printf "${RED}  FAIL${RESET} render-nginx-conf.sh substitution\n"
+    fi
+    if diff -q <(KIOSK_ENV_FILE=/nonexistent "$RENDER" "$REPO_ROOT/install/nginx.conf" 2>/dev/null) \
+        "$REPO_ROOT/install/nginx.conf" >/dev/null 2>&1; then
+        PASS=$((PASS + 1))
+        printf "${GREEN}  PASS${RESET} render-nginx-conf.sh with defaults reproduces the template exactly\n"
+    else
+        FAIL=$((FAIL + 1))
+        ERRORS+=("render-nginx-conf.sh default render != template")
+        printf "${RED}  FAIL${RESET} render-nginx-conf.sh default render != template\n"
+    fi
+}
+render_nginx_behavior_test
+
+# ============================================================================
+echo ""
+echo "=== Static IP Gateway/DNS Tests ==="
+# ============================================================================
+# STATIC_IP is an extra direct-reach address (no gateway) by design. For the
+# "this is the Pi's primary address" case, STATIC_GATEWAY/STATIC_DNS are now
+# plumbed through so the profile can carry a real default route + resolver.
+assert_contains "setup-kiosk.sh supports STATIC_GATEWAY" "$SETUP" 'STATIC_GATEWAY'
+assert_contains "setup-kiosk.sh supports STATIC_DNS" "$SETUP" 'STATIC_DNS'
+assert_contains "setup-kiosk.sh passes ipv4.gateway to nmcli when set" \
+    "$SETUP" 'ipv4.gateway'
+assert_contains "setup-kiosk.sh passes ipv4.dns to nmcli when set" \
+    "$SETUP" 'ipv4.dns'
+assert_contains "Makefile documents STATIC_GATEWAY" "$REPO_ROOT/Makefile" 'STATIC_GATEWAY'
+assert_contains "setup-kiosk.sh tells the user how to activate kiosk-static now" \
+    "$SETUP" 'nmcli connection up kiosk-static'
 
 # ============================================================================
 echo ""

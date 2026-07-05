@@ -26,20 +26,32 @@ set -euo pipefail
 # All values below can be overridden by exporting the matching env var
 # before running this script (e.g. STREAM_KEY=foo bash setup-kiosk.sh).
 
+# /etc/default/kiosk is the ONE persistent config store on the Pi: written
+# here, loaded by kiosk.service (EnvironmentFile=), read by player.sh, the
+# diagnostics, and the web manager. Values already persisted there win over
+# the script defaults on re-runs, so `make setup HDMI_MODE=…` months later
+# can never silently reset a custom stream key back to the default.
+KIOSK_ENV_FILE=/etc/default/kiosk
+
+# persisted_default KEY FALLBACK — echo the value of KEY from the config
+# store, or FALLBACK when the store is missing or has no value.
+persisted_default() {
+    local key="$1" fallback="$2" val=""
+    if [[ -r "$KIOSK_ENV_FILE" ]]; then
+        val="$(. "$KIOSK_ENV_FILE" 2>/dev/null; eval "echo \"\${${key}:-}\"")"
+    fi
+    echo "${val:-$fallback}"
+}
+
 # Network CIDRs allowed to push RTMP to this Pi. Tighten to the ATEM's IP
-# (e.g. "192.168.1.42/32") once you know it's stable. Pass as a
-# space-separated string when overriding via env.
-if [[ -n "${RTMP_ALLOW_PUBLISH_CIDRS:-}" ]]; then
-    read -r -a RTMP_ALLOW_PUBLISH_CIDRS <<< "$RTMP_ALLOW_PUBLISH_CIDRS"
-else
-    RTMP_ALLOW_PUBLISH_CIDRS=("192.168.0.0/16" "10.0.0.0/8")
-fi
+# (e.g. "192.168.1.42/32") once you know it's stable. Space-separated string.
+RTMP_ALLOW_PUBLISH_CIDRS="${RTMP_ALLOW_PUBLISH_CIDRS:-$(persisted_default RTMP_ALLOW_PUBLISH_CIDRS '192.168.0.0/16 10.0.0.0/8')}"
 
 # The stream key the ATEM will push with. Must match ATEM's config.
-STREAM_KEY="${STREAM_KEY:-restoration}"
+STREAM_KEY="${STREAM_KEY:-$(persisted_default STREAM_KEY restoration)}"
 
 # The RTMP application name (the path component before the key).
-RTMP_APP="${RTMP_APP:-live}"
+RTMP_APP="${RTMP_APP:-$(persisted_default RTMP_APP live)}"
 
 # Splash image text (used to generate a placeholder PNG).
 # Replace /home/<kiosk-user>/splash.png with your branded image after setup.
@@ -54,8 +66,9 @@ KIOSK_USER="${KIOSK_USER:-kiosk}"
 # setup-kiosk.sh as the same user that will deploy from the workstation).
 DEPLOY_USER="${SUDO_USER:-$USER}"
 
-# mpv volume for the lobby/overflow display (0-100).
-PLAYBACK_VOLUME="${PLAYBACK_VOLUME:-80}"
+# mpv volume for the lobby/overflow display (0-100). Persisted as VOLUME in
+# the config store (the name player.sh reads).
+PLAYBACK_VOLUME="${PLAYBACK_VOLUME:-$(persisted_default VOLUME 80)}"
 
 # HDMI mode to force at boot. Under Bookworm KMS the legacy firmware
 # knobs (hdmi_group, hdmi_mode, hdmi_drive) in config.txt are silently
@@ -84,6 +97,15 @@ HDMI_MODE="${HDMI_MODE:-}"
 # Unset / empty leaves addressing to DHCP only. Special value "none" removes
 # a static IP added by a previous run and returns the link to DHCP-only.
 STATIC_IP="${STATIC_IP:-}"
+
+# Optional gateway/DNS for the static profile. Leave both empty when STATIC_IP
+# is just an extra direct-reach address (the default): DHCP still supplies the
+# default route wherever the Pi is plugged in. Set them when the static
+# address is the Pi's PRIMARY identity on a DHCP-less network and it needs a
+# real default route / resolver. STATIC_DNS takes a comma-separated list
+# (nmcli ipv4.dns syntax), e.g. "192.168.0.1,1.1.1.1".
+STATIC_GATEWAY="${STATIC_GATEWAY:-}"
+STATIC_DNS="${STATIC_DNS:-}"
 
 # System-wide default locale for the Pi. A fresh Raspberry Pi OS Lite image
 # generates almost no locales, so any SSH client that forwards LANG/LC_* (the
@@ -127,6 +149,19 @@ backup_once() {
 
     sudo cp -a "$file" "${file}.bak-${STAMP}"
     log "Backed up $file -> ${file}.bak-${STAMP}"
+}
+
+# set_env_kv FILE KEY VALUE — update KEY=VALUE in place if the key exists,
+# else append it. Never touches other lines, so the config store accumulates
+# keys from setup-kiosk.sh and kiosk-web-setup.sh without either clobbering
+# the other.
+set_env_kv() {
+    local file="$1" key="$2" value="$3"
+    if sudo grep -q "^${key}=" "$file" 2>/dev/null; then
+        sudo sed -i "s|^${key}=.*|${key}=${value}|" "$file"
+    else
+        echo "${key}=${value}" | sudo tee -a "$file" >/dev/null
+    fi
 }
 
 require_root_capable() {
@@ -242,69 +277,52 @@ enable_seatd() {
 }
 
 # =============================================================================
+# Step 3b: persist the stream config to /etc/default/kiosk
+# =============================================================================
+# This is what makes a custom STREAM_KEY survive `make deploy`: the deployed
+# player.sh/diagnostics take STREAM_URL from this file (via kiosk.service
+# EnvironmentFile= or by reading it directly), and deploy.sh never writes it.
+configure_stream_config() {
+    local stream_url="rtmp://127.0.0.1/${RTMP_APP}/${STREAM_KEY}"
+
+    log "Persisting stream config to ${KIOSK_ENV_FILE} (app=${RTMP_APP}, key=${STREAM_KEY})..."
+    backup_once "$KIOSK_ENV_FILE"
+    set_env_kv "$KIOSK_ENV_FILE" STREAM_KEY "$STREAM_KEY"
+    set_env_kv "$KIOSK_ENV_FILE" RTMP_APP "$RTMP_APP"
+    set_env_kv "$KIOSK_ENV_FILE" STREAM_URL "$stream_url"
+    set_env_kv "$KIOSK_ENV_FILE" VOLUME "$PLAYBACK_VOLUME"
+    set_env_kv "$KIOSK_ENV_FILE" RTMP_ALLOW_PUBLISH_CIDRS "\"${RTMP_ALLOW_PUBLISH_CIDRS}\""
+    sudo chmod 644 "$KIOSK_ENV_FILE"
+    log "Stream config persisted (player subscribes to ${stream_url})."
+}
+
+# =============================================================================
 # Step 4: nginx with RTMP module
 # =============================================================================
+# install/nginx.conf is the single source of truth for nginx structure;
+# render-nginx-conf.sh substitutes the configured RTMP app and allow-publish
+# CIDRs. deploy.sh renders through the same script, so setup and deploy can
+# never fight over this file's contents.
 configure_nginx_rtmp() {
     log "Configuring nginx RTMP..."
     backup_once /etc/nginx/nginx.conf
 
-    # Build the allow-publish lines from the config array
-    local allow_lines=""
-    for cidr in "${RTMP_ALLOW_PUBLISH_CIDRS[@]}"; do
-        allow_lines+="            allow publish ${cidr};"$'\n'
-    done
+    local here renderer template rendered
+    here="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
+    renderer="${here}/render-nginx-conf.sh"
+    template="${here}/nginx.conf"
+    [[ -f "$renderer" && -f "$template" ]] || \
+        die "render-nginx-conf.sh / nginx.conf not found next to this script."
 
-    sudo tee /etc/nginx/nginx.conf > /dev/null <<EOF
-user www-data;
-worker_processes auto;
-pid /run/nginx.pid;
-include /etc/nginx/modules-enabled/*.conf;
+    # The template includes the web-manager site dir; make sure it exists so
+    # a later kiosk-web-setup.sh drop-in lands somewhere nginx already reads.
+    sudo mkdir -p /etc/nginx/kiosk-web-site.d
 
-events {
-    worker_connections 768;
-}
-
-rtmp {
-    server {
-        listen 1935;
-        chunk_size 4096;
-
-        application ${RTMP_APP} {
-            live on;
-            record off;
-${allow_lines}            deny publish all;
-
-            allow play 127.0.0.1;
-            deny play all;
-        }
-    }
-}
-
-http {
-    sendfile on;
-    tcp_nopush on;
-    types_hash_max_size 2048;
-    include /etc/nginx/mime.types;
-    default_type application/octet-stream;
-    access_log /var/log/nginx/access.log;
-    error_log  /var/log/nginx/error.log;
-    gzip on;
-
-    # rtmp_stat — XML dump of active publishers/streams. Localhost-only.
-    # Lets diagnostics/judder.sh probe surface the real stream key when a
-    # publisher is connected to nginx but not to the key the player expects.
-    server {
-        listen 127.0.0.1:8080;
-        server_name localhost;
-
-        location /stat {
-            rtmp_stat all;
-            allow 127.0.0.1;
-            deny all;
-        }
-    }
-}
-EOF
+    rendered=$(mktemp)
+    RTMP_APP="$RTMP_APP" RTMP_ALLOW_PUBLISH_CIDRS="$RTMP_ALLOW_PUBLISH_CIDRS" \
+        bash "$renderer" "$template" > "$rendered"
+    sudo install -m 0644 -o root -g root "$rendered" /etc/nginx/nginx.conf
+    rm -f "$rendered"
 
     sudo nginx -t || die "nginx config test failed. Check /etc/nginx/nginx.conf"
     sudo systemctl enable nginx
@@ -552,6 +570,19 @@ configure_static_ip() {
         die "STATIC_IP must be <ipv4>/<prefix> (e.g. 192.168.50.1/24); got '$STATIC_IP'."
     fi
 
+    # Optional gateway/DNS for the primary-address use case. Without them the
+    # profile stays a direct-reach extra address and DHCP owns the routes.
+    local route_args=()
+    if [[ -n "$STATIC_GATEWAY" ]]; then
+        if ! [[ "$STATIC_GATEWAY" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
+            die "STATIC_GATEWAY must be a bare IPv4 address (e.g. 192.168.50.254); got '$STATIC_GATEWAY'."
+        fi
+        route_args+=(ipv4.gateway "$STATIC_GATEWAY")
+    fi
+    if [[ -n "$STATIC_DNS" ]]; then
+        route_args+=(ipv4.dns "$STATIC_DNS")
+    fi
+
     # Detect the ethernet device (the Pi keeps eth0, but detect to be safe).
     local dev
     dev=$(nmcli -t -f DEVICE,TYPE device status 2>/dev/null | awk -F: '$2=="ethernet"{print $1; exit}')
@@ -569,9 +600,17 @@ configure_static_ip() {
     sudo nmcli connection add type ethernet \
         con-name "$profile" ifname "$dev" \
         ipv4.method auto ipv4.addresses "$STATIC_IP" \
+        ${route_args[@]+"${route_args[@]}"} \
         connection.autoconnect yes connection.autoconnect-priority 100 \
         >/dev/null
-    log "Created '$profile' (DHCP + static $STATIC_IP). Reboot to activate."
+    if [[ -n "$STATIC_GATEWAY" ]]; then
+        log "Created '$profile' (DHCP + static $STATIC_IP, gw $STATIC_GATEWAY${STATIC_DNS:+, dns $STATIC_DNS})."
+    else
+        log "Created '$profile' (DHCP + static $STATIC_IP, no gateway — direct-reach only)."
+    fi
+    # The profile is NOT activated here on purpose: this script runs over SSH
+    # on the same NIC, and bouncing the connection would drop the session.
+    log "Activate with: sudo nmcli connection up kiosk-static   (or just reboot)."
 }
 
 # =============================================================================
@@ -650,6 +689,13 @@ create_player_script() {
 
     log "Installing player script to $player_script ..."
     sudo -u "$KIOSK_USER" mkdir -p "$player_dir"
+
+    # On an already-deployed Pi this is a symlink into the repo (deploy.sh);
+    # remove it first — tee follows symlinks and would write the bootstrap
+    # player THROUGH the link into the deployed repo copy.
+    if sudo test -L "$player_script"; then
+        sudo rm -f "$player_script"
+    fi
 
     sudo -u "$KIOSK_USER" tee "$player_script" > /dev/null <<EOF
 #!/bin/bash
@@ -1054,6 +1100,7 @@ main() {
     install_packages
     create_kiosk_user
     enable_seatd
+    configure_stream_config
     configure_nginx_rtmp
     configure_boot
     configure_runtime_mode
@@ -1111,9 +1158,15 @@ EOF
 
     if [[ -n "$STATIC_IP" && "$STATIC_IP" != "none" ]]; then
         cat <<EOF
-Extra static IP: after reboot the Pi also answers at ${STATIC_IP%/*}.
-On a DHCP-less network, give your machine an address in the same subnet
-(e.g. ${STATIC_IP%.*}.2/${STATIC_IP##*/}) and SSH to ${STATIC_IP%/*}.
+Extra static IP: the 'kiosk-static' profile is created but NOT active yet
+(activating it here would drop this SSH session). It activates on reboot,
+or immediately with:
+    sudo nmcli connection up kiosk-static
+After that the Pi also answers at ${STATIC_IP%/*}. On a DHCP-less network,
+give your machine an address in the same subnet (e.g. ${STATIC_IP%.*}.2/${STATIC_IP##*/})
+and SSH to ${STATIC_IP%/*}. Note: a machine on a DIFFERENT subnet can only
+reach this address if its router has a route to it — a static address is not
+reachable across subnets just because it exists.
 
 EOF
     fi

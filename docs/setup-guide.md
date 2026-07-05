@@ -233,12 +233,24 @@ ssh rpi@192.168.50.1
 Notes:
 
 - The change applies on the **next reboot** — setup does not bounce the live
-  connection (that would drop the SSH session it runs over).
+  connection (that would drop the SSH session it runs over). To activate it
+  immediately instead, run `sudo nmcli connection up kiosk-static` on the Pi
+  (expect a brief network blip if you're SSH'd in over that NIC).
 - It's implemented as a dedicated NetworkManager profile named `kiosk-static`
   with a higher autoconnect priority than the stock `Wired connection 1`.
   Re-running setup recreates it cleanly, so addresses never stack up.
-- No gateway or DNS is set on the static address — it's for direct reach, not
-  as the Pi's default route.
+- By default no gateway or DNS is set on the static address — it's for direct
+  reach, not the Pi's default route (DHCP still supplies the real route
+  wherever the Pi is plugged in). If the static address is the Pi's *primary*
+  identity on a DHCP-less network and it needs a route/resolver, pass them
+  explicitly: `make setup STATIC_IP=192.168.50.1/24
+  STATIC_GATEWAY=192.168.50.254 STATIC_DNS=192.168.50.254,1.1.1.1`.
+- Reachability is a *routing* question, not a gateway-on-the-Pi question: a
+  machine on a **different subnet** (say your laptop at `192.168.1.x/24`
+  trying to reach `192.168.0.106`) can only get there if *its* router knows a
+  route to that subnet. On the same L2 segment, give the connecting machine an
+  address in the static subnet (as in the example above) and it works with no
+  gateway anywhere.
 - To remove it later, re-run with `STATIC_IP=none`:
   `make setup STATIC_IP=none HOST=displaypi`.
 

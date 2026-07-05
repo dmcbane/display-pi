@@ -337,6 +337,124 @@ def test_status_hostname_reports_actual_host(client):
     assert socket.gethostname() in host['detail']
 
 
+# ── stream config (single source: /etc/default/kiosk) ───────────────────────
+
+STAT_XML_MATCH = b"""<?xml version="1.0"?>
+<rtmp><server><application><name>live</name><live>
+<stream><name>church242</name><bw_in>4200000</bw_in>
+<client><address>192.168.1.50</address><publishing/></client>
+</stream><nclients>1</nclients></live></application></server></rtmp>"""
+
+STAT_XML_MISMATCH = STAT_XML_MATCH.replace(b'church242', b'wrongkey')
+
+STAT_XML_IDLE = b"""<?xml version="1.0"?>
+<rtmp><server><application><name>live</name><live>
+<nclients>0</nclients></live></application></server></rtmp>"""
+
+
+def test_stream_url_default_without_env_file(tmp_path, monkeypatch):
+    monkeypatch.setattr(kiosk_manager, 'KIOSK_ENV_FILE', tmp_path / 'absent')
+    monkeypatch.delenv('STREAM_URL', raising=False)
+    assert kiosk_manager._stream_url() == 'rtmp://127.0.0.1/live/restoration'
+
+
+def test_stream_url_read_from_env_file(tmp_path, monkeypatch):
+    env = tmp_path / 'kiosk'
+    env.write_text('SPLASH_DIR=/var/lib/kiosk-splash\n'
+                   'STREAM_URL=rtmp://127.0.0.1/live/church242\n')
+    monkeypatch.setattr(kiosk_manager, 'KIOSK_ENV_FILE', env)
+    monkeypatch.delenv('STREAM_URL', raising=False)
+    assert kiosk_manager._stream_url() == 'rtmp://127.0.0.1/live/church242'
+
+
+def test_stream_url_env_var_wins_over_file(tmp_path, monkeypatch):
+    env = tmp_path / 'kiosk'
+    env.write_text('STREAM_URL=rtmp://127.0.0.1/live/fromfile\n')
+    monkeypatch.setattr(kiosk_manager, 'KIOSK_ENV_FILE', env)
+    monkeypatch.setenv('STREAM_URL', 'rtmp://127.0.0.1/live/fromenv')
+    assert kiosk_manager._stream_url() == 'rtmp://127.0.0.1/live/fromenv'
+
+
+def test_stream_key_derived_from_url(tmp_path, monkeypatch):
+    env = tmp_path / 'kiosk'
+    env.write_text('STREAM_URL=rtmp://127.0.0.1/live/church242\n')
+    monkeypatch.setattr(kiosk_manager, 'KIOSK_ENV_FILE', env)
+    monkeypatch.delenv('STREAM_URL', raising=False)
+    assert kiosk_manager._stream_key() == 'church242'
+
+
+def test_check_player_stream_shows_key_and_url(tmp_path, monkeypatch):
+    env = tmp_path / 'kiosk'
+    env.write_text('STREAM_URL=rtmp://127.0.0.1/live/church242\n')
+    monkeypatch.setattr(kiosk_manager, 'KIOSK_ENV_FILE', env)
+    monkeypatch.delenv('STREAM_URL', raising=False)
+    row = kiosk_manager._check_player_stream()
+    assert row['status'] == 'OK'
+    assert row['label'] == 'Player Stream'
+    assert 'church242' in row['detail']
+    assert 'rtmp://127.0.0.1/live/church242' in row['detail']
+
+
+def test_check_rtmp_stream_probes_configured_url(tmp_path, monkeypatch):
+    env = tmp_path / 'kiosk'
+    env.write_text('STREAM_URL=rtmp://127.0.0.1/live/church242\n')
+    monkeypatch.setattr(kiosk_manager, 'KIOSK_ENV_FILE', env)
+    monkeypatch.delenv('STREAM_URL', raising=False)
+    monkeypatch.setattr(kiosk_manager, '_port_open', lambda *a, **k: True)
+    seen = {}
+
+    def fake_run(cmd, timeout=5):
+        seen['cmd'] = cmd
+        return None
+
+    monkeypatch.setattr(kiosk_manager, '_run', fake_run)
+    kiosk_manager._check_rtmp_stream()
+    assert 'rtmp://127.0.0.1/live/church242' in seen['cmd']
+
+
+def test_check_publishers_key_match(monkeypatch):
+    monkeypatch.setattr(kiosk_manager, '_fetch_stat', lambda: STAT_XML_MATCH)
+    monkeypatch.setattr(kiosk_manager, '_stream_key', lambda: 'church242')
+    rows = kiosk_manager._check_publishers()
+    assert len(rows) == 1
+    assert rows[0]['status'] == 'OK'
+    assert 'live/church242' in rows[0]['detail']
+    assert '192.168.1.50' in rows[0]['detail']
+
+
+def test_check_publishers_key_mismatch_warns(monkeypatch):
+    monkeypatch.setattr(kiosk_manager, '_fetch_stat', lambda: STAT_XML_MISMATCH)
+    monkeypatch.setattr(kiosk_manager, '_stream_key', lambda: 'church242')
+    rows = kiosk_manager._check_publishers()
+    assert len(rows) == 1
+    assert rows[0]['status'] == 'WARN'
+    assert 'wrongkey' in rows[0]['detail']
+    assert 'church242' in rows[0]['detail']
+
+
+def test_check_publishers_none_connected(monkeypatch):
+    monkeypatch.setattr(kiosk_manager, '_fetch_stat', lambda: STAT_XML_IDLE)
+    monkeypatch.setattr(kiosk_manager, '_stream_key', lambda: 'church242')
+    rows = kiosk_manager._check_publishers()
+    assert len(rows) == 1
+    assert rows[0]['status'] == 'OK'
+    assert rows[0]['detail'] == 'none'
+
+
+def test_check_publishers_stat_unreachable(monkeypatch):
+    monkeypatch.setattr(kiosk_manager, '_fetch_stat', lambda: None)
+    rows = kiosk_manager._check_publishers()
+    assert len(rows) == 1
+    assert rows[0]['status'] == 'WARN'
+
+
+def test_status_board_includes_stream_rows(client):
+    body = client.get(f'/api/status?token={TEST_TOKEN}').get_json()
+    labels = {c['label'] for c in body['checks']}
+    assert 'Player Stream' in labels
+    assert any(lbl.startswith('Publisher') for lbl in labels)
+
+
 # ── overall aggregation ──────────────────────────────────────────────────────
 
 def test_overall_all_ok():

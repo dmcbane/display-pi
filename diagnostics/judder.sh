@@ -17,6 +17,12 @@ bin/bash
 
 set -u
 
+# Resolve the stream URL exactly like player.sh: env wins, then the persistent
+# config store (standalone runs over ssh have no EnvironmentFile), then the
+# setup default.
+if [[ -z "${STREAM_URL:-}" && -r /etc/default/kiosk ]]; then
+    STREAM_URL="$(. /etc/default/kiosk 2>/dev/null; echo "${STREAM_URL:-}")"
+fi
 STREAM_URL="${STREAM_URL:-rtmp://127.0.0.1/live/restoration}"
 KIOSK_USER="${KIOSK_USER:-kiosk}"
 PLAYER_LINK="/home/${KIOSK_USER}/bin/player.sh"

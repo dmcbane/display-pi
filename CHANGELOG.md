@@ -4,6 +4,57 @@ All notable changes to display-pi are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.24.0] - 2026-07-05
+
+### Fixed
+- **A custom `STREAM_KEY` now survives `make provision`/`make deploy`.**
+  Provision step 1 (setup) baked the key into a generated
+  `/home/kiosk/bin/player.sh`, then step 2 (deploy) replaced that file with a
+  symlink to the repo's `install/player.sh`, which hardcoded the default key —
+  so the Pi always subscribed to `live/restoration` no matter what was passed
+  (2026-07-05 field failure). `/etc/default/kiosk` is now the one persistent
+  config store: setup writes `STREAM_KEY`/`RTMP_APP`/`STREAM_URL`/`VOLUME`/
+  `RTMP_ALLOW_PUBLISH_CIDRS` there, `kiosk.service` loads it via
+  `EnvironmentFile=`, and `player.sh`, `render-status.sh`, and `judder.sh`
+  honor the env override (falling back to reading the file directly when run
+  outside the service). Deploy never touches the file.
+- **nginx-rtmp pinned to one worker.** `worker_processes auto` gave each of
+  the Pi 4's four workers its own private RTMP state: the publisher landed on
+  one worker while mpv subscriptions and `/stat` queries hit random others —
+  playback start was a retry lottery and the status board usually reported no
+  publisher even mid-stream. One worker easily serves one stream plus the
+  proxied web manager, and makes `/stat` and playback deterministic.
+- **Web manager shows the configured stream and live publishers.** The status
+  board gains a "Player Stream" row (key + URL read fresh from
+  `/etc/default/kiosk`) and one "Publisher" row per stream connected to
+  nginx-rtmp (key, source IP, Mb/s from the loopback `rtmp_stat` endpoint) —
+  WARN with the expected key named when a publisher pushes to the wrong key.
+  The ffprobe stream check uses the configured URL instead of a hardcoded
+  default, with tightened `analyzeduration`/`probesize` so a live stream
+  answers inside the check budget on Pi hardware.
+- **Setup re-runs keep configured values.** `make setup` forwards only
+  variables explicitly set on the command line or environment (`$(origin)`
+  check); everything else keeps its persisted `/etc/default/kiosk` value, so
+  `make setup HDMI_MODE=…` months later can no longer silently reset the
+  stream key or volume to defaults. The bootstrap player generator also
+  replaces a deploy-installed symlink instead of writing through it into the
+  deployed repo copy.
+- **Deploy no longer clobbers a configured nginx.conf.** Both setup and
+  deploy render `install/nginx.conf` through the new
+  `install/render-nginx-conf.sh`, substituting the persisted `RTMP_APP` and
+  allow-publish CIDRs — previously setup generated its own (stale) copy and
+  deploy overwrote it with the repo template, reverting custom values.
+
+### Added
+- **`STATIC_GATEWAY` / `STATIC_DNS`** (setup only): optional gateway and DNS
+  for the `kiosk-static` profile, for when the static address is the Pi's
+  primary identity on a DHCP-less network. Default remains a gateway-less
+  direct-reach extra address with DHCP owning the routes. Setup output and
+  docs now spell out that the profile activates on reboot (or
+  `sudo nmcli connection up kiosk-static`) and that cross-subnet reachability
+  is a routing question on the connecting side, not a missing gateway on the
+  Pi.
+
 ## [0.23.0] - 2026-07-04
 
 ### Added

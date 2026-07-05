@@ -14,7 +14,14 @@ set -u
 LOG=/tmp/player.log
 exec >> "$LOG" 2>&1
 
-STREAM_URL="rtmp://127.0.0.1/live/restoration"
+# Stream config comes from /etc/default/kiosk (written by setup-kiosk.sh,
+# loaded by kiosk.service via EnvironmentFile=). When run outside the service
+# (manual debugging), read the file directly so behavior matches the service.
+# The hardcoded default only applies on a Pi that was never set up.
+if [[ -z "${STREAM_URL:-}" && -r /etc/default/kiosk ]]; then
+    STREAM_URL="$(. /etc/default/kiosk 2>/dev/null; echo "${STREAM_URL:-}")"
+fi
+STREAM_URL="${STREAM_URL:-rtmp://127.0.0.1/live/restoration}"
 # Splash images. The kiosk cycles through the images in $SPLASH_DIR, advancing
 # by ONE each time the idle splash is (re)entered (no timer — the image only
 # changes when the stream drops and the splash comes back up). $SPLASH_IMAGE is
@@ -26,7 +33,9 @@ STREAM_URL="rtmp://127.0.0.1/live/restoration"
 SPLASH_DIR="${SPLASH_DIR:-/home/kiosk/splash.d}"
 SPLASH_IMAGE="${SPLASH_IMAGE:-/home/kiosk/splash.png}"
 SPLASH_STATE="${SPLASH_STATE:-/home/kiosk/.splash-index}"
-VOLUME=80
+# mpv volume 0-100. Persisted as VOLUME in /etc/default/kiosk by setup-kiosk.sh
+# (from PLAYBACK_VOLUME), so a custom volume survives deploys.
+VOLUME="${VOLUME:-80}"
 # How often the idle loop re-probes for a live publisher. This is the dominant
 # term in splash->stream switch latency: the display stays on splash for up to
 # this long after the ATEM/publisher goes live. ffprobe fails fast (~0.45s)

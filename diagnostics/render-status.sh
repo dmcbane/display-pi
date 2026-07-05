@@ -18,10 +18,13 @@ set -euo pipefail
 OUTPUT="${1:-/tmp/kiosk-status.png}"
 SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 
-# Stream the kiosk player subscribes to. Must stay in step with player.sh —
-# both default to setup-kiosk.sh's default (app=live, key=restoration) and
-# both honor the same env override (/etc/default/kiosk via kiosk.service),
+# Stream the kiosk player subscribes to. Resolved exactly like player.sh:
+# env (kiosk.service EnvironmentFile) wins, then /etc/default/kiosk directly
+# (standalone ssh/cron runs have no EnvironmentFile), then the setup default —
 # so the screen reports what the player is actually configured to show.
+if [[ -z "${STREAM_URL:-}" && -r /etc/default/kiosk ]]; then
+    STREAM_URL="$(. /etc/default/kiosk 2>/dev/null; echo "${STREAM_URL:-}")"
+fi
 STREAM_URL="${STREAM_URL:-rtmp://127.0.0.1/live/restoration}"
 STREAM_KEY="${STREAM_URL##*/}"
 _stream_path="${STREAM_URL#*://}"

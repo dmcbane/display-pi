@@ -24,6 +24,7 @@ import shutil
 import socket
 import subprocess
 import time
+import urllib.request
 from datetime import datetime, timezone
 from html import escape
 from pathlib import Path
@@ -48,6 +49,37 @@ THUMB_SIZE = (320, 180)
 # TOKEN from the conf until the first rotation writes the file.
 STATE_DIR  = Path(os.environ.get('KIOSK_WEB_STATE', '/var/lib/kiosk-web'))
 TOKEN_FILE = Path(os.environ.get('TOKEN_FILE', str(STATE_DIR / 'token')))
+
+# The kiosk's persistent config store, written by install/setup-kiosk.sh and
+# loaded into the player via kiosk.service EnvironmentFile=. Reading it here
+# (fresh on every status build — it can change under us) keeps the board's
+# stream key in step with what the player is actually subscribed to.
+KIOSK_ENV_FILE     = Path(os.environ.get('KIOSK_ENV_FILE', '/etc/default/kiosk'))
+DEFAULT_STREAM_URL = 'rtmp://127.0.0.1/live/restoration'
+# nginx rtmp_stat endpoint (loopback-only, see install/nginx.conf): lists every
+# publisher actually connected, whatever key they are pushing to.
+RTMP_STAT_URL      = os.environ.get('RTMP_STAT_URL', 'http://127.0.0.1:8080/stat')
+
+
+def _stream_url():
+    """The RTMP URL the player subscribes to: env > config store > default."""
+    env = os.environ.get('STREAM_URL')
+    if env:
+        return env
+    try:
+        for line in KIOSK_ENV_FILE.read_text().splitlines():
+            key, sep, value = line.strip().partition('=')
+            if sep and key == 'STREAM_URL':
+                value = value.strip().strip('\'"')
+                if value:
+                    return value
+    except OSError:
+        pass
+    return DEFAULT_STREAM_URL
+
+
+def _stream_key():
+    return _stream_url().rsplit('/', 1)[-1]
 
 # Once a request proves itself with a URL ?token=, we hand the browser this
 # cookie so every later request authenticates without the secret in the URL
@@ -479,15 +511,92 @@ def _check_nginx():
             'detail': 'Active but port 1935 not listening'}
 
 
+def _check_player_stream():
+    """The stream/key the player subscribes to. Informational — always OK —
+    but critical for day-of-event triage: a publisher pushing to the wrong key
+    looks identical to 'no stream' without this row on the board."""
+    url = _stream_url()
+    return {'status': 'OK', 'label': 'Player Stream',
+            'detail': f'key={_stream_key()} ({url})'}
+
+
 def _check_rtmp_stream():
     if not _port_open('127.0.0.1', 1935):
         return {'status': 'WARN', 'label': 'RTMP Stream', 'detail': 'nginx not ready'}
-    r = _run(['ffprobe', '-v', 'quiet', '-show_entries', 'stream=codec_type',
-              '-of', 'default=nw=1:nk=1', 'rtmp://127.0.0.1/live/restoration'],
-             timeout=6)
+    url = _stream_url()
+    key = _stream_key()
+    # Tight analyzeduration/probesize so a live stream answers as soon as the
+    # first frames parse — on the Pi the RTMP handshake alone eats 3-6s, and
+    # ffprobe's defaults blew the old 6s budget even with a healthy stream.
+    r = _run(['ffprobe', '-v', 'quiet',
+              '-analyzeduration', '1500000', '-probesize', '500000',
+              '-show_entries', 'stream=codec_type',
+              '-of', 'default=nw=1:nk=1', url],
+             timeout=8)
     if r and r.returncode == 0 and r.stdout.strip():
-        return {'status': 'OK', 'label': 'RTMP Stream', 'detail': 'Live'}
-    return {'status': 'WARN', 'label': 'RTMP Stream', 'detail': 'No active stream'}
+        return {'status': 'OK', 'label': 'RTMP Stream', 'detail': f'Live ({key})'}
+    return {'status': 'WARN', 'label': 'RTMP Stream',
+            'detail': f'No active stream on {key}'}
+
+
+def _fetch_stat():
+    """Raw rtmp_stat XML, or None when the endpoint is unreachable."""
+    try:
+        with urllib.request.urlopen(RTMP_STAT_URL, timeout=3) as r:
+            return r.read()
+    except (OSError, ValueError):
+        return None
+
+
+def _parse_stat_xml(xml_bytes):
+    # Same defensive posture as diagnostics/parse_stat.py: defusedxml when
+    # available, stdlib fallback (the endpoint is loopback-only).
+    try:
+        from defusedxml import ElementTree as ET
+    except ImportError:
+        from xml.etree import ElementTree as ET
+    return ET.fromstring(xml_bytes)
+
+
+def _check_publishers():
+    """One row per publisher connected to nginx-rtmp: OK when it pushes the
+    key the player expects, WARN on a mismatch (the splash-stuck failure mode
+    where a wrong key looks identical to 'no stream'). Returns a LIST of rows;
+    build_status flattens it."""
+    xml = _fetch_stat()
+    if xml is None:
+        return [{'status': 'WARN', 'label': 'Publishers',
+                 'detail': f'stat endpoint unreachable ({RTMP_STAT_URL})'}]
+    try:
+        root = _parse_stat_xml(xml)
+    except Exception:
+        return [{'status': 'WARN', 'label': 'Publishers',
+                 'detail': 'stat XML parse failed'}]
+    expected = _stream_key()
+    rows = []
+    for app_el in root.findall('.//application'):
+        app_name = (app_el.findtext('name') or '?').strip()
+        for stream in app_el.findall('.//stream'):
+            pub = next((c for c in stream.findall('client')
+                        if c.find('publishing') is not None), None)
+            if pub is None:
+                continue
+            name = (stream.findtext('name') or '?').strip()
+            addr = (pub.findtext('address') or '?').strip()
+            try:
+                bw = f' {int(stream.findtext("bw_in") or 0) / 1_000_000:.1f} Mb/s'
+            except ValueError:
+                bw = ''
+            if name == expected:
+                rows.append({'status': 'OK', 'label': 'Publisher',
+                             'detail': f'{app_name}/{name} from {addr}{bw}'})
+            else:
+                rows.append({'status': 'WARN', 'label': 'Publisher',
+                             'detail': f'{app_name}/{name} from {addr}{bw}'
+                                       f' (player expects {expected})'})
+    if not rows:
+        return [{'status': 'OK', 'label': 'Publishers', 'detail': 'none'}]
+    return rows
 
 
 def _check_disk():
@@ -586,7 +695,9 @@ STATUS_CHECKS = (
     _check_link,
     _check_link_errors,
     _check_nginx,
+    _check_player_stream,
     _check_rtmp_stream,
+    _check_publishers,
     _check_kiosk_player,
     _check_disk,
     _check_memory,
@@ -601,7 +712,10 @@ def build_status():
     checks = []
     for fn in STATUS_CHECKS:
         try:
-            checks.append(fn())
+            result = fn()
+            # _check_publishers returns one row per publisher (a list);
+            # everything else returns a single row dict.
+            checks.extend(result if isinstance(result, list) else [result])
         except Exception as exc:  # a probe must never take the board down
             checks.append({'status': 'WARN',
                            'label': fn.__name__.replace('_check_', '').replace('_', ' ').title(),

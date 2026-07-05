@@ -36,6 +36,13 @@ HDMI_MODE                ?=
 # a static IP added by a previous run.
 STATIC_IP                ?=
 
+# Optional gateway / DNS for the static profile (setup only). Leave empty when
+# STATIC_IP is just a direct-reach extra address (DHCP owns the routes). Set
+# when the static address is the Pi's primary identity on a DHCP-less network.
+# STATIC_DNS is comma-separated (nmcli syntax), e.g. 192.168.0.1,1.1.1.1.
+STATIC_GATEWAY           ?=
+STATIC_DNS               ?=
+
 # System-wide default locale for the Pi (setup only). Generated and set as the
 # default, and stripped from sshd's AcceptEnv so a login never shows the
 # "cannot change locale" warning regardless of what the client forwards. Match
@@ -119,6 +126,12 @@ help:
 	@echo "  STATIC_IP='$(STATIC_IP)'"
 	@echo "      Extra static IP on Ethernet alongside DHCP (setup only),"
 	@echo "      e.g. 192.168.50.1/24. Empty = DHCP only; 'none' removes it."
+	@echo "      Applies on reboot (or: sudo nmcli connection up kiosk-static)."
+	@echo "  STATIC_GATEWAY='$(STATIC_GATEWAY)'"
+	@echo "      Optional gateway for the static profile (setup only). Leave"
+	@echo "      empty for a direct-reach extra address (DHCP owns routes)."
+	@echo "  STATIC_DNS='$(STATIC_DNS)'"
+	@echo "      Optional DNS for the static profile, comma-separated (setup only)."
 	@echo "  DISPLAY_LOCALE=$(DISPLAY_LOCALE)"
 	@echo "      System default locale (setup only). Stops the 'cannot change"
 	@echo "      locale' SSH login warning. Match your region, e.g. en_GB.UTF-8."
@@ -138,9 +151,18 @@ help:
 
 # One-time setup: rsync the repo to the SSH user's home and run setup-kiosk.sh.
 # Use this on a fresh Pi before `make deploy`. setup-kiosk.sh is idempotent,
-# so re-running is safe. All setup variables (KIOSK_USER, STREAM_KEY,
-# RTMP_APP, PLAYBACK_VOLUME, SPLASH_TEXT, RTMP_ALLOW_PUBLISH_CIDRS, HDMI_MODE,
-# STATIC_IP, DISPLAY_LOCALE) are forwarded to the remote shell — see `make help`.
+# so re-running is safe.
+#
+# Only variables you explicitly set (command line or environment) are
+# forwarded to the Pi — $(origin) distinguishes them from Makefile defaults.
+# Anything not forwarded keeps its persisted value from a previous setup
+# (/etc/default/kiosk on the Pi), so `make setup HDMI_MODE=…` months after
+# `make provision STREAM_KEY=mykey` cannot silently reset the stream key.
+SETUP_FWD_VARS := KIOSK_USER STREAM_KEY RTMP_APP PLAYBACK_VOLUME SPLASH_TEXT \
+    RTMP_ALLOW_PUBLISH_CIDRS HDMI_MODE STATIC_IP STATIC_GATEWAY STATIC_DNS \
+    DISPLAY_LOCALE
+SETUP_ENV = $(foreach v,$(SETUP_FWD_VARS),$(if $(filter command line environment%,$(origin $(v))),$(v)='$($(v))'))
+
 setup:
 	@echo "Bootstrapping $(HOST)..."
 	@rsync -avz \
@@ -151,15 +173,7 @@ setup:
 	    --exclude='__pycache__/' \
 	    ./ $(HOST):display-pi-bootstrap/
 	@ssh -t $(HOST) "cd display-pi-bootstrap && \
-	    KIOSK_USER='$(KIOSK_USER)' \
-	    STREAM_KEY='$(STREAM_KEY)' \
-	    RTMP_APP='$(RTMP_APP)' \
-	    PLAYBACK_VOLUME='$(PLAYBACK_VOLUME)' \
-	    SPLASH_TEXT='$(SPLASH_TEXT)' \
-	    RTMP_ALLOW_PUBLISH_CIDRS='$(RTMP_ALLOW_PUBLISH_CIDRS)' \
-	    HDMI_MODE='$(HDMI_MODE)' \
-	    STATIC_IP='$(STATIC_IP)' \
-	    DISPLAY_LOCALE='$(DISPLAY_LOCALE)' \
+	    $(SETUP_ENV) \
 	    bash install/setup-kiosk.sh"
 
 # One command to take a fresh Pi all the way to a working, volunteer-managed

@@ -125,12 +125,20 @@ if [[ -d /opt/kiosk-web ]] && ! ls /etc/nginx/kiosk-web-site.d/*.conf &>/dev/nul
     echo "seeded default HTTP web-manager site block"
 fi
 
-# Install nginx config if changed
-if ! diff -q ${REMOTE_DIR}/install/nginx.conf /etc/nginx/nginx.conf &>/dev/null 2>&1; then
-    sudo cp ${REMOTE_DIR}/install/nginx.conf /etc/nginx/nginx.conf
+# Install nginx config if changed. Rendered through render-nginx-conf.sh with
+# the RTMP app/CIDRs persisted in /etc/default/kiosk, so a deploy never
+# reverts values configured at setup time (install/nginx.conf is the
+# structural template, not the literal file).
+RENDERED_NGINX=\$(mktemp)
+# sudo: the template lives under /home/kiosk (mode 0700), unreadable to the
+# deploy user directly.
+sudo bash ${REMOTE_DIR}/install/render-nginx-conf.sh ${REMOTE_DIR}/install/nginx.conf > "\$RENDERED_NGINX"
+if ! diff -q "\$RENDERED_NGINX" /etc/nginx/nginx.conf &>/dev/null 2>&1; then
+    sudo cp "\$RENDERED_NGINX" /etc/nginx/nginx.conf
     sudo nginx -t && sudo systemctl reload nginx
     echo "nginx config updated and reloaded"
 fi
+rm -f "\$RENDERED_NGINX"
 
 # Symlink the splash images from the deployed repo — no copies, single source
 # of truth, exactly like the bin/ scripts above. /home/kiosk/splash.d is the
