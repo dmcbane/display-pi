@@ -40,7 +40,7 @@ SPLASH_DIR = Path(os.environ.get('SPLASH_DIR', '/var/lib/kiosk-splash'))
 KIOSK_USER = os.environ.get('KIOSK_USER', 'kiosk')
 MAX_BYTES  = 10 * 1024 * 1024
 REQ_SIZE   = (1920, 1080)
-ALLOWED    = {'.png', '.jpg', '.jpeg'}
+ALLOWED    = {'.png', '.jpg', '.jpeg', '.gif', '.webp'}
 THUMB_SIZE = (320, 180)
 
 # The rotatable token store. The app runs as the locked kiosk-web user and
@@ -242,7 +242,7 @@ def upload_image():
     f = request.files['file']
     suffix = Path(f.filename or '').suffix.lower()
     if suffix not in ALLOWED:
-        abort(400, description='Only PNG and JPEG files are accepted')
+        abort(400, description='Only PNG, JPEG, GIF, or WebP files are accepted')
 
     data = f.read()
     if len(data) > MAX_BYTES:
@@ -849,10 +849,10 @@ INDEX_HTML = r"""<!DOCTYPE html>
       <div class="card">
         <div class="card-title">Splash Images</div>
         <div class="upload-row">
-          <input type="file" id="file-input" accept=".png,.jpg,.jpeg" style="display:none">
+          <input type="file" id="file-input" accept=".png,.jpg,.jpeg,.gif,.webp" style="display:none">
           <button class="btn btn-primary" id="upload-btn"
                   onclick="document.getElementById('file-input').click()">&#43; Upload Image</button>
-          <span id="upload-hint">PNG or JPEG &middot; 1920&times;1080 &middot; max 10 MB</span>
+          <span id="upload-hint">PNG, JPEG, GIF, or WebP &middot; 1920&times;1080 &middot; max 10 MB</span>
         </div>
         <div id="image-list"></div>
       </div>
@@ -1049,7 +1049,7 @@ document.getElementById('file-input').addEventListener('change', function() {
     .then(data => { flash('Uploaded ' + data.name); loadImages(); })
     .catch(err => flash('Upload failed: ' + err, false))
     .finally(() => {
-      hint.textContent = 'PNG or JPEG · 1920×1080 · max 10 MB';
+      hint.textContent = 'PNG, JPEG, GIF, or WebP · 1920×1080 · max 10 MB';
       btn.disabled = false;
       this.value = '';
     });

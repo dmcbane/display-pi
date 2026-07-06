@@ -34,13 +34,17 @@ def client(tmp_path, monkeypatch):
         yield c
 
 
-def _make_png(width, height):
+def _make_image(width, height, fmt='PNG'):
     from PIL import Image as PILImage
     img = PILImage.new('RGB', (width, height), color=(255, 0, 0))
     buf = io.BytesIO()
-    img.save(buf, 'PNG')
+    img.save(buf, fmt)
     buf.seek(0)
     return buf.read()
+
+
+def _make_png(width, height):
+    return _make_image(width, height, 'PNG')
 
 
 def _upload(client, stem):
@@ -234,6 +238,56 @@ def test_upload_valid(client):
     )
     assert r.status_code == 201
     assert r.get_json()['name'].endswith('.png')
+
+
+@pytest.mark.parametrize('fmt,ext', [
+    ('JPEG', '.jpg'),
+    ('GIF', '.gif'),
+    ('WEBP', '.webp'),
+])
+def test_upload_accepts_all_formats(client, fmt, ext):
+    """JPEG, GIF, and WebP are accepted alongside PNG (covered elsewhere)."""
+    data = _make_image(1920, 1080, fmt)
+    r = client.post(
+        f'/api/images?token={TEST_TOKEN}',
+        data={'file': (io.BytesIO(data), f'splash{ext}')},
+        content_type='multipart/form-data',
+    )
+    assert r.status_code == 201
+    assert r.get_json()['name'].endswith(ext)
+
+
+@pytest.mark.parametrize('fmt,ext', [
+    ('GIF', '.gif'),
+    ('WEBP', '.webp'),
+])
+def test_thumbnail_of_new_formats(client, fmt, ext):
+    """Thumbnails render for GIF (palette mode) and WebP without erroring."""
+    data = _make_image(1920, 1080, fmt)
+    r = client.post(
+        f'/api/images?token={TEST_TOKEN}',
+        data={'file': (io.BytesIO(data), f'slide{ext}')},
+        content_type='multipart/form-data',
+    )
+    assert r.status_code == 201
+    name = r.get_json()['name']
+    t = client.get(f'/api/images/{name}?thumb=1&token={TEST_TOKEN}')
+    assert t.status_code == 200
+    assert t.mimetype == 'image/jpeg'
+
+
+def test_new_formats_appear_in_listing(client):
+    """_images() includes .gif and .webp files so they join the rotation UI."""
+    data = _make_image(1920, 1080, 'WEBP')
+    r = client.post(
+        f'/api/images?token={TEST_TOKEN}',
+        data={'file': (io.BytesIO(data), 'announce.webp')},
+        content_type='multipart/form-data',
+    )
+    assert r.status_code == 201
+    names = [img['name'] for img in
+             client.get(f'/api/images?token={TEST_TOKEN}').get_json()]
+    assert r.get_json()['name'] in names
 
 
 def test_upload_sanitizes_filename(client):

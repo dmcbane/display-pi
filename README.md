@@ -84,8 +84,8 @@ the full fresh-Pi-to-Sunday runbook.
 One bookmarked link, no login screen — works from a phone or any browser. From it
 a volunteer can:
 
-- Upload / delete / download splash images (PNG or JPEG, exactly 1920×1080,
-  ≤ 10 MB) and drag-and-drop (or ↑↓) to reorder the rotation
+- Upload / delete / download splash images (PNG, JPEG, GIF, or WebP, exactly
+  1920×1080, ≤ 10 MB) and drag-and-drop (or ↑↓) to reorder the rotation
 - **Restart Service** or **Reboot Pi**
 - Watch a live **System Status board** — network, nginx/RTMP, disk, memory, CPU
   temperature, time sync, watchdog, and player health, green/amber/red at a

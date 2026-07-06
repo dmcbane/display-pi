@@ -15,7 +15,7 @@ that step.
 ## What the manager does
 
 **Splash images** (left column)
-: Upload PNG/JPEG slides (exactly 1920×1080, ≤ 10 MB), delete or download
+: Upload PNG/JPEG/GIF/WebP slides (exactly 1920×1080, ≤ 10 MB), delete or download
   existing ones, and drag-and-drop (or use the ↑↓ buttons) to reorder the
   rotation. Changes take effect on the next **Restart Service**.
 

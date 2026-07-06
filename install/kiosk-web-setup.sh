@@ -61,7 +61,7 @@ chown "$WEB_USER:$WEB_USER" "$STATE_DIR"
 chmod 0700 "$STATE_DIR"
 
 # 3. Seed with repo images if empty
-if ! find "$SPLASH_DIR" -maxdepth 1 \( -name '*.png' -o -name '*.jpg' -o -name '*.jpeg' \) \
+if ! find "$SPLASH_DIR" -maxdepth 1 \( -name '*.png' -o -name '*.jpg' -o -name '*.jpeg' -o -name '*.gif' -o -name '*.webp' \) \
         2>/dev/null | grep -q .; then
     if [[ -d "$REPO_DIR/images/splash.d" ]]; then
         log "Seeding $SPLASH_DIR with images from repo..."
@@ -73,7 +73,7 @@ if ! find "$SPLASH_DIR" -maxdepth 1 \( -name '*.png' -o -name '*.jpg' -o -name '
                 echo "  copied $(basename "$f")"
             fi
         done < <(find "$REPO_DIR/images/splash.d" -maxdepth 1 \
-                      \( -name '*.png' -o -name '*.jpg' -o -name '*.jpeg' \) \
+                      \( -name '*.png' -o -name '*.jpg' -o -name '*.jpeg' -o -name '*.gif' -o -name '*.webp' \) \
                       2>/dev/null | sort)
     fi
 fi

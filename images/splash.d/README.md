@@ -10,8 +10,9 @@ single continuous idle period shows one image until the stream toggles.
 
 - **Order is deterministic by filename.** Prefix with `01-`, `02-`, … to control
   the sequence.
-- **Format:** 1920×1080 PNG (or JPG) to match the display; mpv letterboxes
-  anything off-aspect.
+- **Format:** 1920×1080 PNG, JPG, GIF, or WebP to match the display; mpv
+  letterboxes anything off-aspect. Animated GIF/WebP plays and loops (mpv
+  treats animated images as video, and the player already passes `--loop`).
 - **`*-volunteer.png` is reserved.** The volunteer "replace splash" SSH pipeline
   writes `00-volunteer.png` directly into `/home/kiosk/splash.d/` on the Pi, and
   `deploy.sh` excludes `*-volunteer.png` from its `--delete` sync so a deploy

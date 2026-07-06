@@ -4,6 +4,18 @@ All notable changes to display-pi are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.25.0] - 2026-07-06
+
+### Added
+- **GIF and WebP splash images.** The web manager now accepts PNG, JPEG, GIF,
+  or WebP uploads (same 1920×1080 / 10 MB rules), `player.sh` includes the new
+  extensions in the rotation scan, and `kiosk-web-setup.sh`'s "seed if empty"
+  check recognises them so a folder holding only a GIF/WebP is not re-seeded.
+  Animated GIF/WebP loops on screen (mpv treats animated images as video, and
+  the player already passes `--loop`). The SSH-bundle fallback path
+  (`accept-splash.sh`) intentionally remains PNG-only — its validation and the
+  hand-delivered volunteer scripts are built around a single staged PNG.
+
 ## [0.24.1] - 2026-07-06
 
 ### Fixed

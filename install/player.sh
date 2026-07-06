@@ -157,7 +157,8 @@ next_splash_image() {
         while IFS= read -r -d '' f; do
             images+=("$f")
         done < <(find -L "$SPLASH_DIR" -maxdepth 1 -type f \
-            \( -iname '*.png' -o -iname '*.jpg' -o -iname '*.jpeg' \) -print0 \
+            \( -iname '*.png' -o -iname '*.jpg' -o -iname '*.jpeg' \
+               -o -iname '*.gif' -o -iname '*.webp' \) -print0 \
             2>/dev/null | sort -z)
     fi
     if (( ${#images[@]} == 0 )); then
