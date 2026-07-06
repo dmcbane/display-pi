@@ -15,7 +15,9 @@ Pi over SSH using a hand-delivered bundle. This doc covers what you (the
 AV admin) do.
 
 > **Rotation (v0.11.0+):** the kiosk now cycles through the images in
-> `/home/kiosk/splash.d/`, advancing one image each time the splash is
+> its rotation folder (`SPLASH_DIR` from `/etc/default/kiosk` — the
+> web-managed folder once the web manager is installed, else
+> `/home/kiosk/splash.d/`), advancing one image each time the splash is
 > re-entered (no timer). The volunteer upload lands in that folder as
 > `00-volunteer.<ext>` (extension follows the uploaded format) and
 > **joins the rotation** — repeat uploads overwrite it (latest wins).
@@ -132,10 +134,12 @@ The full chain:
 6. **Installer.** That helper reads the single `staged.<ext>` file from
    the fixed staging dir (`/var/lib/splash-updater/`) — the extension,
    whitelisted to the four formats, is how the argument-less sudo call
-   learns the format — and writes to the fixed
-   `/home/kiosk/splash.d/00-volunteer.<ext>` (no path choice), removing
-   volunteer slides in other formats so exactly one is in rotation,
-   then restarts the kiosk so the new slide appears within ~2 seconds.
+   learns the format — and writes `00-volunteer.<ext>` into the rotation
+   folder the player actually reads (`SPLASH_DIR` from
+   `/etc/default/kiosk`, falling back to `/home/kiosk/splash.d`; the
+   uploader gets no path choice), removing volunteer slides in other
+   formats so exactly one is in rotation, then restarts the kiosk so
+   the new slide appears within ~2 seconds.
 
 End-to-end verified on the live Pi during initial deployment: full
 PNGs accepted, truncated PNGs rejected, shell attempts rejected, scp

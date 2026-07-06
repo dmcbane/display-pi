@@ -4,6 +4,18 @@ All notable changes to display-pi are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.26.1] - 2026-07-06
+
+### Fixed
+- **SSH-bundle volunteer slide now lands in the folder the player reads.**
+  `install-staged-splash.sh` hardcoded `/home/kiosk/splash.d`, but on Pis with
+  the web manager installed the player reads `SPLASH_DIR=/var/lib/kiosk-splash`
+  (set in `/etc/default/kiosk` by `kiosk-web-setup.sh`) — an SSH upload would
+  install a slide the rotation never showed. The installer now reads
+  `SPLASH_DIR` from `/etc/default/kiosk` (falling back to the legacy folder)
+  and gives the slide the folder's owner, so the web manager can also
+  delete/reorder a volunteer slide that lands in its folder.
+
 ## [0.26.0] - 2026-07-06
 
 ### Added

@@ -22,9 +22,17 @@
 set -euo pipefail
 
 STAGING_DIR=/var/lib/splash-updater
-# The kiosk rotates through /home/kiosk/splash.d; the volunteer slide lives
-# there under a fixed, order-leading stem. Repeat uploads overwrite it.
+# The volunteer slide must land in the rotation folder the player actually
+# reads. kiosk.service loads SPLASH_DIR from /etc/default/kiosk (the single
+# source of stream/splash config; kiosk-web-setup.sh points it at the
+# web-managed folder) — honor the same setting, falling back to the legacy
+# folder when it's unset.
 SPLASH_DIR=/home/kiosk/splash.d
+KIOSK_ENV_FILE=/etc/default/kiosk
+if [[ -r "$KIOSK_ENV_FILE" ]]; then
+    configured=$(grep -E '^SPLASH_DIR=' "$KIOSK_ENV_FILE" | tail -1 | cut -d= -f2- | tr -d '"'"'"'')
+    [[ -n "$configured" ]] && SPLASH_DIR="$configured"
+fi
 
 shopt -s nullglob
 staged=("$STAGING_DIR"/staged.*)
@@ -48,9 +56,16 @@ case "$ext" in
 esac
 DEST="$SPLASH_DIR/00-volunteer.$ext"
 
-install -d -o kiosk -g kiosk -m 0755 "$SPLASH_DIR"
+# The legacy folder is kiosk-owned but the web-managed one belongs to
+# kiosk-web — give the slide the folder's owner so whichever manager owns
+# the folder can also delete/reorder the slide.
+if [[ ! -d "$SPLASH_DIR" ]]; then
+    install -d -o kiosk -g kiosk -m 0755 "$SPLASH_DIR"
+fi
+owner=$(stat -c '%U' "$SPLASH_DIR")
+group=$(stat -c '%G' "$SPLASH_DIR")
 rm -f "$SPLASH_DIR"/00-volunteer.*
-install -o kiosk -g kiosk -m 0644 "$STAGED" "$DEST"
+install -o "$owner" -g "$group" -m 0644 "$STAGED" "$DEST"
 rm -f "$STAGED"
 
 # Restart the kiosk so the new splash appears immediately. The cage

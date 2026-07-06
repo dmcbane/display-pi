@@ -14,8 +14,9 @@ single continuous idle period shows one image until the stream toggles.
   letterboxes anything off-aspect. Animated GIF/WebP plays and loops (mpv
   treats animated images as video, and the player already passes `--loop`).
 - **`*-volunteer.*` is reserved.** The volunteer "replace splash" SSH pipeline
-  writes `00-volunteer.<ext>` directly into `/home/kiosk/splash.d/` on the Pi,
-  and `deploy.sh` excludes `*-volunteer.*` from its `--delete` sync so a deploy
+  writes `00-volunteer.<ext>` into the player's rotation folder on the Pi
+  (`SPLASH_DIR` from `/etc/default/kiosk`, else `/home/kiosk/splash.d/`), and
+  `deploy.sh` excludes `*-volunteer.*` from its `--delete` sync so a deploy
   never wipes the volunteer's slide. Don't commit a `*-volunteer.*` here.
 
 ## Fallback

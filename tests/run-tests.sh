@@ -1485,8 +1485,19 @@ assert_contains "install-staged-splash.sh pins the fixed staging dir" \
     "$REPO_ROOT/install/install-staged-splash.sh" 'STAGING_DIR=/var/lib/splash-updater'
 assert_contains "install-staged-splash.sh globs staged.* (format travels via extension)" \
     "$REPO_ROOT/install/install-staged-splash.sh" '"\$STAGING_DIR"/staged\.\*'
-assert_contains "install-staged-splash.sh pins the rotation folder" \
+# The player's kiosk.service loads /etc/default/kiosk via EnvironmentFile=,
+# and kiosk-web-setup.sh points SPLASH_DIR at the web-managed folder there.
+# The installer must honor the same setting or the volunteer slide lands in
+# a folder the player never reads (found during the 0.26.0 on-Pi shakeout).
+assert_contains "install-staged-splash.sh reads SPLASH_DIR from the kiosk config store" \
+    "$REPO_ROOT/install/install-staged-splash.sh" '/etc/default/kiosk'
+assert_contains "install-staged-splash.sh falls back to the legacy rotation folder" \
     "$REPO_ROOT/install/install-staged-splash.sh" 'SPLASH_DIR=/home/kiosk/splash.d'
+# /home/kiosk/splash.d is kiosk-owned but the web-managed dir is
+# kiosk-web-owned; the slide must follow the folder's owner or the web
+# manager can't delete/reorder it.
+assert_contains "install-staged-splash.sh gives the slide the rotation folder's owner" \
+    "$REPO_ROOT/install/install-staged-splash.sh" 'stat -c'
 assert_contains "install-staged-splash.sh writes the volunteer slide under the staged extension" \
     "$REPO_ROOT/install/install-staged-splash.sh" '00-volunteer\.\$ext'
 assert_contains "install-staged-splash.sh whitelists the staged extension (sudo hardening)" \
