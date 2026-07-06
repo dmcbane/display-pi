@@ -2093,6 +2093,26 @@ assert_contains "setup-kiosk.sh tells the user how to activate kiosk-static now"
 
 # ============================================================================
 echo ""
+echo "=== Volunteer URL Token-Source Tests ==="
+# ============================================================================
+# The live token is the rotatable /var/lib/kiosk-web/token (app-owned; written
+# on first rotation); /etc/kiosk-web.conf's TOKEN= is only the install seed.
+# volunteer-web-url must prefer the store, else every URL it generates after a
+# rotation carries the dead seed token (found on-Pi 2026-07-06, issue #11).
+assert_contains "Makefile volunteer-web-url reads the rotatable token store" \
+    "$REPO_ROOT/Makefile" '/var/lib/kiosk-web/token'
+assert_contains "Makefile volunteer-web-url falls back to the conf seed token" \
+    "$REPO_ROOT/Makefile" 'TOKEN=. /etc/kiosk-web.conf'
+
+# deploy.sh's kiosk_manager.py freshness diff must run as root: the repo copy
+# lives under /home/kiosk (0700), unreadable to the deploy user, so a plain
+# diff always fails and the block reinstalled + RESTARTED kiosk-web on every
+# deploy — a ~1s 502 for anyone using the manager (found on-Pi 2026-07-06).
+assert_contains "deploy.sh kiosk-web freshness diff runs as root (0700 /home/kiosk)" \
+    "$DEPLOY" 'sudo diff -q \${REMOTE_DIR}/web/kiosk_manager.py'
+
+# ============================================================================
+echo ""
 echo "=== Kiosk Web Manager Tests (Python) ==="
 # ============================================================================
 # Auto-create a small venv with flask+pillow+pytest on first run; re-use after.

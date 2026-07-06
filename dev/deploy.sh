@@ -167,7 +167,10 @@ if [[ -d /opt/kiosk-web ]]; then
         sudo install -d -m 0700 -o kiosk-web -g kiosk-web /var/lib/kiosk-web
         echo "created /var/lib/kiosk-web token store"
     fi
-    if ! diff -q ${REMOTE_DIR}/web/kiosk_manager.py /opt/kiosk-web/kiosk_manager.py &>/dev/null; then
+    # sudo: the repo copy is under /home/kiosk (0700) — an unreadable diff
+    # "fails", which reinstalled and restarted kiosk-web on EVERY deploy
+    # (a ~1s 502 for anyone mid-session in the manager).
+    if ! sudo diff -q ${REMOTE_DIR}/web/kiosk_manager.py /opt/kiosk-web/kiosk_manager.py &>/dev/null; then
         sudo install -m 0644 -o root -g root \
             ${REMOTE_DIR}/web/kiosk_manager.py /opt/kiosk-web/kiosk_manager.py
         sudo systemctl restart kiosk-web

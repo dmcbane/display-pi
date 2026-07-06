@@ -395,8 +395,11 @@ setup-web-tls:
 # Generate volunteer URL shortcut files from the live token on the Pi.
 # Outputs volunteer-kiosk.webloc (Mac) and volunteer-kiosk.url (Windows/Linux).
 # Both are gitignored — they contain the auth token.
+# The LIVE token is the rotatable /var/lib/kiosk-web/token (written by the
+# app on first rotation); /etc/kiosk-web.conf's TOKEN= is only the install
+# seed, dead after any rotation. Prefer the store, fall back to the seed.
 volunteer-web-url:
-	@TOKEN=$$(ssh $(HOST) "sudo grep '^TOKEN=' /etc/kiosk-web.conf 2>/dev/null | cut -d= -f2-"); \
+	@TOKEN=$$(ssh $(HOST) "sudo cat /var/lib/kiosk-web/token 2>/dev/null || sudo grep '^TOKEN=' /etc/kiosk-web.conf 2>/dev/null | cut -d= -f2-"); \
 	if [ -z "$$TOKEN" ]; then \
 	    echo "ERROR: kiosk-web not set up on $(HOST). Run: make setup-web HOST=$(HOST)"; \
 	    exit 1; \

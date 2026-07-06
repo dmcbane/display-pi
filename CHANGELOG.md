@@ -4,6 +4,20 @@ All notable changes to display-pi are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.24.1] - 2026-07-06
+
+### Fixed
+- **`make volunteer-web-url` now reads the rotatable token store.** It read
+  only the install seed `TOKEN=` from `/etc/kiosk-web.conf`, so every shortcut
+  file generated after a token rotation carried the dead seed token (verified
+  403 on the Pi during the issue #11 shakeout). It now prefers the live
+  `/var/lib/kiosk-web/token` and falls back to the seed on a fresh install.
+- **Deploy no longer restarts kiosk-web when nothing changed.** The
+  freshness diff for `kiosk_manager.py` ran as the deploy user, which cannot
+  read `/home/kiosk` (0700) — the diff always "failed", so every deploy
+  reinstalled and restarted the manager, a ~1s 502 for anyone mid-session.
+  The diff now runs under sudo (same fix the kiosk.service block already had).
+
 ## [0.24.0] - 2026-07-05
 
 ### Fixed
