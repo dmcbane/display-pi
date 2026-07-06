@@ -394,6 +394,12 @@ echo "=== Deploy Script Tests ==="
 assert_contains "deploy.sh uses rsync" "$REPO_ROOT/dev/deploy.sh" "rsync"
 assert_contains "deploy.sh excludes .git" "$REPO_ROOT/dev/deploy.sh" "exclude='.git/'"
 assert_contains "deploy.sh restarts kiosk service" "$REPO_ROOT/dev/deploy.sh" "systemctl --user restart"
+# `systemctl --user` fails with "Failed to connect to user scope bus" unless
+# DBUS_SESSION_BUS_ADDRESS points at the kiosk user's bus (learned in
+# become-kiosk.sh, 2026-06-13). Every remote `systemctl --user` call site must
+# carry it, not just XDG_RUNTIME_DIR.
+assert_contains "deploy.sh sets DBUS_SESSION_BUS_ADDRESS for systemctl --user" \
+    "$REPO_ROOT/dev/deploy.sh" "DBUS_SESSION_BUS_ADDRESS"
 assert_contains "deploy.sh installs nginx config" "$REPO_ROOT/dev/deploy.sh" "nginx.conf"
 
 # `make restart` bounces the kiosk service without a full deploy — used during
@@ -405,6 +411,8 @@ assert_contains "Makefile restart target restarts kiosk.service" \
     "$REPO_ROOT/Makefile" "systemctl --user restart kiosk.service"
 assert_contains "Makefile restart target uses the password-free 'sudo -u kiosk' path" \
     "$REPO_ROOT/Makefile" "sudo -u .* systemctl --user restart"
+assert_contains "Makefile restart target sets DBUS_SESSION_BUS_ADDRESS for systemctl --user" \
+    "$REPO_ROOT/Makefile" "DBUS_SESSION_BUS_ADDRESS"
 
 # Bug 2026-04-25: /home/kiosk is mode 0700, so the deploy user (rpi) cannot
 # read kiosk.service on either side of the diff. The bare `diff -q` always
@@ -429,6 +437,11 @@ assert_contains "overlay reads /tmp/kiosk-health.json" "$REPO_ROOT/install/mpv-h
 assert_contains "overlay positions health bottom-right" "$REPO_ROOT/install/mpv-health-overlay.lua" "\\\\an3"
 assert_contains "overlay uses create_osd_overlay" "$REPO_ROOT/install/mpv-health-overlay.lua" "create_osd_overlay"
 assert_contains "overlay detects stale data" "$REPO_ROOT/install/mpv-health-overlay.lua" "STALE_THRESHOLD"
+# The overlay's stale window MUST match healthcheck.sh (-mmin -2) and the web
+# board (HEALTH_STALE_SEC=120), else the screen flags STALE while the manager
+# still shows green. Writer cadence is 20s, so 120s = 6 missed writes.
+assert_contains "overlay stale threshold matches healthcheck/web board (120s)" \
+    "$REPO_ROOT/install/mpv-health-overlay.lua" "STALE_THRESHOLD = 120"
 # Hostname/IP watermark belongs only on the error/diagnostic screen
 # (render-status.sh), never overlaid on the splash or live stream. The
 # overlay must keep the bottom-right health corner but render no info corner.
@@ -686,6 +699,10 @@ assert_contains "become-kiosk.sh derives DBUS_SESSION_BUS_ADDRESS from runtime d
     "$REPO_ROOT/install/become-kiosk.sh" 'unix:path=\$XDG_RUNTIME_DIR/bus'
 assert_contains "become-kiosk.sh defaults target user to kiosk" \
     "$REPO_ROOT/install/become-kiosk.sh" 'KIOSK_USER:-kiosk'
+# The same DBUS lesson applies to setup-kiosk.sh's own `systemctl --user
+# daemon-reload/enable` calls — they set XDG but were missing the bus address.
+assert_contains "setup-kiosk.sh sets DBUS_SESSION_BUS_ADDRESS for its systemctl --user calls" \
+    "$REPO_ROOT/install/setup-kiosk.sh" "DBUS_SESSION_BUS_ADDRESS"
 # setup-kiosk.sh must install become-kiosk into /usr/local/bin so the
 # operator can run `become-kiosk` from any SSH session without needing
 # to know the repo path.
@@ -1768,6 +1785,27 @@ assert_contains "create_splash keeps the ImageMagick placeholder fallback" \
     "$SETUP" 'convert -size 1920x1080'
 assert_contains "setup-kiosk.sh bootstrap player has the rotation picker" \
     "$SETUP" 'next_splash_image'
+# The bootstrap player (runs between `make setup` and `make deploy`) is a hand
+# copy of install/player.sh and drifts. It must rotate all 5 splash formats
+# (matching the canonical player) and read STREAM_URL from /etc/default/kiosk
+# (the single config source, commit 8e8b352) rather than baking a literal.
+assert_contains "setup-kiosk.sh bootstrap player globs gif slides" \
+    "$SETUP" "iname '\*.gif'"
+assert_contains "setup-kiosk.sh bootstrap player globs webp slides" \
+    "$SETUP" "iname '\*.webp'"
+assert_contains "setup-kiosk.sh bootstrap player reads STREAM_URL override (single config source)" \
+    "$SETUP" 'STREAM_URL:-'
+# Both the bootstrap player glob AND the create_splash source picker must
+# offer the new formats — count the gif/webp globs to prove neither was missed.
+gif_globs=$(grep -c "iname '\*.gif'" "$SETUP")
+if [[ "$gif_globs" -eq 2 ]]; then
+    PASS=$((PASS + 1))
+    printf "${GREEN}  PASS${RESET} setup-kiosk.sh has gif glob in both bootstrap player and create_splash picker\n"
+else
+    FAIL=$((FAIL + 1))
+    ERRORS+=("setup-kiosk.sh gif globs: expected 2, found $gif_globs")
+    printf "${RED}  FAIL${RESET} setup-kiosk.sh gif globs (expected 2, found %s)\n" "$gif_globs"
+fi
 
 # ============================================================================
 echo ""

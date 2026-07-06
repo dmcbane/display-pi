@@ -22,7 +22,9 @@ local utils = require 'mp.utils'
 
 local HEALTH_FILE     = '/tmp/kiosk-health.json'
 local POLL_SEC        = 5
-local STALE_THRESHOLD = 60  -- seconds
+local STALE_THRESHOLD = 120  -- seconds; matches healthcheck.sh (-mmin -2) and
+                             -- kiosk_manager.py HEALTH_STALE_SEC. Writer cadence
+                             -- is 20s, so this is 6 missed writes.
 
 -- ASS colors are in BGR hex, not RGB.
 local COLOR_WARN  = '&H0000FFFF&'  -- yellow

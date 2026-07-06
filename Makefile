@@ -318,10 +318,12 @@ shutdown:
 # the splash rotation by one image (when the stream is idle). Uses the same
 # password-free `sudo -u kiosk` path as `make deploy` (deploy sudoers
 # whitelist), so it won't prompt. Single-quoted so the Pi resolves the kiosk
-# UID, not the workstation.
+# UID, not the workstation. DBUS_SESSION_BUS_ADDRESS is required alongside
+# XDG_RUNTIME_DIR or `systemctl --user` fails to reach the user bus
+# (become-kiosk.sh, 2026-06-13); the deploy sudoers SETENV grant passes both.
 restart:
 	@echo "Restarting kiosk service on $(HOST)..."
-	@ssh $(HOST) 'sudo -u $(KIOSK_USER) XDG_RUNTIME_DIR="/run/user/$$(id -u $(KIOSK_USER))" systemctl --user restart kiosk.service'
+	@ssh $(HOST) 'sudo -u $(KIOSK_USER) XDG_RUNTIME_DIR="/run/user/$$(id -u $(KIOSK_USER))" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$$(id -u $(KIOSK_USER))/bus" systemctl --user restart kiosk.service'
 	@echo "Kiosk service restarted on $(HOST)."
 
 # --- Volunteer bundle ---

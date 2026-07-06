@@ -646,7 +646,8 @@ create_splash() {
         while IFS= read -r -d '' img; do
             candidates+=("$img")
         done < <(find "$images_dir" -maxdepth 1 -type f \
-            \( -iname '*.png' -o -iname '*.jpg' -o -iname '*.jpeg' \) -print0 \
+            \( -iname '*.png' -o -iname '*.jpg' -o -iname '*.jpeg' \
+               -o -iname '*.gif' -o -iname '*.webp' \) -print0 \
             2>/dev/null | sort -z)
     fi
     # Only prompt on a real terminal; a non-interactive run falls through to
@@ -709,7 +710,14 @@ create_player_script() {
 
 set -u
 
-STREAM_URL="${stream_url}"
+# Stream config comes from /etc/default/kiosk (the single source, commit
+# 8e8b352). The bootstrap kiosk.service has no EnvironmentFile=, so read the
+# file directly here — the baked literal below is only the last-resort default
+# for a Pi where the config store somehow went missing.
+if [[ -z "\${STREAM_URL:-}" && -r /etc/default/kiosk ]]; then
+    STREAM_URL="\$(. /etc/default/kiosk 2>/dev/null; echo "\${STREAM_URL:-}")"
+fi
+STREAM_URL="\${STREAM_URL:-${stream_url}}"
 # Rotation folder (cycled one image per splash entry) + legacy single-image
 # fallback. Overridable via /etc/default/kiosk.
 SPLASH_DIR="\${SPLASH_DIR:-/home/${KIOSK_USER}/splash.d}"
@@ -726,7 +734,8 @@ next_splash_image() {
         while IFS= read -r -d '' f; do
             images+=("\$f")
         done < <(find -L "\$SPLASH_DIR" -maxdepth 1 -type f \\
-            \\( -iname '*.png' -o -iname '*.jpg' -o -iname '*.jpeg' \\) -print0 \\
+            \\( -iname '*.png' -o -iname '*.jpg' -o -iname '*.jpeg' \\
+               -o -iname '*.gif' -o -iname '*.webp' \\) -print0 \\
             2>/dev/null | sort -z)
     fi
     if (( \${#images[@]} == 0 )); then
@@ -837,11 +846,16 @@ WantedBy=default.target
 EOF
 
     # Enable and reload as the kiosk user
+    # systemctl --user needs both XDG_RUNTIME_DIR and DBUS_SESSION_BUS_ADDRESS
+    # or it fails with "Failed to connect to user scope bus" (see
+    # become-kiosk.sh, 2026-06-13). SETENV in the deploy sudoers passes both.
     local kiosk_uid
     kiosk_uid=$(id -u "$KIOSK_USER")
     sudo -u "$KIOSK_USER" XDG_RUNTIME_DIR="/run/user/${kiosk_uid}" \
+        DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/${kiosk_uid}/bus" \
         systemctl --user daemon-reload
     sudo -u "$KIOSK_USER" XDG_RUNTIME_DIR="/run/user/${kiosk_uid}" \
+        DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/${kiosk_uid}/bus" \
         systemctl --user enable kiosk.service
     log "Kiosk service enabled (starts automatically on next boot)."
 }

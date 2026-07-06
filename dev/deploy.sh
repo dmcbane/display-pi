@@ -183,9 +183,14 @@ REMOTE
 log "Reloading kiosk service..."
 ssh "${HOST}" bash <<REMOTE
 KIOSK_UID=\$(id -u ${KIOSK_USER})
+# systemctl --user needs DBUS_SESSION_BUS_ADDRESS as well as XDG_RUNTIME_DIR,
+# or it fails with "Failed to connect to user scope bus" (become-kiosk.sh,
+# 2026-06-13). The deploy sudoers grants SETENV so both survive.
 sudo -u ${KIOSK_USER} XDG_RUNTIME_DIR="/run/user/\${KIOSK_UID}" \
+    DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/\${KIOSK_UID}/bus" \
     systemctl --user daemon-reload
 sudo -u ${KIOSK_USER} XDG_RUNTIME_DIR="/run/user/\${KIOSK_UID}" \
+    DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/\${KIOSK_UID}/bus" \
     systemctl --user restart kiosk.service
 echo "Kiosk service restarted"
 REMOTE
