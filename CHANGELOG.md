@@ -4,6 +4,23 @@ All notable changes to display-pi are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.26.0] - 2026-07-06
+
+### Added
+- **SSH-bundle splash path now accepts JPEG, GIF, and WebP alongside PNG.**
+  `accept-splash.sh` validates all four formats (identify with a `[0]` frame
+  selector for animated files; `file -b` fallback) and checks each format's
+  end-of-stream marker (PNG `IEND`, JPEG EOI, GIF trailer, WebP RIFF size) to
+  catch truncated uploads. The format travels to the argument-less sudo
+  installer via the staged filename (`staged.<ext>`); `install-staged-splash.sh`
+  globs it, whitelists the extension, installs `00-volunteer.<ext>`, and drops
+  old-format volunteer slides so exactly one is in rotation. Volunteer client
+  scripts (`splash-replace.sh`/`.ps1`) detect all four magics; local dimension
+  checks stay for PNG/GIF (fixed-offset headers) and defer to the Pi for
+  JPEG/WebP. `deploy.sh` now excludes `*-volunteer.*` (was `*-volunteer.png`)
+  from its `--delete` sync. Behavior tests generate fixtures with Pillow and
+  cover accept + truncation for every format.
+
 ## [0.25.0] - 2026-07-06
 
 ### Added

@@ -3,10 +3,11 @@
 # Replaces the splash image on the church-display Pi. Validates the file
 # locally first (so an obviously-wrong file fails fast with a clear
 # message), then uploads via SSH to the kiosk. The Pi re-validates on
-# arrival and refuses to install anything that isn't a 1920x1080 PNG.
+# arrival and refuses to install anything that isn't a 1920x1080 PNG,
+# JPEG, GIF, or WebP.
 #
 # Usage:
-#   powershell -ExecutionPolicy Bypass -File splash-replace.ps1 <path\to\image.png>
+#   powershell -ExecutionPolicy Bypass -File splash-replace.ps1 <path\to\image>
 #
 # Optional environment:
 #   $env:SPLASH_HOST       Override the Pi hostname/IP (default: displaypi)
@@ -58,34 +59,47 @@ if (-not (Test-Path $ImagePath)) {
 
 $resolved = (Resolve-Path $ImagePath).Path
 
-# 1. PNG magic bytes (first 8 bytes: 89 50 4E 47 0D 0A 1A 0A).
-$header = [System.IO.File]::ReadAllBytes($resolved) | Select-Object -First 8
+# 1. Detect the format from magic bytes (first 12 bytes cover all four:
+#    PNG 89504E47..., JPEG FFD8FF, GIF "GIF87a"/"GIF89a", WebP is
+#    "RIFF"<4-byte size>"WEBP").
+$header = [System.IO.File]::ReadAllBytes($resolved) | Select-Object -First 12
 $magic = ($header | ForEach-Object { '{0:X2}' -f $_ }) -join ''
-if ($magic -ne '89504E470D0A1A0A') {
-    Write-Host "ERROR: '$ImagePath' is not a PNG file." -ForegroundColor Red
-    Write-Host '       Save your image as PNG (not JPG/HEIC/etc) and try again.'
+$fmt = $null
+if ($magic.StartsWith('89504E470D0A1A0A')) { $fmt = 'PNG' }
+elseif ($magic.StartsWith('FFD8FF')) { $fmt = 'JPEG' }
+elseif ($magic.StartsWith('474946383761') -or $magic.StartsWith('474946383961')) { $fmt = 'GIF' }
+elseif ($magic.StartsWith('52494646') -and $magic.Length -ge 24 -and $magic.Substring(16, 8) -eq '57454250') { $fmt = 'WEBP' }
+if (-not $fmt) {
+    Write-Host "ERROR: '$ImagePath' is not a PNG, JPEG, GIF, or WebP file." -ForegroundColor Red
+    Write-Host '       Save your image in one of those formats (not HEIC/BMP/etc) and try again.'
     exit 2
 }
 
-# 2. Dimensions via System.Drawing (built-in on Windows).
-Add-Type -AssemblyName System.Drawing
-$img = $null
-try {
-    $img = [System.Drawing.Image]::FromFile($resolved)
-    $width = $img.Width
-    $height = $img.Height
-}
-finally {
-    if ($img) { $img.Dispose() }
-}
+# 2. Dimensions via System.Drawing (built-in on Windows; decodes PNG/JPEG/GIF
+#    but not WebP — for WebP the Pi-side check is the gatekeeper).
+if ($fmt -ne 'WEBP') {
+    Add-Type -AssemblyName System.Drawing
+    $img = $null
+    try {
+        $img = [System.Drawing.Image]::FromFile($resolved)
+        $width = $img.Width
+        $height = $img.Height
+    }
+    finally {
+        if ($img) { $img.Dispose() }
+    }
 
-if ($width -ne 1920 -or $height -ne 1080) {
-    Write-Host "ERROR: image is ${width}x${height}, but must be exactly 1920x1080." -ForegroundColor Red
-    Write-Host '       Resize in your image editor and export as PNG.'
-    exit 2
-}
+    if ($width -ne 1920 -or $height -ne 1080) {
+        Write-Host "ERROR: image is ${width}x${height}, but must be exactly 1920x1080." -ForegroundColor Red
+        Write-Host '       Resize in your image editor and try again.'
+        exit 2
+    }
 
-Write-Host '[splash-replace] file looks good (1920x1080 PNG)'
+    Write-Host "[splash-replace] file looks good (1920x1080 $fmt)"
+} else {
+    Write-Host '[splash-replace] file looks like a WEBP image; the display will'
+    Write-Host '[splash-replace] verify the 1920x1080 size when it arrives.'
+}
 Write-Host "[splash-replace] uploading to $Host_..."
 
 # Pipe the file over SSH. PowerShell's `<` doesn't redirect binary safely,

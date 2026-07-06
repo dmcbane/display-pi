@@ -32,7 +32,7 @@ rsync -avz --delete \
     --exclude='*.swp' \
     --exclude='*.swo' \
     --exclude='__pycache__/' \
-    --exclude='*-volunteer.png' \
+    --exclude='*-volunteer.*' \
     "${REPO_ROOT}/" "${HOST}:${REMOTE_DIR}/"
 
 # Symlink install files into expected locations.

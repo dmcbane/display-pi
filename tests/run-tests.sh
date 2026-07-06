@@ -1439,20 +1439,39 @@ assert_executable  "install/accept-splash.sh is executable" \
     "$REPO_ROOT/install/accept-splash.sh"
 assert_contains "accept-splash.sh has set -euo pipefail" \
     "$REPO_ROOT/install/accept-splash.sh" '^set -euo pipefail'
-assert_contains "accept-splash.sh checks for PNG magic via identify or file" \
+assert_contains "accept-splash.sh recognises PNG" \
     "$REPO_ROOT/install/accept-splash.sh" 'PNG'
+assert_contains "accept-splash.sh recognises JPEG" \
+    "$REPO_ROOT/install/accept-splash.sh" 'JPEG'
+assert_contains "accept-splash.sh recognises GIF" \
+    "$REPO_ROOT/install/accept-splash.sh" 'GIF'
+assert_contains "accept-splash.sh recognises WebP" \
+    "$REPO_ROOT/install/accept-splash.sh" 'WEBP'
 assert_contains "accept-splash.sh enforces 1920 width" \
     "$REPO_ROOT/install/accept-splash.sh" '1920'
 assert_contains "accept-splash.sh enforces 1080 height" \
     "$REPO_ROOT/install/accept-splash.sh" '1080'
 assert_contains "accept-splash.sh caps input size (head -c MAX)" \
     "$REPO_ROOT/install/accept-splash.sh" 'head -c'
-assert_contains "accept-splash.sh stages output to fixed path" \
-    "$REPO_ROOT/install/accept-splash.sh" '/var/lib/splash-updater/staged.png'
-# 100-byte truncated PNGs pass identify/file -b validation because both
-# parse only the IHDR header. IEND-chunk check rejects truncated input.
-assert_contains "accept-splash.sh checks for IEND chunk (rejects truncated PNG)" \
+assert_contains "accept-splash.sh stages into the fixed staging dir" \
+    "$REPO_ROOT/install/accept-splash.sh" '/var/lib/splash-updater'
+# The format travels to the no-args sudo installer via the staged filename's
+# extension; the installer globs staged.* and derives the destination from it.
+assert_contains "accept-splash.sh stages under the format's extension" \
+    "$REPO_ROOT/install/accept-splash.sh" 'staged\.\$ext'
+assert_contains "accept-splash.sh clears stale staged files before staging" \
+    "$REPO_ROOT/install/accept-splash.sh" 'staged\.\*'
+# Header parsers (identify / file -b) read only the header — a truncated
+# upload still reports full dimensions. Require each format's end-of-stream
+# marker so interrupted uploads are caught.
+assert_contains "accept-splash.sh checks PNG IEND chunk (rejects truncated PNG)" \
     "$REPO_ROOT/install/accept-splash.sh" 'IEND'
+assert_contains "accept-splash.sh checks JPEG EOI marker (rejects truncated JPEG)" \
+    "$REPO_ROOT/install/accept-splash.sh" 'ffd9'
+assert_contains "accept-splash.sh checks GIF trailer byte (rejects truncated GIF)" \
+    "$REPO_ROOT/install/accept-splash.sh" '3b'
+assert_contains "accept-splash.sh checks WebP RIFF size field (rejects truncated WebP)" \
+    "$REPO_ROOT/install/accept-splash.sh" 'RIFF'
 assert_contains "accept-splash.sh calls sudo install-staged-splash (no args)" \
     "$REPO_ROOT/install/accept-splash.sh" 'sudo /usr/local/libexec/install-staged-splash'
 
@@ -1462,10 +1481,18 @@ assert_executable  "install/install-staged-splash.sh is executable" \
     "$REPO_ROOT/install/install-staged-splash.sh"
 assert_contains "install-staged-splash.sh takes no args (sudo-safe)" \
     "$REPO_ROOT/install/install-staged-splash.sh" 'set -euo pipefail'
-assert_contains "install-staged-splash.sh copies from fixed staging path" \
-    "$REPO_ROOT/install/install-staged-splash.sh" '/var/lib/splash-updater/staged.png'
-assert_contains "install-staged-splash.sh writes the volunteer slide into the rotation folder" \
-    "$REPO_ROOT/install/install-staged-splash.sh" '/home/kiosk/splash.d/00-volunteer.png'
+assert_contains "install-staged-splash.sh pins the fixed staging dir" \
+    "$REPO_ROOT/install/install-staged-splash.sh" 'STAGING_DIR=/var/lib/splash-updater'
+assert_contains "install-staged-splash.sh globs staged.* (format travels via extension)" \
+    "$REPO_ROOT/install/install-staged-splash.sh" '"\$STAGING_DIR"/staged\.\*'
+assert_contains "install-staged-splash.sh pins the rotation folder" \
+    "$REPO_ROOT/install/install-staged-splash.sh" 'SPLASH_DIR=/home/kiosk/splash.d'
+assert_contains "install-staged-splash.sh writes the volunteer slide under the staged extension" \
+    "$REPO_ROOT/install/install-staged-splash.sh" '00-volunteer\.\$ext'
+assert_contains "install-staged-splash.sh whitelists the staged extension (sudo hardening)" \
+    "$REPO_ROOT/install/install-staged-splash.sh" 'png|jpg|jpeg|gif|webp'
+assert_contains "install-staged-splash.sh drops old-format volunteer slides (one slide, latest wins)" \
+    "$REPO_ROOT/install/install-staged-splash.sh" '00-volunteer\.\*'
 assert_contains "install-staged-splash.sh restarts kiosk so new splash shows" \
     "$REPO_ROOT/install/install-staged-splash.sh" 'systemctl --machine=kiosk@.host --user restart kiosk.service'
 
@@ -1520,6 +1547,12 @@ assert_executable  "dev/splash-replace.sh is executable" \
     "$REPO_ROOT/dev/splash-replace.sh"
 assert_contains "splash-replace.sh client validates PNG magic before upload" \
     "$REPO_ROOT/dev/splash-replace.sh" '89504e470d0a1a0a'
+assert_contains "splash-replace.sh client recognises JPEG magic" \
+    "$REPO_ROOT/dev/splash-replace.sh" 'ffd8ff'
+assert_contains "splash-replace.sh client recognises GIF magic" \
+    "$REPO_ROOT/dev/splash-replace.sh" '474946383'
+assert_contains "splash-replace.sh client recognises WebP magic (RIFF....WEBP)" \
+    "$REPO_ROOT/dev/splash-replace.sh" '57454250'
 assert_contains "splash-replace.sh client validates 1920x1080 before upload" \
     "$REPO_ROOT/dev/splash-replace.sh" '1920'
 assert_contains "splash-replace.sh client pipes file via ssh stdin" \
@@ -1529,6 +1562,12 @@ assert_file_exists "dev/splash-replace.ps1 exists" \
     "$REPO_ROOT/dev/splash-replace.ps1"
 assert_contains "splash-replace.ps1 checks PNG magic" \
     "$REPO_ROOT/dev/splash-replace.ps1" '89504E470D0A1A0A'
+assert_contains "splash-replace.ps1 recognises JPEG magic" \
+    "$REPO_ROOT/dev/splash-replace.ps1" 'FFD8FF'
+assert_contains "splash-replace.ps1 recognises GIF magic" \
+    "$REPO_ROOT/dev/splash-replace.ps1" '474946383'
+assert_contains "splash-replace.ps1 recognises WebP magic" \
+    "$REPO_ROOT/dev/splash-replace.ps1" '57454250'
 assert_contains "splash-replace.ps1 checks 1920x1080" \
     "$REPO_ROOT/dev/splash-replace.ps1" '1920'
 assert_contains "splash-replace.ps1 sends file to splash-updater" \
@@ -1554,8 +1593,10 @@ splash_validation_behavior_test() {
     fi
     local tmpdir
     tmpdir=$(mktemp -d)
+    mkdir -p "$tmpdir/staging"
+
     # Stub `sudo` so the validator doesn't actually try to invoke the
-    # privileged installer. Also stub staging path via env override.
+    # privileged installer.
     cat > "$tmpdir/sudo" <<'SUDO'
 #!/bin/bash
 # Stub: pretend the install-staged-splash succeeded.
@@ -1564,89 +1605,119 @@ exit 0
 SUDO
     chmod +x "$tmpdir/sudo"
 
-    # Stub `identify` so we exercise the IEND-chunk check on the Pi-side
-    # validator regardless of whether ImageMagick is installed locally.
-    # The stub reports any input that starts with PNG magic as
-    # "1920 1080 PNG" so the dimension+format checks pass — only the
-    # IEND-chunk check should decide pass/fail for the truncation case.
-    cat > "$tmpdir/identify" <<'ID'
+    # A python with Pillow drives both fixture generation and the identify
+    # stub, so the stub reports REAL dimensions/format (a magic-only stub
+    # that hardcodes 1920x1080 would silently pass wrong-dimension inputs).
+    # The kiosk-web venv is created by the pytest section below; on a
+    # first-ever run fall back to system python3 + PIL, else skip the
+    # fixture-driven cases.
+    local pybin=""
+    if [[ -x "$SCRIPT_DIR/kiosk-web-venv/bin/python" ]] && \
+       "$SCRIPT_DIR/kiosk-web-venv/bin/python" -c 'import PIL' 2>/dev/null; then
+        pybin="$SCRIPT_DIR/kiosk-web-venv/bin/python"
+    elif python3 -c 'import PIL' 2>/dev/null; then
+        pybin="python3"
+    fi
+
+    # Stub `identify` (like `identify -format '%w %h %m' file[0]`) so the
+    # validator is exercised deterministically whether or not ImageMagick
+    # is installed locally. Strips the [0] frame selector; exits nonzero
+    # when the file can't be parsed, pushing the script to its `file -b`
+    # fallback exactly like the real identify does.
+    if [[ -n "$pybin" ]]; then
+        cat > "$tmpdir/identify" <<ID
 #!/bin/bash
-# Argv: -format <fmt> <file>
-file="${!#}"
-magic=$(od -An -N8 -tx1 "$file" 2>/dev/null | tr -d ' \n')
+f="\${!#}"; f="\${f%\\[0\\]}"
+exec "$pybin" -c 'import sys
+from PIL import Image
+im = Image.open(sys.argv[1])
+print(im.width, im.height, im.format)' "\$f" 2>/dev/null
+ID
+    else
+        cat > "$tmpdir/identify" <<'ID'
+#!/bin/bash
+f="${!#}"; f="${f%\[0\]}"
+magic=$(od -An -N8 -tx1 "$f" 2>/dev/null | tr -d ' \n')
 if [[ "$magic" == "89504e470d0a1a0a" ]]; then
     echo "1920 1080 PNG"
     exit 0
 fi
 exit 1
 ID
+    fi
     chmod +x "$tmpdir/identify"
 
-    # Case 0: truncated 1920x1080 PNG (first 100 bytes of a valid file).
-    # identify/file -b both parse only IHDR, so this passes the dim check
-    # — the IEND-chunk check is what catches it.
-    local truncated="$tmpdir/truncated.png"
-    head -c 100 "$REPO_ROOT/images/splash.png" > "$truncated"
-    out=$(PATH="$tmpdir:$PATH" \
-          SPLASH_STAGING_PATH="$tmpdir/staged.png" \
-          "$script" < "$truncated" 2>&1) && rc=0 || rc=$?
-    if [[ $rc -eq 2 ]] && echo "$out" | grep -qi 'iend\|truncat'; then
-        PASS=$((PASS + 1))
-        printf "${GREEN}  PASS${RESET} accept-splash rejects truncated PNG (IEND check)\n"
-    else
-        FAIL=$((FAIL + 1))
-        ERRORS+=("accept-splash truncated: rc=$rc out=$out")
-        printf "${RED}  FAIL${RESET} accept-splash rejects truncated PNG (rc=%s out=%s)\n" "$rc" "$out"
-    fi
-
-    # Case 1: not a PNG (random bytes) — should reject with exit 2
-    local non_png="$tmpdir/not-png.bin"
-    head -c 200 /dev/urandom > "$non_png"
     local out rc
-    out=$(PATH="$tmpdir:$PATH" \
-          SPLASH_STAGING_PATH="$tmpdir/staged.png" \
-          "$script" < "$non_png" 2>&1) && rc=0 || rc=$?
-    if [[ $rc -eq 2 ]] && echo "$out" | grep -qi 'png\|image'; then
-        PASS=$((PASS + 1))
-        printf "${GREEN}  PASS${RESET} accept-splash rejects non-PNG input\n"
-    else
-        FAIL=$((FAIL + 1))
-        ERRORS+=("accept-splash non-PNG: rc=$rc out=$out")
-        printf "${RED}  FAIL${RESET} accept-splash rejects non-PNG input (rc=%s)\n" "$rc"
-    fi
-
-    # Case 2: wrong-dimension PNG — should reject with exit 2
-    if command -v convert >/dev/null 2>&1; then
-        local wrong_dim="$tmpdir/wrong-dim.png"
-        convert -size 640x480 xc:red "$wrong_dim" 2>/dev/null
+    run_accept() {  # $1 = input file → sets out/rc
         out=$(PATH="$tmpdir:$PATH" \
-              SPLASH_STAGING_PATH="$tmpdir/staged.png" \
-              "$script" < "$wrong_dim" 2>&1) && rc=0 || rc=$?
-        if [[ $rc -eq 2 ]] && echo "$out" | grep -qE '1920|dimension|size'; then
+              SPLASH_STAGING_DIR="$tmpdir/staging" \
+              "$script" < "$1" 2>&1) && rc=0 || rc=$?
+    }
+    behavior_case() {  # $1 = description, $2 = pass/fail condition result
+        if [[ "$2" == "0" ]]; then
             PASS=$((PASS + 1))
-            printf "${GREEN}  PASS${RESET} accept-splash rejects 640x480 PNG\n"
+            printf "${GREEN}  PASS${RESET} %s\n" "$1"
         else
             FAIL=$((FAIL + 1))
-            ERRORS+=("accept-splash 640x480: rc=$rc out=$out")
-            printf "${RED}  FAIL${RESET} accept-splash rejects 640x480 PNG (rc=%s)\n" "$rc"
+            ERRORS+=("$1: rc=$rc out=$out")
+            printf "${RED}  FAIL${RESET} %s (rc=%s out=%s)\n" "$1" "$rc" "$out"
         fi
+    }
 
-        # Case 3: correct PNG — should succeed (sudo stubbed)
-        local good_png="$tmpdir/good.png"
-        convert -size 1920x1080 xc:blue "$good_png" 2>/dev/null
-        out=$(PATH="$tmpdir:$PATH" \
-              SPLASH_STAGING_PATH="$tmpdir/staged.png" \
-              "$script" < "$good_png" 2>&1) && rc=0 || rc=$?
-        if [[ $rc -eq 0 ]] && echo "$out" | grep -qi 'ok'; then
-            PASS=$((PASS + 1))
-            printf "${GREEN}  PASS${RESET} accept-splash accepts 1920x1080 PNG\n"
-        else
-            FAIL=$((FAIL + 1))
-            ERRORS+=("accept-splash 1920x1080: rc=$rc out=$out")
-            printf "${RED}  FAIL${RESET} accept-splash accepts 1920x1080 PNG (rc=%s out=%s)\n" "$rc" "$out"
-        fi
+    # Case 0: truncated 1920x1080 PNG (first 100 bytes of a valid file).
+    # Header parsers still report full dimensions — the IEND-chunk check
+    # is what catches it.
+    head -c 100 "$REPO_ROOT/images/splash.png" > "$tmpdir/truncated.png"
+    run_accept "$tmpdir/truncated.png"
+    [[ $rc -eq 2 ]] && echo "$out" | grep -qi 'iend\|truncat'
+    behavior_case "accept-splash rejects truncated PNG (IEND check)" "$?"
+
+    # Case 1: not an image (random bytes) — should reject with exit 2
+    head -c 200 /dev/urandom > "$tmpdir/not-image.bin"
+    run_accept "$tmpdir/not-image.bin"
+    [[ $rc -eq 2 ]] && echo "$out" | grep -qi 'png\|image'
+    behavior_case "accept-splash rejects non-image input" "$?"
+
+    if [[ -n "$pybin" ]]; then
+        "$pybin" - "$tmpdir" <<'PY'
+import sys
+from PIL import Image
+d = sys.argv[1]
+Image.new('RGB', (640, 480), (255, 0, 0)).save(f'{d}/wrong-dim.png', 'PNG')
+for fmt, ext in [('PNG', 'png'), ('JPEG', 'jpg'), ('GIF', 'gif'), ('WEBP', 'webp')]:
+    Image.new('RGB', (1920, 1080), (0, 0, 255)).save(f'{d}/good.{ext}', fmt)
+PY
+
+        # Case 2: wrong-dimension PNG — should reject with exit 2
+        run_accept "$tmpdir/wrong-dim.png"
+        [[ $rc -eq 2 ]] && echo "$out" | grep -qE '1920|dimension|size'
+        behavior_case "accept-splash rejects 640x480 PNG" "$?"
+
+        # Case 3: correct image in each supported format — should succeed
+        # (sudo stubbed) and stage under the format's extension, clearing
+        # the previous format's staged file (installer expects exactly one).
+        local ext staged_count
+        for ext in png jpg gif webp; do
+            run_accept "$tmpdir/good.$ext"
+            staged_count=$(find "$tmpdir/staging" -maxdepth 1 -name 'staged.*' | wc -l)
+            [[ $rc -eq 0 && -f "$tmpdir/staging/staged.$ext" && "$staged_count" == "1" ]]
+            behavior_case "accept-splash accepts 1920x1080 .$ext and stages staged.$ext (only)" "$?"
+        done
+
+        # Case 4: truncated JPEG/GIF/WebP — the per-format end-marker checks
+        # catch these. A truncated WebP can also die earlier (identify/PIL
+        # decode eagerly and fail; without file(1) the format is unknown) —
+        # either way it must be rejected with exit 2.
+        local size
+        for ext in jpg gif webp; do
+            size=$(stat -c %s "$tmpdir/good.$ext")
+            head -c $((size / 2)) "$tmpdir/good.$ext" > "$tmpdir/trunc.$ext"
+            run_accept "$tmpdir/trunc.$ext"
+            [[ $rc -eq 2 ]] && echo "$out" | grep -qi 'truncat\|not a'
+            behavior_case "accept-splash rejects truncated .$ext" "$?"
+        done
     else
-        printf "${RED}  SKIP${RESET} accept-splash dimension tests (convert not installed)\n"
+        printf "${RED}  SKIP${RESET} accept-splash fixture cases (no python with Pillow)\n"
     fi
 
     rm -rf "$tmpdir"
@@ -1729,8 +1800,8 @@ assert_contains "deploy.sh symlinks the fallback splash.png (no copy)" \
     "$DEPLOY" 'ln -sf .*images/splash.png'
 assert_not_contains "deploy.sh no longer copies splash images (symlinked instead)" \
     "$DEPLOY" 'cp .*images/splash'
-assert_contains "deploy.sh excludes the volunteer drop-in from --delete (survives deploy)" \
-    "$DEPLOY" "exclude='\\*-volunteer.png'"
+assert_contains "deploy.sh excludes the volunteer drop-in from --delete (survives deploy, any format)" \
+    "$DEPLOY" "exclude='\\*-volunteer\\.\\*'"
 
 assert_contains "install-staged-splash.sh ensures the rotation folder exists" \
     "$STAGED_INSTALL" 'splash.d'

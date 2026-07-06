@@ -32,8 +32,8 @@ the key file in the same folder as themselves.
 Your image must be:
 
 - **Exactly 1920 × 1080 pixels** (also called "Full HD" or "1080p")
-- **PNG format** (not JPG, HEIC, GIF, BMP, etc.)
-- **Under 10 MB** (most PNGs are well under this)
+- **PNG, JPEG, GIF, or WebP format** (not HEIC, BMP, etc.)
+- **Under 10 MB** (most images are well under this)
 
 If your image doesn't match these rules, the script will tell you which
 one is wrong and stop without changing anything. **Nothing on the
@@ -41,7 +41,7 @@ display changes until your image passes all the checks.**
 
 > **Why these rules?** The display is exactly 1920×1080 pixels. An image
 > of the wrong size would be stretched or cropped on screen, and the
-> Pi only knows how to read PNG files.
+> Pi only knows how to read those four file formats.
 
 ---
 
@@ -80,8 +80,8 @@ to change the splash" section below.
 
 ### On a Mac or Linux computer
 
-1. Save your new image as a PNG file. The filename doesn't matter —
-   the script doesn't care what you call it.
+1. Save your new image as a PNG, JPEG, GIF, or WebP file. The filename
+   doesn't matter — the script doesn't care what you call it.
 
 2. Open the **Terminal** and `cd` to the folder with the three files
    (same as the setup step above).
@@ -99,7 +99,7 @@ to change the splash" section below.
 
 ### On a Windows computer
 
-1. Save your new image as a PNG file anywhere.
+1. Save your new image as a PNG, JPEG, GIF, or WebP file anywhere.
 
 2. **Right-click** on `splash-replace.ps1` and choose **"Run with
    PowerShell"**.
@@ -119,8 +119,11 @@ to change the splash" section below.
 ```
 [splash-replace] file looks good (1920x1080 PNG)
 [splash-replace] uploading to displaypi...
-OK: splash.png replaced (1920x1080 PNG, 987395 bytes)
+OK: splash replaced (1920x1080 PNG, 987395 bytes)
 ```
+
+(For a JPEG or WebP image the first line instead says the display will
+verify the size when it arrives — that's normal.)
 
 About 2 seconds after the "OK" line, the display in the sanctuary will
 go dark for a moment then come back showing your new image.
@@ -131,7 +134,7 @@ go dark for a moment then come back showing your new image.
 
 | Message you see | What's wrong | What to do |
 |---|---|---|
-| `not a PNG file` | Your image isn't a PNG | Open it in your editor and "Save As" / "Export As" PNG |
+| `not a PNG, JPEG, GIF, or WebP file` | Unsupported format (HEIC, BMP, …) | Open it in your editor and "Save As" / "Export As" PNG or JPEG |
 | `must be exactly 1920x1080` | Wrong dimensions | Resize your image to 1920×1080 and try again |
 | `file too large` | Image is over 10 MB | Re-export at a slightly lower quality setting |
 | `file not found` | Typo in the path | Drag the image into Terminal/PowerShell instead of typing |
@@ -158,7 +161,7 @@ allowed to change the splash. Please:
 
 The display is set up so that even if someone gets the key file, the
 **only** thing they can do with it is replace the splash image with
-another valid 1920×1080 PNG. They cannot get into the display, read
+another valid 1920×1080 image. They cannot get into the display, read
 files, change settings, or stop the worship stream — the key only
 opens that one specific door.
 
