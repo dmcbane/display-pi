@@ -23,7 +23,7 @@ STREAM_KEY ?= restoration
 RTMP_APP                 ?= live
 PLAYBACK_VOLUME          ?= 80
 SPLASH_TEXT              ?= Service will begin shortly
-RTMP_ALLOW_PUBLISH_CIDRS ?= 192.168.0.0/16 10.0.0.0/8
+RTMP_ALLOW_PUBLISH_CIDRS ?= 192.168.0.0/24
 
 # HDMI mode forced via the kernel video= parameter in cmdline.txt.
 # Empty/unset = let EDID pick. Use `make hdmi-mode HDMI_MODE=...` after

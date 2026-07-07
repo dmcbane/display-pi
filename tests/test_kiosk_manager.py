@@ -5,6 +5,7 @@ Or directly: tests/kiosk-web-venv/bin/pytest tests/test_kiosk_manager.py -v
 """
 
 import io
+import json
 import os
 import sys
 
@@ -101,6 +102,23 @@ def test_index_has_documentation_link(client):
     """The manager links out to the published documentation site."""
     body = client.get(f'/?token={TEST_TOKEN}').get_data(as_text=True)
     assert 'https://dmcbane.github.io/display-pi/' in body
+
+
+def test_index_token_echo_is_js_escaped(client):
+    """The reflected ?token= must be injected inertly: json.dumps stops JS
+    quote-breakout, and < > & escaping stops </script> block-breakout. auth()
+    accepts the request on a valid cookie regardless of the query token, so the
+    reflection is attacker-influenced on a live session."""
+    # Authenticate first: the cookie carries the session, so the later request's
+    # query token is attacker-influenced yet still reflected into the page.
+    client.get(f'/?token={TEST_TOKEN}')
+    # A payload trying to break out of both the JS string and the <script> block.
+    payload = "</script><script>alert(1)</script>"
+    html = client.get(f'/?token={payload}').get_data(as_text=True)
+    # The injected sequence must never appear raw (it would close the block).
+    assert '</script><script>alert(1)' not in html
+    # It survives only as unicode-escaped, inert text inside the JS string.
+    assert '\\u003c/script\\u003e' in html
 # ── cookie hardening ─────────────────────────────────────────────────────────
 
 def _set_cookie_header(response):
@@ -227,6 +245,24 @@ def test_upload_oversize(client, monkeypatch):
     )
     assert r.status_code == 400
     assert 'large' in r.get_json()['error'].lower()
+
+
+def test_max_content_length_configured(client):
+    """Flask MAX_CONTENT_LENGTH is set so an oversized body is rejected before
+    the whole thing is buffered into RAM — defense-in-depth for the loopback
+    path that bypasses nginx's client_max_body_size."""
+    assert kiosk_manager.app.config['MAX_CONTENT_LENGTH'] == kiosk_manager.MAX_BYTES
+
+
+def test_upload_body_over_hard_limit_rejected(client):
+    """A body past MAX_CONTENT_LENGTH gets a 413 from Flask itself."""
+    big = b'x' * (kiosk_manager.MAX_BYTES + 1)
+    r = client.post(
+        f'/api/images?token={TEST_TOKEN}',
+        data={'file': (io.BytesIO(big), 'huge.png')},
+        content_type='multipart/form-data',
+    )
+    assert r.status_code == 413
 
 
 def test_upload_valid(client):

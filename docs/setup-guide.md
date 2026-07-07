@@ -50,9 +50,11 @@ you change the wiring documented in
 Have an answer for these before you start:
 
 - **Pi IP address** — DHCP is fine; reserve it on the router so it's stable.
-- **RTMP allow-list** — the CIDR(s) permitted to push RTMP. Default is
-  `192.168.0.0/16` and `10.0.0.0/8`; tighten to the ATEM's exact IP for
-  better hygiene once it's stable.
+- **RTMP allow-list** — the CIDR(s) permitted to push RTMP. Default is the
+  wired LAN `192.168.0.0/24`; tighten to the ATEM's exact IP (e.g.
+  `192.168.0.42/32`) for even better hygiene once it's stable. The stream key
+  is not a secret, so this allow-list is the real control on who can push to
+  the display.
 - **Stream key** — defaults to `restoration`. The ATEM and the kiosk
   must agree on this.
 - **Static fallback IP (optional)** — if you ever need to reach the Pi on a

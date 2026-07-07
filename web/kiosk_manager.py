@@ -39,6 +39,10 @@ TOKEN      = os.environ.get('TOKEN', '')
 SPLASH_DIR = Path(os.environ.get('SPLASH_DIR', '/var/lib/kiosk-splash'))
 KIOSK_USER = os.environ.get('KIOSK_USER', 'kiosk')
 MAX_BYTES  = 10 * 1024 * 1024
+# Reject an oversized body before Flask buffers the whole thing into RAM.
+# nginx caps the proxied path at 15M, but the app binds 127.0.0.1:5000, so any
+# local process reaching loopback bypasses nginx — this is that backstop.
+app.config['MAX_CONTENT_LENGTH'] = MAX_BYTES
 REQ_SIZE   = (1920, 1080)
 ALLOWED    = {'.png', '.jpg', '.jpeg', '.gif', '.webp'}
 THUMB_SIZE = (320, 180)
@@ -198,7 +202,19 @@ def _strip_prefix(stem):
 
 @app.route('/')
 def index():
-    return INDEX_HTML.replace('%%TOKEN%%', request.args.get('token', ''))
+    # The template lands the token in a JS string: `let TOKEN = %%TOKEN%%;`.
+    # Emit it via json.dumps so a crafted ?token= can't break out of the
+    # quotes and inject script. auth() accepts a request on a valid cookie
+    # regardless of the query token, so this value is attacker-influenced on
+    # a live session — escape it, don't trust it.
+    token_literal = json.dumps(request.args.get('token', ''))
+    # json.dumps stops quote-breakout, but does NOT escape </script> or HTML
+    # metacharacters — a token containing '</script>' would still close the
+    # inline <script> block. Escape < > & so the value stays inert.
+    token_literal = (token_literal.replace('<', '\\u003c')
+                                  .replace('>', '\\u003e')
+                                  .replace('&', '\\u0026'))
+    return INDEX_HTML.replace('%%TOKEN%%', token_literal)
 
 
 @app.route('/api/images')
@@ -906,7 +922,7 @@ INDEX_HTML = r"""<!DOCTYPE html>
 </div>
 
 <script>
-let TOKEN = '%%TOKEN%%';
+let TOKEN = %%TOKEN%%;  // injected as a JSON string literal (see index())
 const qs = (extra) => { const p = new URLSearchParams({token: TOKEN, ...extra}); return '?' + p; };
 
 // The hardened session cookie now carries auth, so once the page has loaded we

@@ -30,7 +30,7 @@ if [[ -r "$ENV_FILE" ]]; then
         RTMP_ALLOW_PUBLISH_CIDRS="$(. "$ENV_FILE" 2>/dev/null; echo "${RTMP_ALLOW_PUBLISH_CIDRS:-}")"
 fi
 RTMP_APP="${RTMP_APP:-live}"
-RTMP_ALLOW_PUBLISH_CIDRS="${RTMP_ALLOW_PUBLISH_CIDRS:-192.168.0.0/16 10.0.0.0/8}"
+RTMP_ALLOW_PUBLISH_CIDRS="${RTMP_ALLOW_PUBLISH_CIDRS:-192.168.0.0/24}"
 
 # Rewrite the application name and replace the contiguous run of
 # `allow publish` lines with one line per configured CIDR (same indent).

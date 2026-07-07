@@ -4,6 +4,37 @@ All notable changes to display-pi are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.28.0] - 2026-07-07
+
+### Security
+- **RTMP publish restricted to the wired `192.168.0.0/24`.** The ingest
+  previously accepted a publisher from any `192.168.0.0/16` or `10.0.0.0/8`
+  host, so anyone on the LAN could push video onto the worship display (the
+  stream key is not a secret — it's shown on the status board). The default
+  `RTMP_ALLOW_PUBLISH_CIDRS` is now the wired subnet in all three source
+  spots (`render-nginx-conf.sh`, `setup-kiosk.sh`, `Makefile`); tighten to the
+  ATEM's `/32` via `/etc/default/kiosk` once its IP is stable.
+- **SSH: root login pinned off; fresh installs default to key-only when a key
+  exists.** `sshd-password-toggle.sh` now writes `PermitRootLogin no` in its
+  first-sorting drop-in. `setup-kiosk.sh` enables key-only auth when the admin
+  user already has an `authorized_keys`, and keeps password auth on (with a
+  nudge) only when no key is present, so a keyless image can't lock you out.
+- **Web manager hardening:** reflected `?token=` is now injected via
+  `json.dumps` plus `< > &` escaping (no JS-string or `</script>` breakout);
+  `MAX_CONTENT_LENGTH` rejects an oversized body before it's buffered into RAM
+  (backstop for the loopback path that bypasses nginx); `kiosk-web.service`
+  gains `ProtectSystem=strict` + `ReadWritePaths`, `ProtectHome`, and kernel/
+  device protections (NoNewPrivileges/PrivateTmp deliberately omitted — they'd
+  break the sudo reboot and the health-file read).
+- **SSH-bundle installer:** `install-staged-splash.sh` (runs as root) now
+  rejects a symlinked staged file, closing a latent arbitrary-file-read.
+
+### Note
+- `/etc/default/kiosk` stays `0644` (world-readable): the web manager reads it
+  as `kiosk-web` for the status board, so it can't be locked to `root:kiosk`.
+  With publish now CIDR-restricted, the stream key it exposes is no longer the
+  security boundary.
+
 ## [0.27.0] - 2026-07-06
 
 ### Fixed

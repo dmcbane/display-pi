@@ -47,6 +47,15 @@ if (( ${#staged[@]} > 1 )); then
 fi
 STAGED="${staged[0]}"
 
+# This installer runs as root (sudo). A symlinked staged file would make the
+# root `install` below copy the link's target (e.g. /etc/shadow) into a
+# world-readable 0644 slide. accept-splash only ever `mv`s a regular mktemp
+# file here, so a symlink means tampering — refuse it.
+if [[ -L "$STAGED" || ! -f "$STAGED" ]]; then
+    echo "ERROR: staged splash is not a regular file (symlink or special): $STAGED" >&2
+    exit 2
+fi
+
 ext="${STAGED##*.}"
 case "$ext" in
     png|jpg|jpeg|gif|webp) ;;

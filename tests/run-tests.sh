@@ -104,6 +104,22 @@ assert_file_exists "Makefile exists" "$REPO_ROOT/Makefile"
 assert_file_exists "images/splash.png exists" "$REPO_ROOT/images/splash.png"
 assert_file_exists "web/kiosk_manager.py exists" "$REPO_ROOT/web/kiosk_manager.py"
 assert_file_exists "install/kiosk-web.service exists" "$REPO_ROOT/install/kiosk-web.service"
+# LAN-facing Flask/Pillow surface that holds a sudo grant to reboot — sandbox
+# it. NoNewPrivileges/PrivateTmp are intentionally NOT set (they'd break the
+# sudo calls and the /tmp/kiosk-health.json read). The service writes only its
+# two /var/lib dirs, declared via ReadWritePaths under ProtectSystem=strict.
+assert_contains "kiosk-web.service runs as the locked kiosk-web user" \
+    "$REPO_ROOT/install/kiosk-web.service" "User=kiosk-web"
+assert_contains "kiosk-web.service sets ProtectSystem=strict" \
+    "$REPO_ROOT/install/kiosk-web.service" "ProtectSystem=strict"
+assert_contains "kiosk-web.service allows writes only to its state/splash dirs" \
+    "$REPO_ROOT/install/kiosk-web.service" "ReadWritePaths=/var/lib/kiosk-web /var/lib/kiosk-splash"
+assert_contains "kiosk-web.service protects home" \
+    "$REPO_ROOT/install/kiosk-web.service" "ProtectHome="
+assert_not_contains "kiosk-web.service does NOT set NoNewPrivileges (would break sudo reboot)" \
+    "$REPO_ROOT/install/kiosk-web.service" "NoNewPrivileges=yes"
+assert_not_contains "kiosk-web.service does NOT set PrivateTmp (would break health-file read)" \
+    "$REPO_ROOT/install/kiosk-web.service" "PrivateTmp=yes"
 assert_file_exists "install/kiosk-web.sudoers exists" "$REPO_ROOT/install/kiosk-web.sudoers"
 assert_file_exists "install/kiosk-web-setup.sh exists" "$REPO_ROOT/install/kiosk-web-setup.sh"
 assert_executable  "install/kiosk-web-setup.sh is executable" "$REPO_ROOT/install/kiosk-web-setup.sh"
@@ -277,7 +293,16 @@ echo "=== nginx Config Tests ==="
 assert_contains "nginx.conf has RTMP block" "$REPO_ROOT/install/nginx.conf" "^rtmp {"
 assert_contains "nginx.conf listens on 1935" "$REPO_ROOT/install/nginx.conf" "listen 1935"
 assert_contains "nginx.conf has live application" "$REPO_ROOT/install/nginx.conf" "application live"
-assert_contains "nginx.conf allows LAN publish" "$REPO_ROOT/install/nginx.conf" "allow publish 192.168.0.0/16"
+# Publish is restricted to the wired /24 the ATEM encoder lives on — NOT the
+# broad /16 + 10/8 (which trusted any private host). The stream key is not a
+# secret (it's shown on the status board), so the CIDR is the real control
+# against a LAN host hijacking the worship display.
+assert_contains "nginx.conf restricts publish to the wired 192.168.0.0/24" \
+    "$REPO_ROOT/install/nginx.conf" "allow publish 192.168.0.0/24"
+assert_not_contains "nginx.conf no longer allows the broad /16 publish range" \
+    "$REPO_ROOT/install/nginx.conf" "allow publish 192.168.0.0/16"
+assert_not_contains "nginx.conf no longer allows the 10.0.0.0/8 publish range" \
+    "$REPO_ROOT/install/nginx.conf" "allow publish 10.0.0.0/8"
 assert_contains "nginx.conf denies external publish" "$REPO_ROOT/install/nginx.conf" "deny publish all"
 assert_contains "nginx.conf allows local play only" "$REPO_ROOT/install/nginx.conf" "allow play 127.0.0.1"
 assert_contains "nginx.conf denies external play" "$REPO_ROOT/install/nginx.conf" "deny play all"
@@ -1519,6 +1544,11 @@ assert_contains "install-staged-splash.sh writes the volunteer slide under the s
     "$REPO_ROOT/install/install-staged-splash.sh" '00-volunteer\.\$ext'
 assert_contains "install-staged-splash.sh whitelists the staged extension (sudo hardening)" \
     "$REPO_ROOT/install/install-staged-splash.sh" 'png|jpg|jpeg|gif|webp'
+# This runs as root via sudo; a symlinked staged file would make the root
+# `install` copy an arbitrary target (e.g. /etc/shadow) into a 0644 file.
+# Require a regular, non-symlink staged file.
+assert_contains "install-staged-splash.sh rejects a symlinked staged file (root arbitrary-read guard)" \
+    "$REPO_ROOT/install/install-staged-splash.sh" '\-L "\$STAGED"'
 assert_contains "install-staged-splash.sh drops old-format volunteer slides (one slide, latest wins)" \
     "$REPO_ROOT/install/install-staged-splash.sh" '00-volunteer\.\*'
 assert_contains "install-staged-splash.sh restarts kiosk so new splash shows" \
@@ -1968,6 +1998,10 @@ assert_contains "toggle always keeps PubkeyAuthentication yes" \
     "$TOGGLE" "PubkeyAuthentication yes"
 assert_contains "toggle manages PasswordAuthentication" \
     "$TOGGLE" "PasswordAuthentication"
+# Root must never be reachable over SSH regardless of password state — the
+# drop-in sorts first so this wins over the stock config / base image.
+assert_contains "toggle pins PermitRootLogin no" \
+    "$TOGGLE" "PermitRootLogin no"
 
 # Validate before applying; reload (not restart) so the live session survives.
 assert_contains "toggle validates config with sshd -t before applying" \
@@ -1999,11 +2033,17 @@ assert_contains "Makefile ssh-password runs the toggle on the Pi" \
     "$REPO_ROOT/Makefile" "sshd-password-toggle.sh"
 assert_contains "Makefile declares ssh-password .PHONY" "$REPO_ROOT/Makefile" "ssh-password"
 
-# Fresh-Pi setup enables password auth (public key OR password) by default.
+# Fresh-Pi setup prefers key-only auth, but only when the deploy user already
+# has an authorized_keys entry — otherwise it keeps password auth on so a Pi
+# imaged without a key can't lock the operator out. Both branches exist.
 assert_contains "setup-kiosk.sh wires in SSH auth config" \
     "$REPO_ROOT/install/setup-kiosk.sh" "configure_ssh_auth"
-assert_contains "setup-kiosk.sh enables password auth on a fresh Pi" \
-    "$REPO_ROOT/install/setup-kiosk.sh" "sshd-password-toggle.sh on"
+assert_contains "setup-kiosk.sh checks for an installed pubkey before choosing" \
+    "$REPO_ROOT/install/setup-kiosk.sh" "authorized_keys"
+assert_contains "setup-kiosk.sh flips to key-only when a key is present" \
+    "$REPO_ROOT/install/setup-kiosk.sh" 'bash "\$src" off'
+assert_contains "setup-kiosk.sh keeps password auth as the no-key fallback" \
+    "$REPO_ROOT/install/setup-kiosk.sh" 'bash "\$src" on'
 
 # ============================================================================
 echo ""

@@ -45,7 +45,7 @@ persisted_default() {
 
 # Network CIDRs allowed to push RTMP to this Pi. Tighten to the ATEM's IP
 # (e.g. "192.168.1.42/32") once you know it's stable. Space-separated string.
-RTMP_ALLOW_PUBLISH_CIDRS="${RTMP_ALLOW_PUBLISH_CIDRS:-$(persisted_default RTMP_ALLOW_PUBLISH_CIDRS '192.168.0.0/16 10.0.0.0/8')}"
+RTMP_ALLOW_PUBLISH_CIDRS="${RTMP_ALLOW_PUBLISH_CIDRS:-$(persisted_default RTMP_ALLOW_PUBLISH_CIDRS '192.168.0.0/24')}"
 
 # The stream key the ATEM will push with. Must match ATEM's config.
 STREAM_KEY="${STREAM_KEY:-$(persisted_default STREAM_KEY restoration)}"
@@ -957,11 +957,14 @@ configure_deploy_sudoers() {
 # Step 10c: SSH auth — allow login by public key OR password
 # =============================================================================
 #
-# Delegates to `install/sshd-password-toggle.sh on`, which writes the
+# Delegates to `install/sshd-password-toggle.sh`, which writes the
 # /etc/ssh/sshd_config.d/00-display-pi-auth.conf drop-in (pubkey always on,
-# password on), validates with `sshd -t`, and reloads sshd. Flip password
-# auth off later with `sudo bash install/sshd-password-toggle.sh off` or, from
-# the workstation, `make ssh-password STATE=off`.
+# root login off), validates with `sshd -t`, and reloads sshd.
+#
+# Auth default: prefer KEY-ONLY, but only when the admin (deploy) user already
+# has an authorized_keys entry — otherwise a Pi imaged without a key would lock
+# the operator out, so we keep password auth on for first access. Flip it
+# either way later with `make ssh-password STATE=on|off`.
 configure_ssh_auth() {
     local src
     src="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/sshd-password-toggle.sh"
@@ -971,8 +974,18 @@ configure_ssh_auth() {
         return
     fi
 
-    log "Enabling SSH login by public key OR password..."
-    sudo bash "$src" on
+    local admin_home authkeys
+    admin_home="$(getent passwd "$DEPLOY_USER" | cut -d: -f6)"
+    authkeys="${admin_home:-/home/$DEPLOY_USER}/.ssh/authorized_keys"
+
+    if sudo test -s "$authkeys"; then
+        log "SSH key found for $DEPLOY_USER — enabling key-only auth (passwords off)..."
+        sudo bash "$src" off
+    else
+        warn "No authorized_keys for $DEPLOY_USER — keeping password auth ON so you are not locked out."
+        warn "After adding an SSH key, tighten to key-only with: make ssh-password STATE=off"
+        sudo bash "$src" on
+    fi
 }
 
 # =============================================================================

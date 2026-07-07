@@ -66,6 +66,9 @@ write_dropin() {
 # always enabled here so disabling passwords can't lock out key-based logins.
 PubkeyAuthentication yes
 PasswordAuthentication ${password}
+# Root is never reachable over SSH regardless of the password setting above.
+# This drop-in sorts first, so it wins over the stock config / base image.
+PermitRootLogin no
 EOF
 
     install -d -m 0755 "$(dirname "$DROPIN")"

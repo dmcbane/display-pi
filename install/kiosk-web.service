@@ -11,5 +11,19 @@ ExecStart=/opt/kiosk-web/venv/bin/python /opt/kiosk-web/kiosk_manager.py
 Restart=on-failure
 RestartSec=5
 
+# Sandboxing. This is a LAN-facing Flask/Pillow surface that holds a sudo
+# grant to reboot the Pi, so contain the blast radius of an app exploit.
+# NoNewPrivileges and PrivateTmp are deliberately OMITTED: the app shells out
+# to sudo (reboot / systemctl --user restart) which NoNewPrivileges would
+# break, and it reads /tmp/kiosk-health.json which PrivateTmp would hide.
+ProtectSystem=strict
+ReadWritePaths=/var/lib/kiosk-web /var/lib/kiosk-splash
+ProtectHome=read-only
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictRealtime=yes
+LockPersonality=yes
+
 [Install]
 WantedBy=multi-user.target
