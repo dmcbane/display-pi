@@ -102,6 +102,8 @@ assert_file_exists "install/become-kiosk.sh exists" "$REPO_ROOT/install/become-k
 assert_executable  "install/become-kiosk.sh is executable" "$REPO_ROOT/install/become-kiosk.sh"
 assert_file_exists "Makefile exists" "$REPO_ROOT/Makefile"
 assert_file_exists "images/splash.png exists" "$REPO_ROOT/images/splash.png"
+assert_file_exists  "install/kiosk-status.sh exists"        "$REPO_ROOT/install/kiosk-status.sh"
+assert_executable   "install/kiosk-status.sh is executable" "$REPO_ROOT/install/kiosk-status.sh"
 assert_file_exists "web/kiosk_manager.py exists" "$REPO_ROOT/web/kiosk_manager.py"
 assert_file_exists "install/kiosk-web.service exists" "$REPO_ROOT/install/kiosk-web.service"
 # LAN-facing Flask/Pillow surface that holds a sudo grant to reboot — sandbox

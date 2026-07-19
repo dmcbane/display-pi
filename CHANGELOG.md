@@ -4,6 +4,17 @@ All notable changes to display-pi are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.28.1] - 2026-07-19
+
+### Added
+- **`kiosk-status` on-Pi command.** A thin self-elevating wrapper script
+  (`install/kiosk-status.sh`) installed to `/usr/local/bin/kiosk-status` by
+  `deploy.sh`. Anyone SSHed into the Pi as the deploy user can run `kiosk-status`
+  and get the same 17-check status table shown on the web manager UI and the HDMI
+  debug screen — no Makefile or workstation needed. Elevation is handled
+  automatically via `sudo -u kiosk` (NOPASSWD, covered by the existing
+  kiosk-deploy sudoers). `make diag` from the workstation is unchanged.
+
 ## [0.28.0] - 2026-07-07
 
 ### Security

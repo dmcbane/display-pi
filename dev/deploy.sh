@@ -68,6 +68,12 @@ if ! diff -q ${REMOTE_DIR}/install/become-kiosk.sh /usr/local/bin/become-kiosk &
     echo "become-kiosk helper updated"
 fi
 
+# Install kiosk-status helper (system-wide status command for SSH users)
+if ! diff -q ${REMOTE_DIR}/install/kiosk-status.sh /usr/local/bin/kiosk-status &>/dev/null; then
+    sudo install -m 0755 -o root -g root ${REMOTE_DIR}/install/kiosk-status.sh /usr/local/bin/kiosk-status
+    echo "kiosk-status helper updated"
+fi
+
 # Install logrotate config if changed
 if ! diff -q ${REMOTE_DIR}/install/logrotate-kiosk /etc/logrotate.d/kiosk-player &>/dev/null 2>&1; then
     sudo cp ${REMOTE_DIR}/install/logrotate-kiosk /etc/logrotate.d/kiosk-player
