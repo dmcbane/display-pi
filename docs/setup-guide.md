@@ -362,7 +362,8 @@ ssh-copy-id -i ~/.ssh/id_ed25519 displaypi
 
 # 3. Provision end to end (HOST defaults to displaypi; STATIC_IP only if you
 #    want the no-DHCP fallback address).
-make provision STREAM_KEY=restoration STATIC_IP=192.168.50.1/24
+make provision STREAM_KEY=restoration STATIC_IP=192.168.50.1/24 \
+    RTMP_ALLOW_PUBLISH_CIDRS=192.168.0.42/32
 
 # 4. Smoke-test: land a shell on the new card, then send it a test pattern.
 make ssh
@@ -372,10 +373,14 @@ make test-stream
 Because every `provision` step is idempotent, this same loop also re-runs
 safely on a card that only half-finished — just start it again from the top.
 
-> **Note:** command-line values like `STREAM_KEY` persist on the Pi in
-> `/etc/default/kiosk`, so a later bare `make setup` won't reset them — but a
-> *re-flashed* card starts from nothing, so pass the full set of overrides you
-> care about every time you run this loop.
+> **Note:** command-line values like `STREAM_KEY` and
+> `RTMP_ALLOW_PUBLISH_CIDRS` persist on the Pi in `/etc/default/kiosk`, so a
+> later bare `make setup` won't reset them — but a *re-flashed* card starts
+> from nothing, so pass the full set of overrides you care about every time
+> you run this loop. `RTMP_ALLOW_PUBLISH_CIDRS` is the one that bites
+> silently: it's the real control on who can push to the display (see
+> [Network plan](#network-plan)), and a card provisioned without it quietly
+> reverts to the default `192.168.0.0/24` allow-list.
 
 ## Day-to-day operations
 
