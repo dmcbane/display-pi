@@ -229,6 +229,14 @@ description: >-
 <pre><span class="cmd">make provision</span> <span class="flag">HOST</span>=<span class="str">displaypi</span> <span class="flag">STATIC_IP</span>=<span class="str">192.168.50.1/24</span> <span class="comment"># binds it alongside DHCP</span></pre>
   </div>
 
+  <p class="code-label">Re-flashed card, or a batch of them? Clear the stale host key first (<a href="setup-guide.html#batch-provisioning-re-flashed-cards-and-spare-pis">details</a>)</p>
+  <div class="code-block">
+<pre><span class="cmd">ssh-keygen</span> -f ~/.ssh/known_hosts -R displaypi  <span class="comment"># a re-flash means a new host key</span>
+<span class="cmd">ssh-copy-id</span> displaypi                          <span class="comment"># unless the Imager pre-loaded your key</span>
+<span class="cmd">make provision</span> <span class="flag">STREAM_KEY</span>=<span class="str">restoration</span>
+<span class="cmd">make ssh</span>                                       <span class="comment"># smoke-test the new card</span></pre>
+  </div>
+
   <p class="code-label">Day to day</p>
   <div class="code-block">
 <pre><span class="cmd">make deploy</span>            <span class="comment"># push code changes + restart the player</span>

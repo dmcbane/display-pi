@@ -74,8 +74,21 @@ lease:
 make provision HOST=displaypi STATIC_IP=192.168.50.1/24
 ```
 
+Re-flashing a card, or provisioning a batch of them? Each fresh card needs the
+old SSH host key cleared and your public key installed before `provision` can
+run — the per-card loop is:
+
+```sh
+ssh-keygen -f "$HOME/.ssh/known_hosts" -R displaypi   # forget the old card's host key
+ssh-copy-id displaypi                                 # unless the Imager pre-loaded your key
+make provision STREAM_KEY=restoration
+make ssh                                              # smoke-test the new card
+```
+
 See the [Setup Guide](https://dmcbane.github.io/display-pi/setup-guide.html) for
-the full fresh-Pi-to-Sunday runbook.
+the full fresh-Pi-to-Sunday runbook, and
+[Batch provisioning](https://dmcbane.github.io/display-pi/setup-guide.html#batch-provisioning-re-flashed-cards-and-spare-pis)
+for the details behind that loop.
 
 ## Managing it
 

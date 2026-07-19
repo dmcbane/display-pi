@@ -79,6 +79,11 @@ Have an answer for these before you start:
 > safe to re-run. Steps 5–8 below do the same work by hand and explain each
 > piece; read them to understand what `provision` automates, or to run a step
 > on its own.
+>
+> Provisioning several cards, or re-flashing one? See
+> [Batch provisioning](#batch-provisioning-re-flashed-cards-and-spare-pis)
+> for the per-card loop, including the `known_hosts` cleanup a re-flash
+> requires.
 
 ### 1. Flash the SD card
 
@@ -327,6 +332,50 @@ gives you 5 minutes if you need more time at the receiver.
 If you can't hear audio:
 [`docs/dev-journal/2026-04-25-hdmi-audio-routing.md`](dev-journal/2026-04-25-hdmi-audio-routing.md)
 walks through the diagnosis.
+
+## Batch provisioning (re-flashed cards and spare Pis)
+
+When you're provisioning several SD cards in a row — spares, an OS upgrade, a
+second display — steps 3–8 collapse into a short per-card loop. Only two
+things need attention beyond `make provision`, and both live on the
+**workstation**, not the Pi:
+
+1. **A stale host key.** A re-flashed card generates a brand-new SSH host key
+   at first boot, so the entry left in `~/.ssh/known_hosts` by the previous
+   card no longer matches and SSH refuses to connect
+   (`REMOTE HOST IDENTIFICATION HAS CHANGED!`).
+2. **Your public key isn't on the card yet** — unless you pre-loaded it on the
+   Imager's customisation screen (step 1).
+
+So, for each card, after flashing (step 1) and first boot (step 2):
+
+```sh
+# 1. Forget the previous card's host key. Entries are keyed by exactly what
+#    you type on the ssh command line — if you connect by both the alias and
+#    the raw IP, remove both.
+ssh-keygen -f "$HOME/.ssh/known_hosts" -R displaypi
+ssh-keygen -f "$HOME/.ssh/known_hosts" -R 192.168.0.106
+
+# 2. Install your public key on the fresh OS (skip if the Imager pre-loaded
+#    it; the first connection re-learns the new host key here).
+ssh-copy-id -i ~/.ssh/id_ed25519 displaypi
+
+# 3. Provision end to end (HOST defaults to displaypi; STATIC_IP only if you
+#    want the no-DHCP fallback address).
+make provision STREAM_KEY=restoration STATIC_IP=192.168.50.1/24
+
+# 4. Smoke-test: land a shell on the new card, then send it a test pattern.
+make ssh
+make test-stream
+```
+
+Because every `provision` step is idempotent, this same loop also re-runs
+safely on a card that only half-finished — just start it again from the top.
+
+> **Note:** command-line values like `STREAM_KEY` persist on the Pi in
+> `/etc/default/kiosk`, so a later bare `make setup` won't reset them — but a
+> *re-flashed* card starts from nothing, so pass the full set of overrides you
+> care about every time you run this loop.
 
 ## Day-to-day operations
 
