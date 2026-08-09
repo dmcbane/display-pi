@@ -61,7 +61,7 @@ export KIOSK_HOST  := $(HOST)
 export KIOSK_USER
 export STREAM_KEY
 
-.PHONY: help setup provision deploy sudoers test-stream test-stream-long ssh ssh-password logs status diag judder-tree judder-probe judder-monitor stream-key hdmi-mode set-time test lint check ping reboot restart shutdown volunteer-bundle setup-web setup-web-tls-local web-ca setup-web-tls volunteer-web-url
+.PHONY: help setup provision deploy sudoers config splash-ls test-stream test-stream-long ssh ssh-password logs status diag judder-tree judder-probe judder-monitor stream-key hdmi-mode set-time test lint check ping reboot restart shutdown volunteer-bundle setup-web setup-web-tls-local web-ca setup-web-tls volunteer-web-url
 
 help:
 	@echo "display-pi — Church Worship Stream Kiosk"
@@ -95,6 +95,8 @@ help:
 	@echo "  ping              Ping the Pi"
 	@echo "  reboot            Reboot the Pi"
 	@echo "  restart           Restart the kiosk service (advances splash rotation)"
+	@echo "  config            Edit /etc/default/kiosk on the Pi (validated, never nano)"
+	@echo "  splash-ls         List the Pi's splash store (the one folder images live in)"
 	@echo "  shutdown          Shutdown the Pi"
 	@echo ""
 	@echo "Volunteer workflow:"
@@ -321,6 +323,18 @@ shutdown:
 # UID, not the workstation. DBUS_SESSION_BUS_ADDRESS is required alongside
 # XDG_RUNTIME_DIR or `systemctl --user` fails to reach the user bus
 # (become-kiosk.sh, 2026-06-13); the deploy sudoers SETENV grant passes both.
+# Edit /etc/default/kiosk (the Pi's single config store) through the on-Pi
+# kiosk-config helper: it edits a copy, refuses anything the shell can't
+# source, and only then replaces the live file. Needs a TTY for the editor.
+config:
+	@ssh -t $(HOST) "kiosk-config"
+
+# Where do the splash images actually live on this Pi, and what is in there?
+# One command, because "which folder is live" is exactly what used to be
+# ambiguous when images were kept in two places.
+splash-ls:
+	@ssh $(HOST) 'dir=$$(splash-store path); echo "splash store: $$dir"; sudo ls -l "$$dir"'
+
 restart:
 	@echo "Restarting kiosk service on $(HOST)..."
 	@ssh $(HOST) 'sudo -u $(KIOSK_USER) XDG_RUNTIME_DIR="/run/user/$$(id -u $(KIOSK_USER))" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$$(id -u $(KIOSK_USER))/bus" systemctl --user restart kiosk.service'

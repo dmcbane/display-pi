@@ -53,9 +53,16 @@ STREAM_KEY="${STREAM_KEY:-$(persisted_default STREAM_KEY restoration)}"
 # The RTMP application name (the path component before the key).
 RTMP_APP="${RTMP_APP:-$(persisted_default RTMP_APP live)}"
 
-# Splash image text (used to generate a placeholder PNG).
-# Replace /home/<kiosk-user>/splash.png with your branded image after setup.
+# Splash image text (used to generate a placeholder PNG when the repo ships
+# no images). Replace the contents of the splash store with your own slides
+# after setup — through the web manager, or `become-kiosk-web` over SSH.
 SPLASH_TEXT="${SPLASH_TEXT:-Service will begin shortly}"
+
+# The splash store: the ONE folder every splash image lives in. Persisted as
+# SPLASH_DIR in the config store below, so player.sh, the web manager and the
+# SSH-bundle updater all resolve to the same place. install/splash-store.sh
+# holds the matching default and the create/seed/migrate logic.
+SPLASH_STORE="${SPLASH_DIR:-$(persisted_default SPLASH_DIR /var/lib/kiosk-splash)}"
 
 # Kiosk user. Created if missing. Do not change after first run.
 KIOSK_USER="${KIOSK_USER:-kiosk}"
@@ -226,6 +233,9 @@ install_packages() {
     #   systemd-container         — provides machinectl, referenced in the
     #                               post-install instructions for inspecting
     #                               the kiosk user's --user systemd units
+    #   micro                     — the editor `kiosk-config` opens. Modeless
+    #                               and self-documenting, so a volunteer given
+    #                               an SSH session can actually get out of it
     #   python3-defusedxml        — diagnostics/parse_stat.py prefers it over
     #                               stdlib ET for XXE/billion-laughs hardening
     sudo apt-get install -y --no-install-recommends \
@@ -238,7 +248,8 @@ install_packages() {
         netcat-openbsd \
         wlr-randr libdrm-tests "$vcgencmd_pkg" alsa-utils \
         systemd-container \
-        python3-defusedxml
+        python3-defusedxml \
+        micro
     log "Packages installed."
 }
 
@@ -292,6 +303,10 @@ configure_stream_config() {
     set_env_kv "$KIOSK_ENV_FILE" STREAM_URL "$stream_url"
     set_env_kv "$KIOSK_ENV_FILE" VOLUME "$PLAYBACK_VOLUME"
     set_env_kv "$KIOSK_ENV_FILE" RTMP_ALLOW_PUBLISH_CIDRS "\"${RTMP_ALLOW_PUBLISH_CIDRS}\""
+    # SPLASH_DIR is written HERE, at step 1 — not first by setup-web at step 3.
+    # When the web manager wrote it, everything before step 3 was aiming at a
+    # different folder than the finished Pi actually read.
+    set_env_kv "$KIOSK_ENV_FILE" SPLASH_DIR "$SPLASH_STORE"
     sudo chmod 644 "$KIOSK_ENV_FILE"
     log "Stream config persisted (player subscribes to ${stream_url})."
 }
@@ -463,23 +478,39 @@ EOF
 # `wlr-randr --output $HDMI_OUTPUT --mode $HDMI_MODE` inside the cage
 # session. This is the authoritative layer; the kernel `video=` cmdline
 # parameter is only a boot-time hint.
-install_become_kiosk() {
-    # Install the become-kiosk helper to /usr/local/bin so the deploy user
-    # (or any SSH user with sudo) can drop into the kiosk user's shell with
-    # XDG_RUNTIME_DIR set, without needing to remember the long sudo
-    # incantation. The source lives in install/ so it ships with the repo;
-    # we copy (not symlink) so a stale checkout can't break the helper.
-    local src dst
-    src="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/become-kiosk.sh"
-    dst="/usr/local/bin/become-kiosk"
+install_operator_helpers() {
+    # Install the /usr/local/bin helpers so the deploy user (or any SSH user
+    # with sudo) can do the three things that otherwise need a memorized
+    # incantation. The sources live in install/ so they ship with the repo; we
+    # copy (not symlink) so a stale checkout can't break them.
+    #
+    #   become-kiosk      shell as the player user, with XDG_RUNTIME_DIR and
+    #                     the D-Bus address set (else `systemctl --user` fails)
+    #   become-kiosk-web  shell as the splash store's owner, in the store
+    #                     (that account is nologin, so `sudo -i` won't do)
+    #   kiosk-config      validated edit of /etc/default/kiosk
+    #   splash-store      the shared splash-store helper, so an operator can
+    #                     ask `splash-store path` where the images actually are
+    local src dst helper
+    local -A helpers=(
+        [become-kiosk]=become-kiosk.sh
+        [become-kiosk-web]=become-kiosk-web.sh
+        [kiosk-config]=kiosk-config.sh
+        [splash-store]=splash-store.sh
+    )
 
-    if [[ ! -f "$src" ]]; then
-        warn "become-kiosk.sh not found at $src; skipping helper install."
-        return
-    fi
+    for helper in "${!helpers[@]}"; do
+        src="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/${helpers[$helper]}"
+        dst="/usr/local/bin/${helper}"
 
-    log "Installing $dst from $src..."
-    sudo install -m 0755 -o root -g root "$src" "$dst"
+        if [[ ! -f "$src" ]]; then
+            warn "${helpers[$helper]} not found at $src; skipping $helper install."
+            continue
+        fi
+
+        log "Installing $dst from $src..."
+        sudo install -m 0755 -o root -g root "$src" "$dst"
+    done
 }
 
 configure_runtime_mode() {
@@ -617,30 +648,60 @@ configure_static_ip() {
 # Step 6: Splash image
 # =============================================================================
 create_splash() {
-    local splash_path="/home/${KIOSK_USER}/splash.png"
-    if [[ -f "$splash_path" ]]; then
-        log "Splash image already exists at $splash_path (leaving it alone)."
+    # Everything lands in the splash store — the single folder player.sh
+    # rotates through (see install/splash-store.sh). Nothing is written to
+    # /home/kiosk any more: a second image location is what let the repo's
+    # images and the images on screen drift apart unnoticed.
+    local script_dir store_helper store_path
+    script_dir="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
+    store_helper="${script_dir}/splash-store.sh"
+    store_path="$(SPLASH_DIR="$SPLASH_STORE" bash "$store_helper" path)"
+
+    # Create it kiosk-owned. kiosk-web-setup.sh hands ownership to the web
+    # user at step 3; until then the player's own user owns its images.
+    # `sudo env VAR=…` rather than sudo's own VAR=value syntax: the latter
+    # needs a SETENV grant, which a tightened sudoers may not carry.
+    sudo env SPLASH_DIR="$store_path" bash "$store_helper" ensure "${KIOSK_USER}:${KIOSK_USER}"
+
+    if sudo bash -c "[[ -d '$store_path' ]] && \
+        find -L '$store_path' -maxdepth 1 -type f \
+        \\( -iname '*.png' -o -iname '*.jpg' -o -iname '*.jpeg' \
+           -o -iname '*.gif' -o -iname '*.webp' \\) -print -quit | grep -q ."; then
+        log "Splash store $store_path already holds images (leaving it alone)."
         return
     fi
 
     # images/ lives one level up from this script (repo root). Resolve it
     # via the script's own path so setup works regardless of CWD.
     local images_dir
-    images_dir="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../images"
+    images_dir="${script_dir}/../images"
 
-    # Preference 1: a ready-made images/splash.png ships with the repo.
+    # Preference 1: the repo's rotation set. This is the normal path — seed
+    # the whole folder through the shared helper so step 1 puts exactly what
+    # steps 2 and 3 would put there.
+    if [[ -d "${images_dir}/splash.d" ]]; then
+        log "Seeding the splash store from ${images_dir}/splash.d ..."
+        sudo env SPLASH_DIR="$store_path" bash "$store_helper" seed "${images_dir}/splash.d"
+        if sudo bash -c "find -L '$store_path' -maxdepth 1 -type f -print -quit | grep -q ."; then
+            log "Splash store seeded at $store_path."
+            return
+        fi
+        log "No usable images in ${images_dir}/splash.d — trying other sources."
+    fi
+
+    # Preference 2: a ready-made images/splash.png ships with the repo.
     if [[ -f "${images_dir}/splash.png" ]]; then
         log "Installing splash image from ${images_dir}/splash.png ..."
         # images_dir lives under the SSH user's 0700 home (display-pi-bootstrap),
         # so `sudo -u kiosk cp` can't traverse in to read it. Copy as root via
         # install(1); -o/-g hand the destination to the kiosk user atomically.
         sudo install -o "$KIOSK_USER" -g "$KIOSK_USER" -m 0644 \
-            "${images_dir}/splash.png" "$splash_path"
-        log "Splash installed at $splash_path."
+            "${images_dir}/splash.png" "${store_path}/01-splash.png"
+        log "Splash installed at ${store_path}/01-splash.png."
         return
     fi
 
-    # Preference 2: no splash.png, but other images exist — ask which to use.
+    # Preference 3: no splash.png, but other images exist — ask which to use.
     local candidates=()
     if [[ -d "$images_dir" ]]; then
         while IFS= read -r -d '' img; do
@@ -662,22 +723,25 @@ create_splash() {
                 # Copy as root (see note above) — the chosen image is under the
                 # SSH user's 0700 home, unreadable to the kiosk user.
                 sudo install -o "$KIOSK_USER" -g "$KIOSK_USER" -m 0644 \
-                    "$choice" "$splash_path"
-                log "Splash installed at $splash_path."
+                    "$choice" "${store_path}/01-$(basename "$choice")"
+                log "Splash installed at ${store_path}/01-$(basename "$choice")."
                 return
             fi
             echo "Invalid selection — enter a number from the list."
         done
     fi
 
-    # Preference 3: nothing usable in images/ — generate a placeholder.
+    # Preference 4: nothing usable in images/ — generate a placeholder. Written
+    # as root because the store belongs to the kiosk user (and later to
+    # kiosk-web), not to whoever is running setup.
     log "Generating placeholder splash image..."
-    sudo -u "$KIOSK_USER" convert -size 1920x1080 xc:black \
+    sudo convert -size 1920x1080 xc:black \
         -gravity center -pointsize 72 -fill white \
         -font DejaVu-Sans \
         -annotate 0 "$SPLASH_TEXT" \
-        "$splash_path"
-    log "Splash created at $splash_path (replace with your branded image anytime)."
+        "${store_path}/01-placeholder.png"
+    sudo chown "$KIOSK_USER:$KIOSK_USER" "${store_path}/01-placeholder.png"
+    log "Splash created at ${store_path}/01-placeholder.png (replace it anytime)."
 }
 
 # =============================================================================
@@ -718,10 +782,10 @@ if [[ -z "\${STREAM_URL:-}" && -r /etc/default/kiosk ]]; then
     STREAM_URL="\$(. /etc/default/kiosk 2>/dev/null; echo "\${STREAM_URL:-}")"
 fi
 STREAM_URL="\${STREAM_URL:-${stream_url}}"
-# Rotation folder (cycled one image per splash entry) + legacy single-image
-# fallback. Overridable via /etc/default/kiosk.
-SPLASH_DIR="\${SPLASH_DIR:-/home/${KIOSK_USER}/splash.d}"
-SPLASH_IMAGE="\${SPLASH_IMAGE:-/home/${KIOSK_USER}/splash.png}"
+# The splash store — the one folder images live in, cycled one image per
+# splash entry. Overridable via /etc/default/kiosk. There is no second
+# location: an empty store is an error, not something to paper over.
+SPLASH_DIR="\${SPLASH_DIR:-${SPLASH_STORE}}"
 SPLASH_STATE="\${SPLASH_STATE:-/home/${KIOSK_USER}/.splash-index}"
 VOLUME=${PLAYBACK_VOLUME}
 
@@ -739,10 +803,6 @@ next_splash_image() {
             2>/dev/null | sort -z)
     fi
     if (( \${#images[@]} == 0 )); then
-        if [[ -f "\$SPLASH_IMAGE" ]]; then
-            SPLASH_NEXT="\$SPLASH_IMAGE"
-            return 0
-        fi
         return 1
     fi
     local idx=0
@@ -782,7 +842,7 @@ while true; do
         if next_splash_image; then
             SPLASH_PID=\$(show_splash "\$SPLASH_NEXT")
         else
-            echo "ERROR: no splash image in \$SPLASH_DIR or \$SPLASH_IMAGE" >&2
+            echo "ERROR: no splash image in \$SPLASH_DIR" >&2
             SPLASH_PID=""
         fi
         while ! stream_live; do
@@ -1132,7 +1192,7 @@ main() {
     configure_boot
     configure_runtime_mode
     configure_static_ip
-    install_become_kiosk
+    install_operator_helpers
     create_splash
     create_player_script
     install_kiosk_service
@@ -1178,8 +1238,13 @@ Next steps:
                -c:v libx264 -preset veryfast -tune zerolatency \\
                -c:a aac -f flv rtmp://<PI_IP>/${RTMP_APP}/${STREAM_KEY}
 
-Replace /home/${KIOSK_USER}/splash.png with your own branded image
-whenever you like; the kiosk picks it up on the next idle period.
+Splash images: every slide lives in ${SPLASH_STORE} — the only
+image location on this Pi. Add, remove or reorder them whenever you
+like; the kiosk picks up the folder again on the next idle period.
+
+        become-kiosk-web            # a shell in the splash store
+        splash-store path           # confirm where it actually is
+        kiosk-config                # edit /etc/default/kiosk safely
 
 EOF
 

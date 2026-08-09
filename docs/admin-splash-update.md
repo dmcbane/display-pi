@@ -14,16 +14,20 @@ feature added in v0.9.0. Volunteers upload a splash slide to the kiosk
 Pi over SSH using a hand-delivered bundle. This doc covers what you (the
 AV admin) do.
 
-> **Rotation (v0.11.0+):** the kiosk now cycles through the images in
-> its rotation folder (`SPLASH_DIR` from `/etc/default/kiosk` — the
-> web-managed folder once the web manager is installed, else
-> `/home/kiosk/splash.d/`), advancing one image each time the splash is
-> re-entered (no timer). The volunteer upload lands in that folder as
+> **Rotation (v0.11.0+):** the kiosk cycles through the images in the
+> splash store — `/var/lib/kiosk-splash`, or whatever `SPLASH_DIR` in
+> `/etc/default/kiosk` says — advancing one image each time the splash
+> is re-entered (no timer). The volunteer upload lands there as
 > `00-volunteer.<ext>` (extension follows the uploaded format) and
 > **joins the rotation** — repeat uploads overwrite it (latest wins).
-> Admin slides are managed from the repo's `images/splash.d/` via
-> `make deploy`; that sync excludes `*-volunteer.*` so it never wipes
-> the volunteer's slide.
+>
+> **Since v0.29.0** that store is the *only* image location on the Pi;
+> `/home/kiosk/splash.d` and `/home/kiosk/splash.png` are gone, and the
+> first `make deploy` after upgrading absorbs and removes them. Admin
+> slides are no longer pushed from the repo on a provisioned Pi —
+> `images/splash.d/` seeds a *fresh* Pi only. Change slides on a live
+> Pi through the web manager, or `become-kiosk-web` over SSH.
+> `make splash-ls` shows the live folder and its contents.
 
 For the volunteer-facing instructions, see
 [`docs/volunteer-splash-update.md`](volunteer-splash-update.md) — that
@@ -136,7 +140,7 @@ The full chain:
    whitelisted to the four formats, is how the argument-less sudo call
    learns the format — and writes `00-volunteer.<ext>` into the rotation
    folder the player actually reads (`SPLASH_DIR` from
-   `/etc/default/kiosk`, falling back to `/home/kiosk/splash.d`; the
+   `/etc/default/kiosk`, falling back to `/var/lib/kiosk-splash`; the
    uploader gets no path choice), removing volunteer slides in other
    formats so exactly one is in rotation, then restarts the kiosk so
    the new slide appears within ~2 seconds.

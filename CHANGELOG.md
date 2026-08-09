@@ -4,6 +4,53 @@ All notable changes to display-pi are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.29.0] - 2026-08-09
+
+### Changed
+- **One splash folder on the Pi, not three.** Provisioning used to create
+  `/home/kiosk/splash.png` (step 1), symlink `/home/kiosk/splash.d` at the
+  deployed repo (step 2), then create and seed `/var/lib/kiosk-splash` and
+  point `SPLASH_DIR` at it (step 3) — after which the player read only the
+  third. The first two kept accepting writes that never reached the screen, so
+  the repo's images and the displayed images could diverge silently. All three
+  steps now go through the new `install/splash-store.sh`, and
+  `/var/lib/kiosk-splash` is the only image location.
+  See [`docs/dev-journal/2026-08-09-one-splash-store.md`](docs/dev-journal/2026-08-09-one-splash-store.md).
+- **`SPLASH_DIR` is written to `/etc/default/kiosk` at setup time** (step 1)
+  instead of by the web-manager installer (step 3), so every step aims at the
+  folder the finished Pi actually reads.
+- **`make deploy` no longer touches `/home/kiosk/splash.d` or
+  `/home/kiosk/splash.png`.** It runs `splash-store.sh migrate`, which absorbs
+  any images from a legacy layout into the store and removes the legacy paths.
+  A legacy *symlink* is unlinked, never recursed into — deleting through it
+  would have removed the repo's own `images/splash.d`.
+- **Seeding is only-if-empty, everywhere.** On a provisioned Pi, editing
+  `images/splash.d/` and deploying no longer changes what is displayed; that
+  folder is a fresh-install seed. Change live slides through the web manager or
+  `become-kiosk-web`. Volunteer uploads are never overwritten by a deploy.
+
+### Added
+- **`become-kiosk-web`** (`install/become-kiosk-web.sh`, installed to
+  `/usr/local/bin`) — an interactive shell as the splash store's owner, already
+  in the folder. That account is `nologin`, so `sudo -u kiosk-web -i` fails
+  outright; this spells the working incantation once.
+- **`kiosk-config`** (`install/kiosk-config.sh`, installed to `/usr/local/bin`)
+  — edits `/etc/default/kiosk` through a temp copy and refuses to install
+  anything that fails `bash -n`, fails when sourced, or isn't a plain
+  `KEY=value` line. `EnvironmentFile=` ignores unparseable lines *silently*, so
+  a bad edit otherwise surfaces as a black screen at the next boot. Opens
+  `micro` by default and declines `nano` even when `$EDITOR` names it. `micro`
+  is now installed by `setup-kiosk.sh`.
+- **`splash-store`** installed to `/usr/local/bin`, so `splash-store path`
+  answers "which folder is live?" directly on the Pi.
+- **`make config`** and **`make splash-ls`** — the workstation-side equivalents.
+
+### Removed
+- **`SPLASH_IMAGE`, the single-image fallback.** `player.sh` no longer falls
+  back to `/home/kiosk/splash.png` when the rotation folder is empty; it logs an
+  error instead. The fallback let a missing or empty store hide behind a stale
+  image, which is how the divergence above stayed invisible.
+
 ## [0.28.1] - 2026-07-19
 
 ### Added

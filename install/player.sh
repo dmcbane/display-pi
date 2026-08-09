@@ -22,16 +22,18 @@ if [[ -z "${STREAM_URL:-}" && -r /etc/default/kiosk ]]; then
     STREAM_URL="$(. /etc/default/kiosk 2>/dev/null; echo "${STREAM_URL:-}")"
 fi
 STREAM_URL="${STREAM_URL:-rtmp://127.0.0.1/live/restoration}"
-# Splash images. The kiosk cycles through the images in $SPLASH_DIR, advancing
-# by ONE each time the idle splash is (re)entered (no timer — the image only
-# changes when the stream drops and the splash comes back up). $SPLASH_IMAGE is
-# the legacy single-image fallback used when the folder is empty/missing. The
-# rotation cursor is persisted to $SPLASH_STATE so it advances across service
-# restarts (an in-memory counter would reset to the first image every restart);
-# this is what makes `make restart` step to the next slide during testing. All
-# overridable via /etc/default/kiosk (kiosk.service EnvironmentFile).
-SPLASH_DIR="${SPLASH_DIR:-/home/kiosk/splash.d}"
-SPLASH_IMAGE="${SPLASH_IMAGE:-/home/kiosk/splash.png}"
+# Splash images. The kiosk cycles through the images in $SPLASH_DIR — the
+# splash store, the ONE folder images live in (install/splash-store.sh owns
+# that decision) — advancing by ONE each time the idle splash is (re)entered
+# (no timer; the image only changes when the stream drops and the splash comes
+# back up). There is deliberately no second location to fall back to: the old
+# /home/kiosk/splash.png fallback meant an empty store showed a stale image
+# instead of an error, hiding the fact that the real folder had gone missing.
+# The rotation cursor is persisted to $SPLASH_STATE so it advances across
+# service restarts (an in-memory counter would reset to the first image every
+# restart); this is what makes `make restart` step to the next slide during
+# testing. Overridable via /etc/default/kiosk (kiosk.service EnvironmentFile).
+SPLASH_DIR="${SPLASH_DIR:-/var/lib/kiosk-splash}"
 SPLASH_STATE="${SPLASH_STATE:-/home/kiosk/.splash-index}"
 # mpv volume 0-100. Persisted as VOLUME in /etc/default/kiosk by setup-kiosk.sh
 # (from PLAYBACK_VOLUME), so a custom volume survives deploys.
@@ -162,11 +164,8 @@ next_splash_image() {
             2>/dev/null | sort -z)
     fi
     if (( ${#images[@]} == 0 )); then
-        # Empty/missing folder — fall back to the legacy single image.
-        if [[ -f "$SPLASH_IMAGE" ]]; then
-            SPLASH_NEXT="$SPLASH_IMAGE"
-            return 0
-        fi
+        # Empty/missing store. There is nowhere else to look by design — a
+        # second location would let this failure hide behind a stale image.
         return 1
     fi
     # Read the persisted cursor, show that image, then store the next index.
@@ -243,7 +242,7 @@ while true; do
             SPLASH_PID=$(show_splash "$SPLASH_NEXT")
         else
             # Don't fail silently: a blank idle screen is itself a fault.
-            echo "[$(date)] ERROR: no splash image in $SPLASH_DIR or $SPLASH_IMAGE"
+            echo "[$(date)] ERROR: no splash image in $SPLASH_DIR"
             show_error_diagnostics
             SPLASH_PID=""
         fi

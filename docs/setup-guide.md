@@ -181,11 +181,14 @@ You'll be prompted for your sudo password once. The script is idempotent
 5b. If `STATIC_IP` is set, binds an extra static IP on Ethernet alongside
    DHCP (see [Optional: a static fallback IP](#optional-a-static-fallback-ip)).
    Skipped when `STATIC_IP` is empty.
-6. Installs the splash image at `/home/kiosk/splash.png`. If the repo
-   ships `images/splash.png`, that file is used as-is. If it's absent but
-   other images are present in `images/`, setup prompts you to pick one
-   (on a non-interactive run it skips the prompt). With no usable image,
-   it generates a placeholder from `$SPLASH_TEXT`.
+6. Creates the **splash store** at `/var/lib/kiosk-splash` — the one folder
+   every splash image lives in — records it as `SPLASH_DIR` in
+   `/etc/default/kiosk`, and seeds it. The repo's `images/splash.d/` rotation
+   set is used if it exists; failing that `images/splash.png` becomes slide
+   `01-`; failing that, and only on an interactive run, setup prompts you to
+   pick from whatever else is in `images/`; with no usable image at all it
+   generates a placeholder from `$SPLASH_TEXT`. Seeding happens **only when
+   the store is empty**, so re-running setup never overwrites your slides.
 7. Installs a minimal bootstrap player script (overwritten by the full
    one when you `make deploy`)
 8. Installs the systemd user service
@@ -403,25 +406,40 @@ All from the workstation, in the `display-pi/` checkout:
 
 ### Splash images
 
-The kiosk cycles through the images in `/home/kiosk/splash.d/` whenever the
-stream is idle, **advancing one image each time the splash comes back up**
-(when the stream drops, or the kiosk service restarts). There is no timer — a
-single continuous idle period shows one image until the splash is re-entered.
-The cursor is persisted to `/home/kiosk/.splash-index`, so it keeps moving
-across restarts instead of snapping back to the first slide (this is what makes
-`make restart` step to the next image during testing).
+Every splash image on the Pi lives in **one** folder, the splash store:
 
-`/home/kiosk/splash.d` and `/home/kiosk/splash.png` are **symlinks** into the
-deployed repo (`/home/kiosk/display-pi/images/…`), exactly like the `bin/`
-scripts — there are no separate copies to keep in sync.
+```
+/var/lib/kiosk-splash        # or whatever SPLASH_DIR in /etc/default/kiosk says
+```
 
-- **Rotation set:** drop 1920×1080 PNGs into `~/display-pi/images/splash.d/` on
-  the workstation (prefix `01-`, `02-`, … to order them) and `make deploy`. The
-  deploy re-points the symlink and **preserves** the volunteer slide
-  (`00-volunteer.png`, protected from `--delete` by an rsync exclude). With one
-  image the same slide shows every time.
-- **Single fallback:** if the folder is ever empty, the kiosk falls back to the
-  single `/home/kiosk/splash.png` (→ `images/splash.png`).
+Ask the Pi rather than assuming — `make splash-ls` prints the live path and
+lists what is in it.
+
+The kiosk cycles through that folder whenever the stream is idle, **advancing
+one image each time the splash comes back up** (when the stream drops, or the
+kiosk service restarts). There is no timer — a single continuous idle period
+shows one image until the splash is re-entered. The cursor is persisted to
+`/home/kiosk/.splash-index`, so it keeps moving across restarts instead of
+snapping back to the first slide (this is what makes `make restart` step to the
+next image during testing).
+
+The store is owned by the `kiosk` user until the web manager is installed, and
+by `kiosk-web` after that. `become-kiosk-web` drops you into a shell as its
+owner, already in the folder — that account is `nologin`, so plain
+`sudo -u kiosk-web -i` will not work.
+
+- **Who writes to it:** the volunteer web manager (uploads, deletes, reorder),
+  the SSH-bundle updater (`00-volunteer.*`), and provisioning — which **seeds
+  the store only when it is empty**. A `make deploy` will not overwrite slides
+  that are already there; the repo's `images/splash.d/` is a first-install
+  seed, not a live mirror.
+- **Changing the slides on a running Pi:** use the web manager, or
+  `become-kiosk-web` and edit the folder directly. Editing
+  `images/splash.d/` in the repo and deploying will **not** change what is on
+  screen — the store is already populated by then.
+- **Empty store:** the player logs an error and shows nothing. There is no
+  second location to fall back to, on purpose: the old fallback let a missing
+  folder hide behind a stale image.
 - **Cycle manually while testing:** `make restart` (advances one slide), or send
   a `make test-stream` and let it end (a stream toggle also advances one).
 - **Volunteers** replace their slide from the browser-based web manager (below);

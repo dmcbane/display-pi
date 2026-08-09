@@ -41,8 +41,9 @@ A systemd service runs `player.sh` under the `cage` Wayland compositor as the
 `kiosk` user. The player waits for nginx, probes `rtmp://127.0.0.1/live/<key>`
 with `ffprobe`, and either:
 
-- **idle** → displays the next splash image (rotating through `SPLASH_DIR`, with
-  the position persisted so it survives restarts), or
+- **idle** → displays the next splash image (rotating through the splash store
+  at `SPLASH_DIR`, default `/var/lib/kiosk-splash` — the one folder images live
+  in — with the position persisted so it survives restarts), or
 - **live** → plays the feed full-screen with hardware decode, falling back to the
   splash on end-of-stream.
 
@@ -162,7 +163,7 @@ The web manager is built to be handed to volunteers safely:
 | `diagnostics/` | Health/observability: status-board render, health monitor, judder tools |
 | `dev/`         | Workstation-side helpers invoked by `make` (deploy, stream test, …)  |
 | `docs/`        | The Jekyll GitHub Pages site                                         |
-| `images/`      | Default `splash.png` and the `splash.d/` rotation folder             |
+| `images/`      | Fresh-install seed images: `splash.d/` (rotation set) and `splash.png`. On a provisioned Pi the live images are in `/var/lib/kiosk-splash` |
 | `tests/`       | `pytest` suite for the web manager + the `run-tests.sh` harness      |
 
 ## Development & testing

@@ -100,6 +100,12 @@ assert_file_exists "dev/pi-shell.sh exists" "$REPO_ROOT/dev/pi-shell.sh"
 assert_executable  "dev/pi-shell.sh is executable" "$REPO_ROOT/dev/pi-shell.sh"
 assert_file_exists "install/become-kiosk.sh exists" "$REPO_ROOT/install/become-kiosk.sh"
 assert_executable  "install/become-kiosk.sh is executable" "$REPO_ROOT/install/become-kiosk.sh"
+assert_file_exists "install/become-kiosk-web.sh exists" "$REPO_ROOT/install/become-kiosk-web.sh"
+assert_executable  "install/become-kiosk-web.sh is executable" "$REPO_ROOT/install/become-kiosk-web.sh"
+assert_file_exists "install/splash-store.sh exists" "$REPO_ROOT/install/splash-store.sh"
+assert_executable  "install/splash-store.sh is executable" "$REPO_ROOT/install/splash-store.sh"
+assert_file_exists "install/kiosk-config.sh exists" "$REPO_ROOT/install/kiosk-config.sh"
+assert_executable  "install/kiosk-config.sh is executable" "$REPO_ROOT/install/kiosk-config.sh"
 assert_file_exists "Makefile exists" "$REPO_ROOT/Makefile"
 assert_file_exists "images/splash.png exists" "$REPO_ROOT/images/splash.png"
 assert_file_exists  "install/kiosk-status.sh exists"        "$REPO_ROOT/install/kiosk-status.sh"
@@ -730,11 +736,12 @@ assert_contains "become-kiosk.sh defaults target user to kiosk" \
 # daemon-reload/enable` calls — they set XDG but were missing the bus address.
 assert_contains "setup-kiosk.sh sets DBUS_SESSION_BUS_ADDRESS for its systemctl --user calls" \
     "$REPO_ROOT/install/setup-kiosk.sh" "DBUS_SESSION_BUS_ADDRESS"
-# setup-kiosk.sh must install become-kiosk into /usr/local/bin so the
-# operator can run `become-kiosk` from any SSH session without needing
-# to know the repo path.
-assert_contains "setup-kiosk.sh installs become-kiosk into /usr/local/bin" \
-    "$REPO_ROOT/install/setup-kiosk.sh" "/usr/local/bin/become-kiosk"
+# setup-kiosk.sh must install the operator helpers into /usr/local/bin so
+# they can be run from any SSH session without needing to know the repo path.
+assert_contains "setup-kiosk.sh installs the operator helpers into /usr/local/bin" \
+    "$REPO_ROOT/install/setup-kiosk.sh" 'dst="/usr/local/bin/\${helper}"'
+assert_contains "setup-kiosk.sh installs become-kiosk among them" \
+    "$REPO_ROOT/install/setup-kiosk.sh" '\[become-kiosk\]=become-kiosk.sh' 
 
 # kiosk user group memberships: video/render/input for DRM + input access,
 # audio for ALSA. A 'seat' group entry was speculative — Debian/Trixie has
@@ -1530,16 +1537,16 @@ assert_contains "install-staged-splash.sh pins the fixed staging dir" \
 assert_contains "install-staged-splash.sh globs staged.* (format travels via extension)" \
     "$REPO_ROOT/install/install-staged-splash.sh" '"\$STAGING_DIR"/staged\.\*'
 # The player's kiosk.service loads /etc/default/kiosk via EnvironmentFile=,
-# and kiosk-web-setup.sh points SPLASH_DIR at the web-managed folder there.
-# The installer must honor the same setting or the volunteer slide lands in
-# a folder the player never reads (found during the 0.26.0 on-Pi shakeout).
+# and SPLASH_DIR lives there. The installer must honor the same setting or the
+# volunteer slide lands in a folder the player never reads (found during the
+# 0.26.0 on-Pi shakeout).
 assert_contains "install-staged-splash.sh reads SPLASH_DIR from the kiosk config store" \
     "$REPO_ROOT/install/install-staged-splash.sh" '/etc/default/kiosk'
-assert_contains "install-staged-splash.sh falls back to the legacy rotation folder" \
-    "$REPO_ROOT/install/install-staged-splash.sh" 'SPLASH_DIR=/home/kiosk/splash.d'
-# /home/kiosk/splash.d is kiosk-owned but the web-managed dir is
-# kiosk-web-owned; the slide must follow the folder's owner or the web
-# manager can't delete/reorder it.
+assert_contains "install-staged-splash.sh falls back to the canonical splash store" \
+    "$REPO_ROOT/install/install-staged-splash.sh" 'SPLASH_DIR=/var/lib/kiosk-splash'
+# The store is kiosk-owned before the web manager is installed and
+# kiosk-web-owned after; the slide must follow the folder's current owner or
+# the web manager can't delete/reorder it.
 assert_contains "install-staged-splash.sh gives the slide the rotation folder's owner" \
     "$REPO_ROOT/install/install-staged-splash.sh" 'stat -c'
 assert_contains "install-staged-splash.sh writes the volunteer slide under the staged extension" \
@@ -1789,34 +1796,141 @@ echo ""
 echo "=== Splash creation Tests ==="
 # ============================================================================
 #
-# create_splash() in setup-kiosk.sh installs the kiosk splash on first setup.
-# Source precedence (only when /home/kiosk/splash.png does not yet exist):
-#   1. repo images/splash.png   -> copy it verbatim
-#   2. other images in images/  -> prompt the operator to pick one
-#   3. nothing usable           -> generate a placeholder via ImageMagick
+# create_splash() in setup-kiosk.sh populates the canonical splash store on
+# first setup. Source precedence (only when the store holds no images yet):
+#   1. repo images/splash.d/*   -> seed the whole rotation set
+#   2. repo images/splash.png   -> seed it as the single slide
+#   3. other images in images/  -> prompt the operator to pick one
+#   4. nothing usable           -> generate a placeholder via ImageMagick
+# Everything lands in /var/lib/kiosk-splash; nothing is written to /home/kiosk.
 SETUP="$REPO_ROOT/install/setup-kiosk.sh"
 
-assert_contains "create_splash still leaves an existing /home/kiosk/splash.png alone" \
+assert_contains "create_splash leaves an already-populated store alone" \
     "$SETUP" 'leaving it alone'
 assert_contains "create_splash resolves the repo images/ dir from its own path" \
     "$SETUP" 'images_dir='
-assert_contains "create_splash prefers the repo images/splash.png" \
+assert_contains "create_splash seeds the rotation set through splash-store.sh" \
+    "$SETUP" 'bash "\$store_helper" seed'
+assert_contains "create_splash falls back to the repo images/splash.png" \
     "$SETUP" '${images_dir}/splash.png'
 # The source file lives under the SSH user's 0700 home (display-pi-bootstrap/),
 # which the kiosk user cannot traverse. Copy AS ROOT via `install` (root reads
-# anywhere) and let -o/-g hand the destination to the kiosk user atomically.
+# anywhere) and let -o/-g hand the destination to the store's owner atomically.
 assert_contains "create_splash installs the chosen splash as root so it can read the bootstrap dir" \
     "$SETUP" 'sudo install -o "\$KIOSK_USER" -g "\$KIOSK_USER" -m 0644'
-assert_not_contains "create_splash never cp's as the kiosk user (can't traverse SSH user's 0700 home)" \
-    "$SETUP" 'sudo -u "\$KIOSK_USER" cp .* "\$splash_path"'
 assert_contains "create_splash prompts to pick when only other images exist" \
     "$SETUP" 'select '
 assert_contains "create_splash only prompts on an interactive tty (no CI hang)" \
     "$SETUP" '&& -t 0'
 assert_contains "create_splash keeps the ImageMagick placeholder fallback" \
     "$SETUP" 'convert -size 1920x1080'
+assert_not_contains "create_splash never writes a splash into /home/kiosk" \
+    "$SETUP" '/home/\${KIOSK_USER}/splash'
+# The player must be told where the store is through the SAME config file it
+# reads at runtime, at STEP 1 — not first written by setup-web at step 3.
+assert_contains "setup-kiosk.sh persists SPLASH_DIR to /etc/default/kiosk" \
+    "$SETUP" 'set_env_kv "\$KIOSK_ENV_FILE" SPLASH_DIR'
 assert_contains "setup-kiosk.sh bootstrap player has the rotation picker" \
     "$SETUP" 'next_splash_image'
+
+# Behavior test: run the real create_splash against a temp store. This is the
+# function that decides what a brand-new Pi shows on its very first idle
+# period, and it reaches for `sudo`, ImageMagick and the store helper — worth
+# exercising rather than grepping. `sudo` and `convert` are stubbed; the
+# store helper is the real one.
+create_splash_behavior_test() {
+    local fn_body tmp inst store got
+    fn_body=$(sed -n '/^create_splash()/,/^}/p' "$SETUP")
+    if [[ -z "$fn_body" ]]; then
+        FAIL=$((FAIL + 1))
+        ERRORS+=("create_splash behavior: function not found")
+        printf "${RED}  FAIL${RESET} create_splash behavior (function missing)\n"
+        return
+    fi
+    tmp=$(mktemp -d)
+    inst="$tmp/install"
+    mkdir -p "$inst" "$tmp/images/splash.d" "$tmp/bin"
+    cp "$REPO_ROOT/install/splash-store.sh" "$inst/"
+
+    # `sudo` becomes `env`, which handles the VAR=value prefixes create_splash
+    # passes and then runs the command unprivileged.
+    printf '#!/bin/bash\nexec env "$@"\n' > "$tmp/bin/sudo"
+    # `convert` just makes a file, so the placeholder branch is observable
+    # without ImageMagick installed on the workstation.
+    printf '#!/bin/bash\nprintf "fake-png" > "${!#}"\n' > "$tmp/bin/convert"
+    # chown is a no-op off-root.
+    printf '#!/bin/bash\nexit 0\n' > "$tmp/bin/chown"
+    chmod +x "$tmp/bin"/*
+
+    run_create_splash() {
+        local store_dir="$1"
+        PATH="$tmp/bin:$PATH" bash -c "
+set -euo pipefail
+log() { :; }
+KIOSK_USER=\"\$(id -un)\"
+SPLASH_STORE='$store_dir'
+SPLASH_TEXT='Service will begin shortly'
+$fn_body
+create_splash
+" 2>&1
+    }
+
+    # 1. Repo ships a rotation set -> the whole set is seeded.
+    : > "$tmp/images/splash.d/01-a.png"; : > "$tmp/images/splash.d/02-b.png"
+    store="$tmp/store1"
+    ( cd "$inst" && run_create_splash "$store" >/dev/null )
+    got=$(cd "$store" 2>/dev/null && printf '%s ' * || echo MISSING)
+    assert_eq "create_splash seeds the whole rotation set into the store" \
+        "01-a.png 02-b.png " "$got"
+
+    # 2. Store already populated -> untouched (an operator's slides survive
+    #    a re-run of setup, which is what makes setup-kiosk.sh idempotent).
+    echo "operator" > "$store/00-mine.png"
+    ( cd "$inst" && run_create_splash "$store" >/dev/null )
+    assert_eq "create_splash leaves an already-populated store alone" \
+        "operator" "$(cat "$store/00-mine.png")"
+
+    # 3. No rotation set, but images/splash.png exists -> it becomes slide 01.
+    rm -rf "$tmp/images/splash.d"
+    : > "$tmp/images/splash.png"
+    store="$tmp/store2"
+    ( cd "$inst" && run_create_splash "$store" >/dev/null )
+    if [[ -f "$store/01-splash.png" ]]; then
+        PASS=$((PASS + 1))
+        printf "${GREEN}  PASS${RESET} create_splash installs images/splash.png as slide 01\n"
+    else
+        FAIL=$((FAIL + 1))
+        ERRORS+=("create_splash did not install splash.png as 01-splash.png")
+        printf "${RED}  FAIL${RESET} create_splash installs images/splash.png as slide 01\n"
+    fi
+
+    # 4. Nothing usable -> the generated placeholder, in the store.
+    rm -f "$tmp/images/splash.png"
+    store="$tmp/store3"
+    ( cd "$inst" && run_create_splash "$store" >/dev/null )
+    if [[ -f "$store/01-placeholder.png" ]]; then
+        PASS=$((PASS + 1))
+        printf "${GREEN}  PASS${RESET} create_splash generates the placeholder into the store\n"
+    else
+        FAIL=$((FAIL + 1))
+        ERRORS+=("create_splash did not generate 01-placeholder.png in the store")
+        printf "${RED}  FAIL${RESET} create_splash generates the placeholder into the store\n"
+    fi
+
+    # 5. Nothing is ever written to the kiosk user's home.
+    if [[ ! -e "$tmp/home" ]]; then
+        PASS=$((PASS + 1))
+        printf "${GREEN}  PASS${RESET} create_splash writes no images outside the store\n"
+    else
+        FAIL=$((FAIL + 1))
+        ERRORS+=("create_splash wrote outside the store")
+        printf "${RED}  FAIL${RESET} create_splash writes no images outside the store\n"
+    fi
+
+    unset -f run_create_splash
+    rm -rf "$tmp"
+}
+create_splash_behavior_test
 # The bootstrap player (runs between `make setup` and `make deploy`) is a hand
 # copy of install/player.sh and drifts. It must rotate all 5 splash formats
 # (matching the canonical player) and read STREAM_URL from /etc/default/kiosk
@@ -1829,14 +1943,16 @@ assert_contains "setup-kiosk.sh bootstrap player reads STREAM_URL override (sing
     "$SETUP" 'STREAM_URL:-'
 # Both the bootstrap player glob AND the create_splash source picker must
 # offer the new formats — count the gif/webp globs to prove neither was missed.
+# Three now: the bootstrap player, the create_splash source picker, and the
+# create_splash "is the store already populated" probe.
 gif_globs=$(grep -c "iname '\*.gif'" "$SETUP")
-if [[ "$gif_globs" -eq 2 ]]; then
+if [[ "$gif_globs" -eq 3 ]]; then
     PASS=$((PASS + 1))
     printf "${GREEN}  PASS${RESET} setup-kiosk.sh has gif glob in both bootstrap player and create_splash picker\n"
 else
     FAIL=$((FAIL + 1))
-    ERRORS+=("setup-kiosk.sh gif globs: expected 2, found $gif_globs")
-    printf "${RED}  FAIL${RESET} setup-kiosk.sh gif globs (expected 2, found %s)\n" "$gif_globs"
+    ERRORS+=("setup-kiosk.sh gif globs: expected 3, found $gif_globs")
+    printf "${RED}  FAIL${RESET} setup-kiosk.sh gif globs (expected 3, found %s)\n" "$gif_globs"
 fi
 
 # ============================================================================
@@ -1844,19 +1960,20 @@ echo ""
 echo "=== Splash rotation Tests ==="
 # ============================================================================
 #
-# The kiosk rotates through the images in /home/kiosk/splash.d, advancing one
+# The kiosk rotates through the images in /var/lib/kiosk-splash, advancing one
 # image each time the idle splash is (re)entered (NO timer). next_splash_image()
 # runs in the parent shell (the $(show_splash) subshell can't carry the cursor)
-# and returns the path via the global SPLASH_NEXT, falling back to the legacy
-# single SPLASH_IMAGE, else failing loudly rather than showing a blank screen.
+# and returns the path via the global SPLASH_NEXT, else fails loudly rather
+# than showing a blank screen. There is no second image location: the legacy
+# SPLASH_IMAGE fallback and the /home/kiosk/splash.d symlink are both gone.
 PLAYER="$REPO_ROOT/install/player.sh"
 DEPLOY="$REPO_ROOT/dev/deploy.sh"
 STAGED_INSTALL="$REPO_ROOT/install/install-staged-splash.sh"
 
-assert_contains "player.sh defaults SPLASH_DIR to the rotation folder" \
-    "$PLAYER" 'SPLASH_DIR:-/home/kiosk/splash.d'
-assert_contains "player.sh keeps a legacy single-image fallback" \
-    "$PLAYER" 'SPLASH_IMAGE:-/home/kiosk/splash.png'
+assert_contains "player.sh defaults SPLASH_DIR to the canonical store" \
+    "$PLAYER" 'SPLASH_DIR:-/var/lib/kiosk-splash'
+assert_not_contains "player.sh has no legacy single-image fallback" \
+    "$PLAYER" 'SPLASH_IMAGE'
 assert_contains "player.sh persists the rotation cursor (advances across restarts)" \
     "$PLAYER" 'SPLASH_STATE'
 assert_contains "player.sh has a next_splash_image picker" \
@@ -1872,20 +1989,29 @@ assert_contains "player.sh errors loudly when no splash is available" \
 assert_contains "player.sh guards kill/wait against an empty splash PID" \
     "$PLAYER" '\-n "\$SPLASH_PID"'
 
-# Splash images are symlinked from the deployed repo (no copies — single
-# source of truth, parallel to bin/). The volunteer drop-in is written into the
-# symlinked folder, so the top-level rsync must exclude it from --delete.
-assert_contains "deploy.sh symlinks the splash.d rotation folder (no copy)" \
+# Images live in exactly ONE place on the Pi: /var/lib/kiosk-splash. Deploy no
+# longer symlinks anything into /home/kiosk — that symlink pointed at the repo
+# working tree, which the player stopped reading the moment setup-web wrote
+# SPLASH_DIR into /etc/default/kiosk, so repo images silently diverged from
+# what was on screen. Deploy now migrates any legacy content into the store and
+# seeds it through the same splash-store.sh helper setup-web uses.
+assert_not_contains "deploy.sh no longer symlinks splash.d into /home/kiosk" \
     "$DEPLOY" 'ln -sfn .*images/splash.d'
-assert_contains "deploy.sh symlinks the fallback splash.png (no copy)" \
+assert_not_contains "deploy.sh no longer symlinks splash.png into /home/kiosk" \
     "$DEPLOY" 'ln -sf .*images/splash.png'
-assert_not_contains "deploy.sh no longer copies splash images (symlinked instead)" \
+assert_not_contains "deploy.sh no longer copies splash images by hand" \
     "$DEPLOY" 'cp .*images/splash'
+assert_contains "deploy.sh seeds the splash store via the shared helper" \
+    "$DEPLOY" 'splash-store.sh seed'
+assert_contains "deploy.sh migrates legacy /home/kiosk splash paths" \
+    "$DEPLOY" 'splash-store.sh migrate'
 assert_contains "deploy.sh excludes the volunteer drop-in from --delete (survives deploy, any format)" \
     "$DEPLOY" "exclude='\\*-volunteer\\.\\*'"
 
-assert_contains "install-staged-splash.sh ensures the rotation folder exists" \
-    "$STAGED_INSTALL" 'splash.d'
+assert_contains "install-staged-splash.sh defaults to the canonical splash store" \
+    "$STAGED_INSTALL" 'SPLASH_DIR=/var/lib/kiosk-splash'
+assert_not_contains "install-staged-splash.sh no longer defaults to /home/kiosk/splash.d" \
+    "$STAGED_INSTALL" 'SPLASH_DIR=/home/kiosk/splash.d'
 
 assert_file_exists "repo ships a splash.d rotation folder (seed image)" \
     "$REPO_ROOT/images/splash.d/01-rcc.png"
@@ -1912,7 +2038,7 @@ next_splash_behavior_test() {
     got=""
     for i in 1 2 3 4; do
         one=$(bash -c "$fn_body
-SPLASH_DIR='$tmpdir'; SPLASH_IMAGE='$tmpdir/none.png'; SPLASH_STATE='$statefile'
+SPLASH_DIR='$tmpdir'; SPLASH_STATE='$statefile'
 next_splash_image && basename \"\$SPLASH_NEXT\"" || true)
         got+="$one"$'\n'
     done
@@ -1927,14 +2053,14 @@ next_splash_image && basename \"\$SPLASH_NEXT\"" || true)
         printf "${RED}  FAIL${RESET} next_splash_image cycles A,B,C,A (got: %s)\n" "${got//$'\n'/,}"
     fi
 
-    # SPLASH_DIR is a SYMLINK to the image folder (the real Pi layout:
-    # /home/kiosk/splash.d -> display-pi/images/splash.d). `find` must follow
-    # the starting symlink (-L) or it sees an empty dir and never rotates.
+    # SPLASH_DIR may still be reached through a symlink (an operator pointing
+    # /var/lib/kiosk-splash at external storage). `find` must follow the
+    # starting symlink (-L) or it sees an empty dir and never rotates.
     local linkdir
     linkdir=$(mktemp -d)/link
     ln -sfn "$tmpdir" "$linkdir"
     got=$(bash -c "$fn_body
-SPLASH_DIR='$linkdir'; SPLASH_IMAGE='$tmpdir/none.png'; SPLASH_STATE='$linkdir.idx'
+SPLASH_DIR='$linkdir'; SPLASH_STATE='$linkdir.idx'
 next_splash_image && basename \"\$SPLASH_NEXT\"" || true)
     if [[ "$got" == "01-a.png" ]]; then
         PASS=$((PASS + 1))
@@ -1946,37 +2072,276 @@ next_splash_image && basename \"\$SPLASH_NEXT\"" || true)
     fi
     rm -rf "$(dirname "$linkdir")"
 
-    # Empty folder but legacy fallback present -> returns the fallback path.
+    # An empty store is a hard failure now — there is no second location to
+    # fall back to, so the caller must surface it loudly rather than silently
+    # showing nothing. (The store is seeded at setup and never emptied by us.)
     emptydir=$(mktemp -d)
-    fallback="$tmpdir/legacy.png"; : > "$fallback"
-    got=$(bash -c "$fn_body
-SPLASH_DIR='$emptydir'; SPLASH_IMAGE='$fallback'; SPLASH_STATE='$tmpdir/idx2'
-next_splash_image && printf '%s' \"\$SPLASH_NEXT\"")
-    if [[ "$got" == "$fallback" ]]; then
-        PASS=$((PASS + 1))
-        printf "${GREEN}  PASS${RESET} next_splash_image falls back to the legacy single image\n"
-    else
-        FAIL=$((FAIL + 1))
-        ERRORS+=("next_splash_image fallback: want '$fallback' got '$got'")
-        printf "${RED}  FAIL${RESET} next_splash_image falls back to legacy image (got: %s)\n" "$got"
-    fi
-
-    # Nothing usable anywhere -> non-zero return (caller surfaces it loudly).
     bash -c "$fn_body
-SPLASH_DIR='$emptydir'; SPLASH_IMAGE='$emptydir/missing.png'; SPLASH_STATE='$tmpdir/idx3'
+SPLASH_DIR='$emptydir'; SPLASH_STATE='$tmpdir/idx2'
 next_splash_image" >/dev/null 2>&1 && rc=0 || rc=$?
     if [[ "$rc" -ne 0 ]]; then
         PASS=$((PASS + 1))
-        printf "${GREEN}  PASS${RESET} next_splash_image returns non-zero when no image exists\n"
+        printf "${GREEN}  PASS${RESET} next_splash_image fails on an empty store (no hidden fallback)\n"
     else
         FAIL=$((FAIL + 1))
-        ERRORS+=("next_splash_image empty: expected non-zero exit, got 0")
-        printf "${RED}  FAIL${RESET} next_splash_image returns non-zero when no image exists\n"
+        ERRORS+=("next_splash_image empty store: expected non-zero exit, got 0")
+        printf "${RED}  FAIL${RESET} next_splash_image fails on an empty store\n"
+    fi
+
+    # A missing store dir entirely -> also non-zero, not a crash under set -u.
+    bash -c "$fn_body
+SPLASH_DIR='$emptydir/gone'; SPLASH_STATE='$tmpdir/idx3'
+next_splash_image" >/dev/null 2>&1 && rc=0 || rc=$?
+    if [[ "$rc" -ne 0 ]]; then
+        PASS=$((PASS + 1))
+        printf "${GREEN}  PASS${RESET} next_splash_image returns non-zero when the store dir is missing\n"
+    else
+        FAIL=$((FAIL + 1))
+        ERRORS+=("next_splash_image missing dir: expected non-zero exit, got 0")
+        printf "${RED}  FAIL${RESET} next_splash_image returns non-zero when the store dir is missing\n"
     fi
 
     rm -rf "$tmpdir" "$emptydir"
 }
 next_splash_behavior_test
+
+# ============================================================================
+echo ""
+echo "=== Splash store single-location Tests ==="
+# ============================================================================
+#
+# One folder holds the kiosk's images: /var/lib/kiosk-splash. install/
+# splash-store.sh is the single implementation of "where is it / make it /
+# seed it / migrate into it", shared by setup-kiosk.sh (step 1), deploy.sh
+# (step 2) and kiosk-web-setup.sh (step 3) so the three steps cannot drift.
+#
+# The bug this replaces: deploy symlinked /home/kiosk/splash.d at the repo
+# working tree while setup-web pointed SPLASH_DIR at /var/lib/kiosk-splash and
+# seeded it once. Two folders, one of them unread, silently diverging.
+STORE="$REPO_ROOT/install/splash-store.sh"
+WEBSETUP="$REPO_ROOT/install/kiosk-web-setup.sh"
+
+assert_contains "splash-store.sh defines the canonical store path" \
+    "$STORE" 'SPLASH_STORE_DEFAULT=/var/lib/kiosk-splash'
+assert_contains "splash-store.sh reads the live SPLASH_DIR from the config store" \
+    "$STORE" 'KIOSK_ENV_FILE'
+assert_contains "splash-store.sh seeds only when the store holds no images" \
+    "$STORE" 'store_has_images'
+assert_contains "splash-store.sh chowns only when it is actually root" \
+    "$STORE" 'EUID -eq 0'
+
+# All three provisioning steps must go through the helper — no hand-rolled
+# copy loops, no second opinion about the path.
+assert_contains "kiosk-web-setup.sh seeds through the shared helper" \
+    "$WEBSETUP" 'splash-store.sh" seed'
+assert_not_contains "kiosk-web-setup.sh has no hand-rolled seeding loop" \
+    "$WEBSETUP" 'Seeding \$SPLASH_DIR with images from repo'
+assert_contains "setup-kiosk.sh seeds through the shared helper" \
+    "$SETUP" 'splash-store.sh'
+
+# No shipped code may still WRITE TO or READ FROM the retired /home/kiosk
+# locations. Two references are legitimate and excluded: comments explaining
+# the old layout, and the `splash-store.sh migrate` call that exists precisely
+# to clean those paths up on an already-deployed Pi.
+retired_hits=$(grep -rn '/home/kiosk/splash\.d\|/home/kiosk/splash\.png\|/home/\${KIOSK_USER}/splash\.d\|/home/\${KIOSK_USER}/splash\.png' \
+    "$REPO_ROOT/install" "$REPO_ROOT/dev" "$REPO_ROOT/web" "$REPO_ROOT/diagnostics" 2>/dev/null \
+    | grep -v ':[[:space:]]*#' \
+    | grep -v 'splash-store.sh migrate' \
+    | grep -v '^[^:]*splash-store\.sh:' \
+    | cut -d: -f1 | sort -u || true)
+if [[ -z "$retired_hits" ]]; then
+    PASS=$((PASS + 1))
+    printf "${GREEN}  PASS${RESET} no shipped script references the retired /home/kiosk splash paths\n"
+else
+    FAIL=$((FAIL + 1))
+    ERRORS+=("retired splash paths still referenced in: $(echo "$retired_hits" | tr '\n' ' ')")
+    printf "${RED}  FAIL${RESET} retired /home/kiosk splash paths still referenced (%s)\n" \
+        "$(echo "$retired_hits" | tr '\n' ' ')"
+fi
+
+# Behavior tests — run the real helper against temp dirs as an unprivileged
+# user. Chown/ownership steps self-skip off-root; everything else is exercised.
+splash_store_behavior_test() {
+    local tmp env_file store src got
+    tmp=$(mktemp -d)
+    env_file="$tmp/default-kiosk"
+    store="$tmp/store"
+    src="$tmp/repo-images"
+    mkdir -p "$src"
+    : > "$src/01-a.png"; : > "$src/02-b.jpg"; : > "$src/README.md"
+
+    # 1. Path resolution: default when the config store says nothing...
+    got=$(KIOSK_ENV_FILE="$env_file" bash "$STORE" path)
+    assert_eq "splash-store path falls back to /var/lib/kiosk-splash" \
+        "/var/lib/kiosk-splash" "$got"
+
+    # ...and the persisted value when it does. This is the rule that made the
+    # old layout unreadable: the live config, not the repo default, wins.
+    echo "SPLASH_DIR=$store" > "$env_file"
+    got=$(KIOSK_ENV_FILE="$env_file" bash "$STORE" path)
+    assert_eq "splash-store path honors SPLASH_DIR from the config store" \
+        "$store" "$got"
+
+    # 2. Seeding an empty store copies the images (and nothing else).
+    KIOSK_ENV_FILE="$env_file" bash "$STORE" seed "$src" >/dev/null
+    got=$(cd "$store" && printf '%s ' *)
+    assert_eq "splash-store seed copies only image files into an empty store" \
+        "01-a.png 02-b.jpg " "$got"
+
+    # 3. Seeding again is a no-op — a populated store is operator/volunteer
+    #    territory and the repo never overwrites it.
+    : > "$src/03-c.png"
+    echo "volunteer" > "$store/00-volunteer.png"
+    KIOSK_ENV_FILE="$env_file" bash "$STORE" seed "$src" >/dev/null
+    got=$(cd "$store" && printf '%s ' *)
+    assert_eq "splash-store seed is a no-op on a populated store" \
+        "00-volunteer.png 01-a.png 02-b.jpg " "$got"
+    assert_eq "splash-store seed never clobbers a volunteer slide" \
+        "volunteer" "$(cat "$store/00-volunteer.png")"
+
+    # 4. Migration: a REAL legacy folder's images move into the store and the
+    #    legacy paths disappear. This is what an existing Pi hits on its first
+    #    deploy after the layout change.
+    local legacy_dir legacy_img mstore
+    legacy_dir="$tmp/legacy.d"; legacy_img="$tmp/legacy.png"
+    mstore="$tmp/mstore"
+    mkdir -p "$legacy_dir"
+    echo "kept" > "$legacy_dir/00-volunteer.png"
+    : > "$legacy_img"
+    echo "SPLASH_DIR=$mstore" > "$env_file"
+    KIOSK_ENV_FILE="$env_file" bash "$STORE" migrate "$legacy_dir" "$legacy_img" >/dev/null
+    assert_eq "splash-store migrate moves legacy rotation images into the store" \
+        "kept" "$(cat "$mstore/00-volunteer.png" 2>/dev/null)"
+    if [[ ! -e "$legacy_dir" && ! -e "$legacy_img" ]]; then
+        PASS=$((PASS + 1))
+        printf "${GREEN}  PASS${RESET} splash-store migrate removes the legacy /home/kiosk paths\n"
+    else
+        FAIL=$((FAIL + 1))
+        ERRORS+=("splash-store migrate left legacy paths behind")
+        printf "${RED}  FAIL${RESET} splash-store migrate removes the legacy paths\n"
+    fi
+
+    # 5. A legacy SYMLINK (the layout deploy.sh actually created) is unlinked,
+    #    never followed — deleting through it would eat the repo working tree.
+    local link_target linkpath
+    link_target="$tmp/repo-splash-d"; linkpath="$tmp/legacy-link"
+    mkdir -p "$link_target"; : > "$link_target/01-repo.png"
+    ln -sfn "$link_target" "$linkpath"
+    KIOSK_ENV_FILE="$env_file" bash "$STORE" migrate "$linkpath" "$tmp/absent.png" >/dev/null
+    if [[ ! -e "$linkpath" && -f "$link_target/01-repo.png" ]]; then
+        PASS=$((PASS + 1))
+        printf "${GREEN}  PASS${RESET} splash-store migrate unlinks a legacy symlink without touching its target\n"
+    else
+        FAIL=$((FAIL + 1))
+        ERRORS+=("splash-store migrate mishandled a legacy symlink")
+        printf "${RED}  FAIL${RESET} splash-store migrate unlinks a legacy symlink safely\n"
+    fi
+
+    rm -rf "$tmp"
+}
+splash_store_behavior_test
+
+# ============================================================================
+echo ""
+echo "=== become-kiosk-web Tests ==="
+# ============================================================================
+#
+# /var/lib/kiosk-splash is owned by kiosk-web, a --system user with
+# /usr/sbin/nologin. `sudo -u kiosk-web -i` therefore fails outright ("This
+# account is currently not available"), which is exactly the wall a volunteer
+# hits when told to "go look at the splash folder". become-kiosk-web hands
+# them a shell as that user, already sitting in the store.
+BECOME_WEB="$REPO_ROOT/install/become-kiosk-web.sh"
+
+assert_contains "become-kiosk-web targets the kiosk-web user" \
+    "$BECOME_WEB" 'WEB_USER="\${WEB_USER:-kiosk-web}"'
+assert_contains "become-kiosk-web invokes an explicit shell (nologin blocks sudo -i)" \
+    "$BECOME_WEB" 'sudo -u "\$WEB_USER"'
+assert_not_contains "become-kiosk-web does not use 'sudo -i' (would hit nologin)" \
+    "$BECOME_WEB" 'sudo -u "\$WEB_USER" -i'
+assert_contains "become-kiosk-web starts the operator inside the splash store" \
+    "$BECOME_WEB" 'cd "\$SPLASH_DIR"'
+assert_contains "become-kiosk-web resolves the store via splash-store.sh" \
+    "$BECOME_WEB" 'splash-store.sh'
+assert_contains "become-kiosk-web fails clearly when kiosk-web is not installed" \
+    "$BECOME_WEB" 'does not exist'
+assert_contains "setup-kiosk.sh installs the become-kiosk-web helper" \
+    "$SETUP" 'become-kiosk-web'
+
+# ============================================================================
+echo ""
+echo "=== kiosk-config editor Tests ==="
+# ============================================================================
+#
+# /etc/default/kiosk is the single config store (stream key, RTMP app, HDMI
+# mode, SPLASH_DIR). Editing it by hand means sudo + an editor + hoping the
+# file still parses; a bad line there breaks kiosk.service's EnvironmentFile
+# at next boot. kiosk-config edits a copy, refuses to install anything the
+# shell cannot source, and only then replaces the real file.
+CONFIG_EDIT="$REPO_ROOT/install/kiosk-config.sh"
+
+assert_contains "kiosk-config edits /etc/default/kiosk" \
+    "$CONFIG_EDIT" '/etc/default/kiosk'
+assert_contains "kiosk-config prefers micro when no EDITOR is set" \
+    "$CONFIG_EDIT" 'micro'
+assert_contains "kiosk-config falls back to vim" \
+    "$CONFIG_EDIT" 'vim'
+assert_contains "kiosk-config validates the edited file before installing it" \
+    "$CONFIG_EDIT" 'bash -n'
+assert_contains "kiosk-config installs the config 0644 root:root" \
+    "$CONFIG_EDIT" 'install -m 0644 -o root -g root'
+assert_contains "setup-kiosk.sh installs the kiosk-config helper" \
+    "$SETUP" 'kiosk-config'
+assert_contains "setup-kiosk.sh installs micro so the editor exists on a fresh Pi" \
+    "$SETUP" '^ *micro'
+assert_contains "Makefile has a config target" \
+    "$REPO_ROOT/Makefile" '^config:'
+
+# Behavior tests — drive the real script with stub editors on PATH.
+kiosk_config_behavior_test() {
+    local tmp env_file bin rc
+    tmp=$(mktemp -d)
+    env_file="$tmp/default-kiosk"
+    bin="$tmp/bin"
+    mkdir -p "$bin"
+    printf 'STREAM_KEY=original\nRTMP_APP=live\n' > "$env_file"
+
+    # A well-behaved editor: its change is validated and installed.
+    printf '#!/bin/bash\nprintf "VOLUME=55\\n" >> "$1"\n' > "$bin/goodedit"
+    # A destructive one: leaves the file unsourceable.
+    printf '#!/bin/bash\nprintf "this is ) not shell\\n" >> "$1"\n' > "$bin/bademit"
+    # Stand-ins for the real editors, to prove the preference order.
+    printf '#!/bin/bash\nprintf "EDITED_BY=micro\\n" >> "$1"\n' > "$bin/micro"
+    printf '#!/bin/bash\nprintf "EDITED_BY=nano\\n" >> "$1"\n' > "$bin/nano"
+    chmod +x "$bin"/*
+
+    VISUAL= KIOSK_ENV_FILE="$env_file" EDITOR="$bin/goodedit" bash "$CONFIG_EDIT" >/dev/null 2>&1
+    assert_contains "kiosk-config applies a valid edit" "$env_file" '^VOLUME=55$'
+
+    VISUAL= KIOSK_ENV_FILE="$env_file" EDITOR="$bin/bademit" bash "$CONFIG_EDIT" >/dev/null 2>&1 && rc=0 || rc=$?
+    if [[ "$rc" -ne 0 ]]; then
+        PASS=$((PASS + 1))
+        printf "${GREEN}  PASS${RESET} kiosk-config exits non-zero on an unsourceable edit\n"
+    else
+        FAIL=$((FAIL + 1))
+        ERRORS+=("kiosk-config accepted a broken config (exit 0)")
+        printf "${RED}  FAIL${RESET} kiosk-config exits non-zero on an unsourceable edit\n"
+    fi
+    assert_not_contains "kiosk-config does not install a config the shell cannot source" \
+        "$env_file" 'not shell'
+    assert_contains "kiosk-config leaves the previous config intact after a rejected edit" \
+        "$env_file" '^VOLUME=55$'
+
+    # EDITOR=nano is overridden, not obeyed: micro gets the edit instead.
+    PATH="$bin:$PATH" VISUAL= KIOSK_ENV_FILE="$env_file" EDITOR=nano bash "$CONFIG_EDIT" >/dev/null 2>&1
+    assert_contains "kiosk-config substitutes micro when EDITOR is nano" \
+        "$env_file" '^EDITED_BY=micro$'
+    assert_not_contains "kiosk-config never lets nano touch the config" \
+        "$env_file" '^EDITED_BY=nano$'
+
+    rm -rf "$tmp"
+}
+kiosk_config_behavior_test
 
 # ============================================================================
 echo ""
@@ -2081,8 +2446,9 @@ echo "=== Consistency Tests ==="
 assert_contains "player.sh uses restoration stream key" "$REPO_ROOT/install/player.sh" "restoration"
 assert_contains "test-stream.sh defaults to restoration" "$REPO_ROOT/dev/test-stream.sh" "restoration"
 
-# Splash path should be consistent
-assert_contains "player.sh references splash.png" "$REPO_ROOT/install/player.sh" "/home/kiosk/splash.png"
+# Splash path should be consistent — one location, everywhere.
+assert_contains "player.sh references the canonical splash store" \
+    "$REPO_ROOT/install/player.sh" "/var/lib/kiosk-splash"
 
 # pix_fmt yuv420p in test stream (gotcha #6)
 assert_contains "test-stream.sh uses yuv420p" "$REPO_ROOT/dev/test-stream.sh" "yuv420p"

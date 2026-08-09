@@ -70,7 +70,7 @@ tmp_sudo=$(mktemp)
 cat > "$tmp_sudo" <<EOF
 # Allow the splash-updater user to invoke ONLY the no-args installer.
 # This pairs with the authorized_keys ForceCommand to ensure the only
-# code path that can write /home/kiosk/splash.png is via accept-splash.
+# code path that can write into the splash store is via accept-splash.
 $SU_USER ALL=(root) NOPASSWD: /usr/local/libexec/install-staged-splash
 EOF
 visudo -cf "$tmp_sudo" || die "sudoers file failed visudo check"

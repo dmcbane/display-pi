@@ -1,10 +1,17 @@
-# Splash rotation folder
+# Splash rotation folder — the FIRST-INSTALL SEED
 
-Images dropped here are the **rotation set** for the kiosk's idle splash. On
-`make deploy` they sync to `/home/kiosk/splash.d/` on the Pi, and `player.sh`
-cycles through them — advancing **one image each time the splash is (re)entered**
-(i.e. when the stream drops and the splash comes back up). There is no timer; a
-single continuous idle period shows one image until the stream toggles.
+Images dropped here seed the kiosk's splash rotation **on a fresh Pi only**.
+
+On the Pi itself, every splash image lives in one folder — the splash store,
+`/var/lib/kiosk-splash` (or whatever `SPLASH_DIR` in `/etc/default/kiosk`
+says). Provisioning copies this folder into the store **only when the store is
+empty**. Once the Pi has images, they belong to the operator and the
+volunteers, and nothing here overwrites them.
+
+So: **editing these files and running `make deploy` will not change what a
+provisioned Pi displays.** To change slides on a live Pi, use the volunteer web
+manager, or `become-kiosk-web` over SSH and edit the store directly. Run
+`make splash-ls HOST=…` to see the live folder and its contents.
 
 ## Conventions
 
@@ -14,12 +21,16 @@ single continuous idle period shows one image until the stream toggles.
   letterboxes anything off-aspect. Animated GIF/WebP plays and loops (mpv
   treats animated images as video, and the player already passes `--loop`).
 - **`*-volunteer.*` is reserved.** The volunteer "replace splash" SSH pipeline
-  writes `00-volunteer.<ext>` into the player's rotation folder on the Pi
-  (`SPLASH_DIR` from `/etc/default/kiosk`, else `/home/kiosk/splash.d/`), and
-  `deploy.sh` excludes `*-volunteer.*` from its `--delete` sync so a deploy
-  never wipes the volunteer's slide. Don't commit a `*-volunteer.*` here.
+  writes `00-volunteer.<ext>` into the splash store on the Pi. Don't commit a
+  `*-volunteer.*` here.
 
-## Fallback
+## If the store ends up empty
 
-If this folder ends up empty on the Pi, `player.sh` falls back to the single
-`/home/kiosk/splash.png` (seeded from `images/splash.png`).
+The player logs an error and displays nothing — deliberately. There is no
+single-image fallback any more; a second location only ever served to hide the
+fact that the real folder had gone missing. Re-seed with:
+
+```sh
+ssh <pi> 'sudo bash /home/kiosk/display-pi/install/splash-store.sh seed \
+    /home/kiosk/display-pi/images/splash.d'
+```

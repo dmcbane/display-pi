@@ -22,12 +22,11 @@
 set -euo pipefail
 
 STAGING_DIR=/var/lib/splash-updater
-# The volunteer slide must land in the rotation folder the player actually
-# reads. kiosk.service loads SPLASH_DIR from /etc/default/kiosk (the single
-# source of stream/splash config; kiosk-web-setup.sh points it at the
-# web-managed folder) — honor the same setting, falling back to the legacy
-# folder when it's unset.
-SPLASH_DIR=/home/kiosk/splash.d
+# The volunteer slide must land in the splash store the player actually reads.
+# kiosk.service loads SPLASH_DIR from /etc/default/kiosk (the single source of
+# stream/splash config, written at setup time) — honor the same setting,
+# falling back to the canonical store path when it's unset.
+SPLASH_DIR=/var/lib/kiosk-splash
 KIOSK_ENV_FILE=/etc/default/kiosk
 if [[ -r "$KIOSK_ENV_FILE" ]]; then
     configured=$(grep -E '^SPLASH_DIR=' "$KIOSK_ENV_FILE" | tail -1 | cut -d= -f2- | tr -d '"'"'"'')
@@ -65,9 +64,9 @@ case "$ext" in
 esac
 DEST="$SPLASH_DIR/00-volunteer.$ext"
 
-# The legacy folder is kiosk-owned but the web-managed one belongs to
-# kiosk-web — give the slide the folder's owner so whichever manager owns
-# the folder can also delete/reorder the slide.
+# The store is kiosk-owned until the web manager is installed, kiosk-web
+# after — give the slide the folder's current owner so whichever manager owns
+# it can also delete/reorder the slide.
 if [[ ! -d "$SPLASH_DIR" ]]; then
     install -d -o kiosk -g kiosk -m 0755 "$SPLASH_DIR"
 fi

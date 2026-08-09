@@ -146,22 +146,26 @@ if ! diff -q "\$RENDERED_NGINX" /etc/nginx/nginx.conf &>/dev/null 2>&1; then
 fi
 rm -f "\$RENDERED_NGINX"
 
-# Symlink the splash images from the deployed repo — no copies, single source
-# of truth, exactly like the bin/ scripts above. /home/kiosk/splash.d is the
-# rotation folder; /home/kiosk/splash.png is the single fallback. Created via
-# sudo (root), so the 0700 /home/kiosk is no obstacle (the old copy blocks
-# gated on a test the deploy user couldn't pass, so they silently no-op'd).
-# A pre-existing *real* splash.d dir (older layout) is removed first so the
-# symlink takes its place. The volunteer drop-in lives inside the symlinked
-# repo folder and is protected from --delete by the top-level rsync exclude.
-if [ -d /home/${KIOSK_USER}/splash.d ] && [ ! -L /home/${KIOSK_USER}/splash.d ]; then
-    sudo rm -rf /home/${KIOSK_USER}/splash.d
-fi
-sudo ln -sfn ${REMOTE_DIR}/images/splash.d /home/${KIOSK_USER}/splash.d
-sudo chown -h ${KIOSK_USER}:${KIOSK_USER} /home/${KIOSK_USER}/splash.d
-sudo ln -sf ${REMOTE_DIR}/images/splash.png /home/${KIOSK_USER}/splash.png
-sudo chown -h ${KIOSK_USER}:${KIOSK_USER} /home/${KIOSK_USER}/splash.png
-echo "Splash images symlinked"
+# Splash images live in exactly ONE place: the splash store
+# (/var/lib/kiosk-splash, or whatever SPLASH_DIR in /etc/default/kiosk says).
+#
+# This used to symlink /home/kiosk/splash.d at the repo working tree. That was
+# fine until setup-web pointed SPLASH_DIR somewhere else and seeded it once —
+# from then on the symlink was a folder nothing read, still faithfully tracking
+# the repo, while the display showed the never-refreshed copy. Two folders, no
+# signal which one was live.
+#
+# So: absorb and delete any legacy layout, then seed the store if it is empty.
+# Both operations go through install/splash-store.sh — the same helper
+# setup-kiosk.sh (step 1) and kiosk-web-setup.sh (step 3) call, so the three
+# provisioning steps cannot disagree about the path again.
+#
+# Run under sudo: the helper lives under the 0700 /home/kiosk, and the store's
+# owner is kiosk-web once the web manager is installed. Seeding is only-if-
+# empty, so a deploy never overwrites volunteer-uploaded slides.
+sudo bash ${REMOTE_DIR}/install/splash-store.sh migrate /home/${KIOSK_USER}/splash.d /home/${KIOSK_USER}/splash.png
+sudo bash ${REMOTE_DIR}/install/splash-store.sh seed ${REMOTE_DIR}/images/splash.d
+echo "Splash store reconciled"
 REMOTE
 
 # Update kiosk-web app if the web manager has been set up on this Pi

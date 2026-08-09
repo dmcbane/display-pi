@@ -10,8 +10,9 @@
 #   - /etc/sudoers.d/kiosk-web
 #   - /etc/systemd/system/kiosk-web.service
 #
-# Also sets SPLASH_DIR in /etc/default/kiosk so player.sh reads from the
-# web-managed directory rather than the repo symlink.
+# Also confirms SPLASH_DIR in /etc/default/kiosk. setup-kiosk.sh (step 1)
+# already wrote it; this step takes ownership of the directory itself, handing
+# it from the kiosk user to kiosk-web so the web manager can write uploads.
 #
 # Usage:
 #   sudo bash install/kiosk-web-setup.sh
@@ -60,23 +61,12 @@ mkdir -p "$STATE_DIR"
 chown "$WEB_USER:$WEB_USER" "$STATE_DIR"
 chmod 0700 "$STATE_DIR"
 
-# 3. Seed with repo images if empty
-if ! find "$SPLASH_DIR" -maxdepth 1 \( -name '*.png' -o -name '*.jpg' -o -name '*.jpeg' -o -name '*.gif' -o -name '*.webp' \) \
-        2>/dev/null | grep -q .; then
-    if [[ -d "$REPO_DIR/images/splash.d" ]]; then
-        log "Seeding $SPLASH_DIR with images from repo..."
-        while IFS= read -r f; do
-            dest="$SPLASH_DIR/$(basename "$f")"
-            if [[ ! -f "$dest" ]]; then
-                cp "$f" "$dest"
-                chown "$WEB_USER:$WEB_USER" "$dest"
-                echo "  copied $(basename "$f")"
-            fi
-        done < <(find "$REPO_DIR/images/splash.d" -maxdepth 1 \
-                      \( -name '*.png' -o -name '*.jpg' -o -name '*.jpeg' -o -name '*.gif' -o -name '*.webp' \) \
-                      2>/dev/null | sort)
-    fi
-fi
+# 3. Seed with repo images if empty — through the shared helper, so this step
+#    and `make deploy` (step 2) and setup-kiosk.sh (step 1) all agree on the
+#    path, the accepted formats, and the only-if-empty rule. Seeded files pick
+#    up the directory's owner, which step 2 above just set to kiosk-web.
+log "Reconciling the splash store..."
+SPLASH_DIR="$SPLASH_DIR" bash "$SCRIPT_DIR/splash-store.sh" seed "$REPO_DIR/images/splash.d"
 
 # 4. Generate token and write /etc/kiosk-web.conf if not already set
 if [[ -f "$CONF" ]] && grep -q '^TOKEN=' "$CONF" 2>/dev/null; then
