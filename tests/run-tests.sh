@@ -120,6 +120,10 @@ assert_file_exists "install/kiosk-config.sh exists" "$REPO_ROOT/install/kiosk-co
 assert_executable  "install/kiosk-config.sh is executable" "$REPO_ROOT/install/kiosk-config.sh"
 assert_file_exists "Makefile exists" "$REPO_ROOT/Makefile"
 assert_file_exists "images/splash.png exists" "$REPO_ROOT/images/splash.png"
+# Orphaned authoring tool: nothing in the repo, the Makefile, or the docs ever
+# called it, and it shipped world-writable (0777).
+assert_file_absent "images/overlay_fade_gif.py is gone (unreferenced tool)" \
+    "$REPO_ROOT/images/overlay_fade_gif.py"
 assert_file_exists  "install/kiosk-status.sh exists"        "$REPO_ROOT/install/kiosk-status.sh"
 assert_executable   "install/kiosk-status.sh is executable" "$REPO_ROOT/install/kiosk-status.sh"
 assert_file_exists "web/kiosk_manager.py exists" "$REPO_ROOT/web/kiosk_manager.py"
@@ -1517,6 +1521,14 @@ assert_file_absent "dev/splash-replace.ps1 is gone" \
 assert_file_absent "docs/admin-splash-update.md is gone" \
     "$REPO_ROOT/docs/admin-splash-update.md"
 
+# splash-store.sh is the one authority on where images live, so its header is
+# the first thing a reader trusts — it must not describe a delivery path that
+# no longer exists.
+assert_not_contains "splash-store.sh header no longer describes the SSH-bundle updater" \
+    "$REPO_ROOT/install/splash-store.sh" 'SSH-bundle updater'
+assert_not_contains "splash-store.sh no longer references the 00-volunteer drop-in" \
+    "$REPO_ROOT/install/splash-store.sh" '00-volunteer'
+
 assert_not_contains "Makefile has no volunteer-bundle target" \
     "$REPO_ROOT/Makefile" '^volunteer-bundle:'
 assert_not_contains "Makefile .PHONY drops volunteer-bundle" \
@@ -1757,7 +1769,13 @@ assert_contains "deploy.sh seeds the splash store via the shared helper" \
     "$DEPLOY" 'splash-store.sh seed'
 assert_contains "deploy.sh migrates legacy /home/kiosk splash paths" \
     "$DEPLOY" 'splash-store.sh migrate'
-assert_contains "deploy.sh excludes the volunteer drop-in from --delete (survives deploy, any format)" \
+# The rsync --delete exclusion for *-volunteer.* is gone. It protected an
+# upload that landed at images/splash.d/00-volunteer.png back when
+# /home/kiosk/splash.d symlinked into the repo working tree — i.e. inside the
+# rsync destination. Since the store moved to /var/lib/kiosk-splash it sits
+# outside REMOTE_DIR entirely, so --delete cannot reach a slide there and the
+# exclusion guarded nothing while implying deploy still had to.
+assert_not_contains "deploy.sh has no vestigial *-volunteer.* --delete exclusion" \
     "$DEPLOY" "exclude='\\*-volunteer\\.\\*'"
 
 assert_file_exists "repo ships a splash.d rotation folder (seed image)" \

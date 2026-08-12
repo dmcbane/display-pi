@@ -6,10 +6,9 @@
 #
 #     /var/lib/kiosk-splash        (overridable via SPLASH_DIR in /etc/default/kiosk)
 #
-# player.sh rotates through it, the volunteer web manager uploads into it, and
-# the SSH-bundle updater drops 00-volunteer.* into it. Provisioning touches it
-# from three different steps, and before this helper existed each step had its
-# own opinion:
+# player.sh rotates through it and the volunteer web manager uploads into it —
+# those are the only two writers. Provisioning touches it from three different
+# steps, and before this helper existed each step had its own opinion:
 #
 #   step 1  setup-kiosk.sh   wrote /home/kiosk/splash.png
 #   step 2  deploy.sh        symlinked /home/kiosk/splash.d -> the repo working tree

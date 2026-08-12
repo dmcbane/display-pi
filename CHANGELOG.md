@@ -4,6 +4,27 @@ All notable changes to display-pi are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.30.1] - 2026-08-11
+
+### Removed
+- **`images/overlay_fade_gif.py`** — an orphaned Pillow tool for compositing a
+  fading overlay into a looping GIF. Nothing referenced it: not the Makefile,
+  not `setup-kiosk.sh`, not the tests, not the docs. It also shipped mode 0777.
+- **The `--exclude='*-volunteer.*'` rsync exclusion in `dev/deploy.sh`.** It
+  protected a volunteer upload from `--delete` when `/home/kiosk/splash.d`
+  symlinked into the repo working tree, putting the slide inside the rsync
+  destination. Since v0.29.0 the store is `/var/lib/kiosk-splash`, outside
+  `REMOTE_DIR` entirely — `--delete` cannot reach a slide there, so the
+  exclusion guarded nothing while implying deploy still had to.
+- **Completed items in `TODO.md`** — five v0.6.0 entries the CHANGELOG and git
+  history already record. The file now carries open work only.
+
+### Fixed
+- **`install/splash-store.sh` header no longer documents the SSH-bundle
+  updater** as a writer of the store. That file is the single authority on
+  where splash images live, so its header is the first thing a reader trusts;
+  it now names the two real writers, `player.sh` and the web manager.
+
 ## [0.30.0] - 2026-08-11
 
 ### Removed
