@@ -4,6 +4,19 @@ All notable changes to display-pi are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.30.2] - 2026-08-11
+
+### Fixed
+- **`configure_locale` now runs first in `setup-kiosk.sh`, ahead of
+  `install_packages`.** It was step 10d, near the end of `main()`, so every
+  apt, dpkg, and perl call during the package install ran under a forwarded
+  `LANG` naming a locale the fresh Pi OS Lite image hadn't generated yet —
+  hundreds of "cannot change locale" warnings wrapped around the output an
+  operator actually needs to read. The function depends on nothing
+  `install_packages` provides (`locale-gen` and `update-locale` ship in
+  `locales`, `sshd` in `openssh-server`, both in the base image), so there was
+  never an ordering constraint holding it back. Renumbered to Step 0.
+
 ## [0.30.1] - 2026-08-11
 
 ### Removed

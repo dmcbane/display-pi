@@ -1049,8 +1049,16 @@ configure_ssh_auth() {
 }
 
 # =============================================================================
-# Step 10d: Locale — a clean login from anywhere, no forwarded-locale warnings
+# Step 0: Locale — a clean login from anywhere, no forwarded-locale warnings
 # =============================================================================
+#
+# Defined here with its sibling ssh/sudoers steps, but main() calls it FIRST,
+# ahead of install_packages. A fresh Pi OS Lite image generates almost no
+# locales, so until this runs the forwarded LANG names a locale that doesn't
+# exist and every apt, dpkg, and perl call warns about it — hundreds of lines
+# of noise around the output an operator actually needs to read. Nothing here
+# depends on an installed package: locale-gen and update-locale come from
+# `locales` and sshd from `openssh-server`, both in the base image.
 #
 # Two independent things make the "cannot change locale" warning appear at
 # login: (1) the target locale isn't generated on the Pi, and (2) sshd imports
@@ -1184,6 +1192,12 @@ main() {
 
     log "Starting kiosk setup (backup suffix: .bak-${STAMP})"
 
+    # First, before anything that shells out to apt: a fresh Pi OS Lite image
+    # has almost no locales generated, so the LANG your SSH client forwards
+    # names a locale that doesn't exist yet. Every apt/dpkg/perl call until it
+    # does prints "cannot change locale", which buries the real output of the
+    # install. configure_locale needs nothing install_packages provides.
+    configure_locale
     install_packages
     create_kiosk_user
     enable_seatd
@@ -1200,7 +1214,6 @@ main() {
     configure_pipewire
     configure_deploy_sudoers
     configure_ssh_auth
-    configure_locale
     configure_logrotate
     configure_healthcheck
 

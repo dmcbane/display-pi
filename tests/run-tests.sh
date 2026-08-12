@@ -646,6 +646,38 @@ assert_contains "configure_locale validates sshd before reload" \
 assert_contains "setup-kiosk.sh main() calls configure_locale" \
     "$REPO_ROOT/install/setup-kiosk.sh" "    configure_locale"
 
+# Ordering matters as much as presence. configure_locale used to run as step
+# 10d, near the end — so every apt invocation in install_packages (step 1) ran
+# under a forwarded LANG that didn't exist on the Pi yet, and the operator
+# watched perl and dpkg emit "cannot change locale" for the whole install.
+# The function depends on nothing install_packages provides (locale-gen,
+# update-locale, and sshd all ship in the base image), so it runs first.
+locale_before_packages_test() {
+    local main_body loc_line pkg_line
+    main_body=$(sed -n '/^main() {/,/^}/p' "$REPO_ROOT/install/setup-kiosk.sh")
+    loc_line=$(grep -n '^[[:space:]]*configure_locale[[:space:]]*$' <<<"$main_body" | head -1 | cut -d: -f1)
+    pkg_line=$(grep -n '^[[:space:]]*install_packages[[:space:]]*$' <<<"$main_body" | head -1 | cut -d: -f1)
+
+    # A missing call is a failure, not a silent pass — an empty line number
+    # would otherwise make the comparison below vacuously true.
+    if [[ -z "$loc_line" || -z "$pkg_line" ]]; then
+        FAIL=$((FAIL + 1))
+        ERRORS+=("locale ordering: configure_locale or install_packages not called in main()")
+        printf "${RED}  FAIL${RESET} main() calls both configure_locale and install_packages\n"
+        return
+    fi
+    if (( loc_line < pkg_line )); then
+        PASS=$((PASS + 1))
+        printf "${GREEN}  PASS${RESET} main() runs configure_locale before install_packages\n"
+    else
+        FAIL=$((FAIL + 1))
+        ERRORS+=("locale ordering: configure_locale (main line $loc_line) runs after install_packages (main line $pkg_line)")
+        printf "${RED}  FAIL${RESET} main() runs configure_locale before install_packages (locale at %s, packages at %s)\n" \
+            "$loc_line" "$pkg_line"
+    fi
+}
+locale_before_packages_test
+
 # ============================================================================
 echo ""
 echo "=== Operations & Diagnostics Dependency Tests ==="
