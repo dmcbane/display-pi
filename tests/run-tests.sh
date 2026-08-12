@@ -1746,6 +1746,18 @@ assert_contains "setup-guide warns the site script must stay out of git" \
 assert_contains "docs index points at the batch-provisioning section" \
     "$REPO_ROOT/docs/index.html" 'setup-guide.html#batch-provisioning'
 
+# The two test-stream failure modes are the ones an operator hits on a bench
+# that isn't the church LAN, and neither error names its cause without the
+# preflight. The guide has to say what the preflight is telling them.
+assert_contains "troubleshooting covers the test-stream preflight" \
+    "$GUIDE" '### .*make test-stream'
+assert_contains "troubleshooting explains the publish-ACL refusal" \
+    "$GUIDE" 'cannot publish to'
+assert_contains "troubleshooting names the Broken pipe symptom the preflight replaces" \
+    "$GUIDE" 'Broken pipe'
+assert_contains "troubleshooting says to narrow the allow-list again afterwards" \
+    "$GUIDE" 'Narrow it again'
+
 # docs/_config.yml excludes dev-journal from the Jekyll build on purpose — the
 # notes stay readable as plain Markdown on github.com. A site-relative link to
 # one therefore 404s for every visitor to the published guide, while looking

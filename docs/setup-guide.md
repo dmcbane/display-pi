@@ -633,6 +633,56 @@ ssh displaypi 'sudo grep audio-device /home/kiosk/bin/player.sh'
   ```sh
   nc -zv <pi-ip> 1935
   ```
+- Testing with `make test-stream` rather than the ATEM? Its preflight checks
+  the allow-list and the stream key for you — see
+  [`make test-stream` refuses to run](#make-test-stream-refuses-to-run).
+
+### `make test-stream` refuses to run
+
+Before starting ffmpeg, `test-stream.sh` reads the Pi's own config and checks
+the two things that make a test stream fail without saying why. If either is
+wrong it stops in about a second rather than burning the full 60.
+
+**"this workstation cannot publish to …"**
+
+```
+  your source address:  192.168.1.131
+  Pi allows publish from: 192.168.0.0/24
+```
+
+Your workstation is outside `RTMP_ALLOW_PUBLISH_CIDRS`, so nginx accepts the
+TCP connection and immediately drops it. Without the preflight this surfaces
+only as ffmpeg's `Broken pipe`, forty lines below the libx264 statistics — a
+message that names neither nginx nor the allow-list.
+
+This is the normal state when the Pi is provisioned for the church LAN
+(`192.168.0.0/24`, where the ATEM lives) but is sitting on a different bench
+network. To test anyway, add your address on the Pi — the persisted value in
+`/etc/default/kiosk` wins over the repo default:
+
+```sh
+ssh displaypi 'sudo kiosk-config'   # RTMP_ALLOW_PUBLISH_CIDRS="192.168.0.0/24 192.168.1.131/32"
+make deploy                         # re-render nginx.conf and reload
+make test-stream
+```
+
+A single `/32` for your workstation is enough — no need to open a whole
+subnet. **Narrow it again before the Pi goes into service:** that list is the
+real control on who can push to the display.
+
+**"Using the Pi's stream key 'church242' (local value was 'restoration')"**
+
+Not an error — the preflight adopting the key the Pi actually watches. The
+Makefile defaults `STREAM_KEY` to `restoration`, and nginx accepts *any* key
+inside the `live` app, so publishing under the wrong one succeeds while the
+display never switches and nothing logs an error. The preflight prevents that
+silent non-event, and says so rather than substituting quietly.
+
+**"couldn't read /etc/default/kiosk … preflight skipped"**
+
+SSH to the Pi failed, so neither check could run. The stream is still
+attempted, since the RTMP port may be reachable where SSH isn't. If it then
+dies with `Broken pipe`, assume the allow-list.
 
 ### Kiosk service keeps crashing
 
