@@ -237,6 +237,18 @@ description: >-
 <span class="cmd">make ssh</span>                                       <span class="comment"># smoke-test the new card</span></pre>
   </div>
 
+  <p class="code-label">Several Pis to build? Keep one script per site (<a href="setup-guide.html#script-it-one-file-per-site">details</a>)</p>
+  <div class="code-block">
+<pre><span class="comment"># restoration_setup.sh — the whole build, recorded once</span>
+<span class="cmd">set</span> -euo pipefail                                <span class="comment"># half-provisioned is worse than not started</span>
+<span class="cmd">ssh-keygen</span> -f ~/.ssh/known_hosts -R 192.168.1.172 <span class="comment"># the re-flashed card's old key</span>
+<span class="cmd">ssh-copy-id</span> -i ~/.ssh/id_ed25519_restoration displaypi
+<span class="cmd">make provision</span> <span class="flag">STREAM_KEY</span>=<span class="str">restoration</span> <span class="flag">STATIC_IP</span>=<span class="str">192.168.50.1/24</span>
+<span class="cmd">make web-ca</span>                                      <span class="comment"># root CA for a warning-free padlock</span>
+<span class="cmd">scp</span> volunteer-kiosk.* display-pi-rootCA.crt displaypi: <span class="comment"># handout files</span></pre>
+  </div>
+  <p style="margin-top:-0.5rem">A second site is the same file with a different block of constants at the top. Keep it out of git — it names your key path and your internal addressing.</p>
+
   <p class="code-label">Day to day</p>
   <div class="code-block">
 <pre><span class="cmd">make deploy</span>            <span class="comment"># push code changes + restart the player</span>

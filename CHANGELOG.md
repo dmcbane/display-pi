@@ -4,6 +4,25 @@ All notable changes to display-pi are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.30.4] - 2026-08-11
+
+### Added
+- **"Script it: one file per site"** in the setup guide, extending the batch
+  provisioning section. A commented template turns the manual per-card loop
+  into a keepable script: stale host key, `ssh-copy-id`, `make provision` with
+  the site's full override set, `make web-ca`, pruning the seed slides the site
+  doesn't want, staging the volunteer handout files on the Pi, and a
+  show-your-work tail. Provisioning a second site is the same file with a
+  different block of constants at the top.
+- A matching Quick Start block on the docs landing page linking to it.
+
+### Changed
+- **`.gitignore` now ignores `*_setup.sh`** rather than one script by name, so
+  the whole family of per-site provisioning scripts stays out of a public repo
+  — they name private key paths and internal addressing. Since v0.30.3
+  `dev/deploy.sh` reads `.gitignore` as an rsync filter, this also keeps them
+  off the Pi.
+
 ## [0.30.3] - 2026-08-11
 
 ### Fixed

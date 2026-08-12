@@ -1637,6 +1637,32 @@ assert_not_contains ".gitignore no longer carries splash-updater keys" \
 
 # ============================================================================
 echo ""
+echo "=== Documentation Tests ==="
+# ============================================================================
+# Provisioning several Pis is the workflow most likely to be done from memory
+# at 8am on a Sunday. The guide has to carry the per-site script pattern, not
+# just the manual loop, and the three things that actually bite: a re-flashed
+# card's new host key, the seed slides a site doesn't want, and the fact that
+# the generated shortcut files hold a live token.
+GUIDE="$REPO_ROOT/docs/setup-guide.md"
+
+assert_contains "setup-guide documents scripting the per-site provision loop" \
+    "$GUIDE" 'Script it'
+assert_contains "site-script template fails loudly (half-provisioned Pi is worse than none)" \
+    "$GUIDE" 'set -euo pipefail'
+assert_contains "site-script template clears the re-flashed card's stale host key" \
+    "$GUIDE" 'ssh-keygen -f "\$HOME/.ssh/known_hosts" -R'
+assert_contains "site-script template resolves the splash store via splash-store path" \
+    "$GUIDE" 'splash-store path'
+assert_contains "site-script template stages the volunteer handout files on the Pi" \
+    "$GUIDE" 'volunteer-kiosk.webloc'
+assert_contains "setup-guide warns the site script must stay out of git" \
+    "$GUIDE" '.gitignore'
+assert_contains "docs index points at the batch-provisioning section" \
+    "$REPO_ROOT/docs/index.html" 'setup-guide.html#batch-provisioning'
+
+# ============================================================================
+echo ""
 echo "=== Splash creation Tests ==="
 # ============================================================================
 #

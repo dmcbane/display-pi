@@ -17,5 +17,12 @@ __pycache__/
 
 # Local Claude Code working directory.
 .claude/
+
+# Root CA fetched by `make web-ca` — regenerated, never committed.
 display-pi-rootCA.crt
-church242_setup.sh
+
+# Per-site provisioning scripts (see the setup guide, "Script it: one file per
+# site"). They name private key paths and internal addressing, and this repo is
+# public. dev/deploy.sh reads this file as an rsync filter, so ignoring them
+# also keeps them off the Pi.
+*_setup.sh

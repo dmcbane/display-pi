@@ -385,6 +385,86 @@ safely on a card that only half-finished — just start it again from the top.
 > [Network plan](#network-plan)), and a card provisioned without it quietly
 > reverts to the default `192.168.0.0/24` allow-list.
 
+### Script it: one file per site
+
+Once you've run that loop twice, write it down. A per-site script turns
+provisioning into one command you can hand to someone else, and — more
+usefully — it records the handful of values that make *this* site different
+from the last one. Keep one file per site next to the repo:
+
+```sh
+#! /usr/bin/env bash
+#
+# restoration_setup.sh — provision the Restoration lobby kiosk from a bare Pi.
+#
+# Run from the repo root on the workstation, after flashing (step 1) and
+# first boot (step 2).
+
+# Fail loudly: a step that dies silently leaves a half-provisioned Pi, which
+# is harder to diagnose than one that never started.
+set -euo pipefail
+
+PI=displaypi                        # this site's ~/.ssh/config alias
+FIRST_BOOT_IP=192.168.1.172         # DHCP address before the static IP lands
+KEY=~/.ssh/id_ed25519_restoration   # the key this site's Pi should trust
+
+# 1. A re-flashed card generates a new host key, so forget the old one. Exits
+#    0 when there's no entry, so this is safe on a first run too.
+ssh-keygen -f "$HOME/.ssh/known_hosts" -R "$FIRST_BOOT_IP"
+ssh-copy-id -i "$KEY" "$PI"
+
+# 2. Provision end to end, then fetch the root CA for a warning-free padlock.
+#    Pass the FULL set of overrides — a re-flashed card starts from nothing.
+make provision STREAM_KEY=restoration STATIC_IP=192.168.50.1/24 \
+    RTMP_ALLOW_PUBLISH_CIDRS=192.168.0.42/32
+make web-ca
+
+# 3. Drop the seed slides this site doesn't want. `splash-store path` is the
+#    one authority on where the store lives — never hardcode the directory.
+ssh "$PI" 'sudo rm -f "$(splash-store path)"/01-example.png'
+make restart
+
+# 4. Stage the handout files in the login user's home directory. An admin who
+#    can only reach the Pi over a console session — an iPad SSH client, say,
+#    with no scp and no repo checkout — can then read them straight off the Pi.
+scp volunteer-kiosk.webloc volunteer-kiosk.url display-pi-rootCA.crt "$PI":
+ssh "$PI" 'chmod 600 ~/volunteer-kiosk.webloc ~/volunteer-kiosk.url'
+
+# 5. Show your work, so a bad run is obvious before you leave the building.
+echo "Restoration kiosk provisioned."
+ssh "$PI" 'ls -l ~/volunteer-kiosk.webloc ~/volunteer-kiosk.url ~/display-pi-rootCA.crt'
+make splash-ls
+```
+
+Provisioning a second site is then a copy of this file with a different block
+of constants at the top — stream key, static IP, publish CIDR, key path, and
+which seed slides to prune.
+
+A few things worth knowing before you adapt it:
+
+- **Keep it out of git.** The script names your private key path and your
+  internal addressing, and this repo is public. Add it to `.gitignore`
+  (`*_setup.sh` covers the whole family) and it still sits right where you
+  need it, next to the `Makefile`.
+- **The shortcut files carry a live token.** `volunteer-kiosk.webloc` and
+  `.url` are generated from the Pi's current access token, so anyone holding
+  one can change what the display shows. `chmod 600` is the reason step 4 ends
+  the way it does — and it's why `make deploy` deliberately refuses to ship
+  them to the Pi's repo copy (see the `.gitignore` filter in `dev/deploy.sh`).
+  If you rotate the token in the web manager, re-run `make volunteer-web-url`
+  and re-copy them.
+- **`set -euo pipefail` changes the failure mode.** The script now stops at the
+  first error instead of plowing on. That's the point, but it means a step that
+  used to fail quietly will halt the run — which is what you want when the
+  alternative is discovering it on Sunday morning.
+- **Re-running is safe.** Every `make provision` step is idempotent, so a
+  script that died halfway can just be run again from the top.
+- **Mind where the Pi is when the static IP lands.** Everything after
+  `make provision` still talks to `$PI`. If `STATIC_IP` moves the Pi to a
+  subnet your workstation can't reach and takes effect immediately rather than
+  at the next boot, those later steps will fail on a dead host — provision on
+  the bench first, then move it.
+
 ## Day-to-day operations
 
 All from the workstation, in the `display-pi/` checkout:
