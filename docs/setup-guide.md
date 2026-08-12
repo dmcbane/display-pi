@@ -442,9 +442,10 @@ owner, already in the folder — that account is `nologin`, so plain
   folder hide behind a stale image.
 - **Cycle manually while testing:** `make restart` (advances one slide), or send
   a `make test-stream` and let it end (a stream toggle also advances one).
-- **Volunteers** replace their slide from the browser-based web manager (below);
-  their image joins the rotation. An offline SSH-bundle path also exists — see
-  [`docs/admin-splash-update.md`](admin-splash-update.md).
+- **Volunteers** replace their slides from the browser-based web manager
+  (below) — upload, delete, and reorder, then **Restart Service**. Hand them
+  [`docs/volunteer-splash-update.md`](volunteer-splash-update.md); it is the
+  only volunteer-facing path.
 
 ### The volunteer web manager
 

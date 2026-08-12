@@ -4,6 +4,57 @@ All notable changes to display-pi are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.30.0] - 2026-08-11
+
+### Removed
+- **The SSH-key volunteer splash bundle is gone** — `make volunteer-bundle`,
+  `install/splash-updater-setup.sh`, `install/accept-splash.sh`,
+  `install/install-staged-splash.sh`, and the `dev/splash-replace.sh` / `.ps1`
+  clients. The web manager does everything the bundle did and more (upload,
+  delete, reorder, restart) behind a token the admin can rotate in seconds.
+  The bundle needed a standing `splash-updater` Unix user, a `NOPASSWD`
+  sudoers rule, an `authorized_keys` `ForceCommand`, and a private key copied
+  onto volunteer laptops and USB sticks that nobody ever rotated — a permanent
+  credential guarding a capability a revocable token already guarded. Its
+  stated reason to exist was "works when the web manager isn't reachable", but
+  it required SSH to the same Pi on the same LAN, so it never covered that
+  case; when the web service itself is broken, the admin's `ssh` + `make` is
+  the recovery path, not a volunteer with a USB stick.
+- **`docs/admin-splash-update.md`** — the operator runbook for that bundle.
+
+  **Teardown on an older Pi.** Nothing is removed automatically; a Pi that
+  never ran `splash-updater-setup.sh` has nothing to clean up. To check and
+  remove:
+
+  ```sh
+  ssh displaypi 'id splash-updater; ls -l /etc/ssh/splash-updater_ed25519*'
+  ssh displaypi 'sudo userdel -r splash-updater; \
+                 sudo rm -f /etc/sudoers.d/splash-updater \
+                            /usr/local/libexec/accept-splash \
+                            /usr/local/libexec/install-staged-splash \
+                            /etc/ssh/splash-updater_ed25519 \
+                            /etc/ssh/splash-updater_ed25519.pub; \
+                 sudo rm -rf /var/lib/splash-updater'
+  ```
+
+  Destroy any `volunteer-bundle.zip` still in circulation — the key inside
+  stops working the moment the user is deleted, but it should not be lying
+  around regardless.
+
+### Changed
+- **`docs/volunteer-splash-update.md` is now the web-manager splash guide.**
+  Same URL, rewritten for the browser workflow: upload, delete, reorder,
+  **Restart Service**, plus the image rules, an error table, and the "your link
+  is a password" security notes. It is the only volunteer-facing splash path.
+- README, the docs-site nav, `docs/index.html`, and `docs/setup-guide.md` no
+  longer offer the SSH bundle as a fallback.
+
+### Added
+- **`assert_file_absent`** in `tests/run-tests.sh`, plus a
+  *SSH splash-bundle removal* section that fails if any part of the bundle —
+  scripts, Makefile target, `.gitignore` entries, or doc references — creeps
+  back in.
+
 ## [0.29.0] - 2026-08-09
 
 ### Changed

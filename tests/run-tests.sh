@@ -42,6 +42,18 @@ assert_file_exists() {
     fi
 }
 
+assert_file_absent() {
+    local desc="$1" path="$2"
+    if [[ ! -e "$path" ]]; then
+        PASS=$((PASS + 1))
+        printf "${GREEN}  PASS${RESET} %s\n" "$desc"
+    else
+        FAIL=$((FAIL + 1))
+        ERRORS+=("$desc: file still present at $path")
+        printf "${RED}  FAIL${RESET} %s (still present: %s)\n" "$desc" "$path"
+    fi
+}
+
 assert_executable() {
     local desc="$1" path="$2"
     if [[ -x "$path" ]]; then
@@ -1474,322 +1486,63 @@ assert_contains "judder.sh tree mentions wlr-randr (runtime enforcement)" \
 
 # ============================================================================
 echo ""
-echo "=== Splash updater Tests ==="
+echo "=== SSH splash-bundle removal Tests ==="
 # ============================================================================
-# Volunteers replace the kiosk splash image by piping a PNG over SSH to a
-# dedicated `splash-updater` user whose authorized_keys ForceCommand routes
-# the bytes through accept-splash. The validator MUST:
-#   - reject non-PNG input (verified by magic-byte check)
-#   - reject wrong-dimension images (must be 1920x1080)
-#   - cap input size (prevent fill-the-disk DoS via stdin)
-#   - stage to a fixed path so the sudo-privileged installer takes no args
+# The hand-delivered SSH-key splash bundle is gone. It let a volunteer pipe one
+# image over SSH to a dedicated `splash-updater` user whose authorized_keys
+# ForceCommand routed the bytes through accept-splash into install-staged-splash.
+#
+# The browser-based web manager (web/kiosk_manager.py) does everything the
+# bundle did and more — upload, delete, reorder, restart — behind a token the
+# admin can rotate at will. The bundle, by contrast, needed a standing Unix
+# user, a NOPASSWD sudoers rule, and a private key copied onto volunteer
+# laptops and USB sticks that nobody ever rotated. Its stated reason to exist
+# was "works when the web manager isn't reachable", but it needed SSH to the
+# same Pi on the same LAN, so it never actually covered that case.
+#
+# These assertions keep the subsystem from creeping back in. On a Pi that ran
+# the old install/splash-updater-setup.sh, the leftovers are removed by hand —
+# see the v0.30.0 CHANGELOG entry for the teardown commands.
 
-assert_file_exists "install/accept-splash.sh exists" \
+assert_file_absent "install/accept-splash.sh is gone" \
     "$REPO_ROOT/install/accept-splash.sh"
-assert_executable  "install/accept-splash.sh is executable" \
-    "$REPO_ROOT/install/accept-splash.sh"
-assert_contains "accept-splash.sh has set -euo pipefail" \
-    "$REPO_ROOT/install/accept-splash.sh" '^set -euo pipefail'
-assert_contains "accept-splash.sh recognises PNG" \
-    "$REPO_ROOT/install/accept-splash.sh" 'PNG'
-assert_contains "accept-splash.sh recognises JPEG" \
-    "$REPO_ROOT/install/accept-splash.sh" 'JPEG'
-assert_contains "accept-splash.sh recognises GIF" \
-    "$REPO_ROOT/install/accept-splash.sh" 'GIF'
-assert_contains "accept-splash.sh recognises WebP" \
-    "$REPO_ROOT/install/accept-splash.sh" 'WEBP'
-assert_contains "accept-splash.sh enforces 1920 width" \
-    "$REPO_ROOT/install/accept-splash.sh" '1920'
-assert_contains "accept-splash.sh enforces 1080 height" \
-    "$REPO_ROOT/install/accept-splash.sh" '1080'
-assert_contains "accept-splash.sh caps input size (head -c MAX)" \
-    "$REPO_ROOT/install/accept-splash.sh" 'head -c'
-assert_contains "accept-splash.sh stages into the fixed staging dir" \
-    "$REPO_ROOT/install/accept-splash.sh" '/var/lib/splash-updater'
-# The format travels to the no-args sudo installer via the staged filename's
-# extension; the installer globs staged.* and derives the destination from it.
-assert_contains "accept-splash.sh stages under the format's extension" \
-    "$REPO_ROOT/install/accept-splash.sh" 'staged\.\$ext'
-assert_contains "accept-splash.sh clears stale staged files before staging" \
-    "$REPO_ROOT/install/accept-splash.sh" 'staged\.\*'
-# Header parsers (identify / file -b) read only the header — a truncated
-# upload still reports full dimensions. Require each format's end-of-stream
-# marker so interrupted uploads are caught.
-assert_contains "accept-splash.sh checks PNG IEND chunk (rejects truncated PNG)" \
-    "$REPO_ROOT/install/accept-splash.sh" 'IEND'
-assert_contains "accept-splash.sh checks JPEG EOI marker (rejects truncated JPEG)" \
-    "$REPO_ROOT/install/accept-splash.sh" 'ffd9'
-assert_contains "accept-splash.sh checks GIF trailer byte (rejects truncated GIF)" \
-    "$REPO_ROOT/install/accept-splash.sh" '3b'
-assert_contains "accept-splash.sh checks WebP RIFF size field (rejects truncated WebP)" \
-    "$REPO_ROOT/install/accept-splash.sh" 'RIFF'
-assert_contains "accept-splash.sh calls sudo install-staged-splash (no args)" \
-    "$REPO_ROOT/install/accept-splash.sh" 'sudo /usr/local/libexec/install-staged-splash'
-
-assert_file_exists "install/install-staged-splash.sh exists" \
+assert_file_absent "install/install-staged-splash.sh is gone" \
     "$REPO_ROOT/install/install-staged-splash.sh"
-assert_executable  "install/install-staged-splash.sh is executable" \
-    "$REPO_ROOT/install/install-staged-splash.sh"
-assert_contains "install-staged-splash.sh takes no args (sudo-safe)" \
-    "$REPO_ROOT/install/install-staged-splash.sh" 'set -euo pipefail'
-assert_contains "install-staged-splash.sh pins the fixed staging dir" \
-    "$REPO_ROOT/install/install-staged-splash.sh" 'STAGING_DIR=/var/lib/splash-updater'
-assert_contains "install-staged-splash.sh globs staged.* (format travels via extension)" \
-    "$REPO_ROOT/install/install-staged-splash.sh" '"\$STAGING_DIR"/staged\.\*'
-# The player's kiosk.service loads /etc/default/kiosk via EnvironmentFile=,
-# and SPLASH_DIR lives there. The installer must honor the same setting or the
-# volunteer slide lands in a folder the player never reads (found during the
-# 0.26.0 on-Pi shakeout).
-assert_contains "install-staged-splash.sh reads SPLASH_DIR from the kiosk config store" \
-    "$REPO_ROOT/install/install-staged-splash.sh" '/etc/default/kiosk'
-assert_contains "install-staged-splash.sh falls back to the canonical splash store" \
-    "$REPO_ROOT/install/install-staged-splash.sh" 'SPLASH_DIR=/var/lib/kiosk-splash'
-# The store is kiosk-owned before the web manager is installed and
-# kiosk-web-owned after; the slide must follow the folder's current owner or
-# the web manager can't delete/reorder it.
-assert_contains "install-staged-splash.sh gives the slide the rotation folder's owner" \
-    "$REPO_ROOT/install/install-staged-splash.sh" 'stat -c'
-assert_contains "install-staged-splash.sh writes the volunteer slide under the staged extension" \
-    "$REPO_ROOT/install/install-staged-splash.sh" '00-volunteer\.\$ext'
-assert_contains "install-staged-splash.sh whitelists the staged extension (sudo hardening)" \
-    "$REPO_ROOT/install/install-staged-splash.sh" 'png|jpg|jpeg|gif|webp'
-# This runs as root via sudo; a symlinked staged file would make the root
-# `install` copy an arbitrary target (e.g. /etc/shadow) into a 0644 file.
-# Require a regular, non-symlink staged file.
-assert_contains "install-staged-splash.sh rejects a symlinked staged file (root arbitrary-read guard)" \
-    "$REPO_ROOT/install/install-staged-splash.sh" '\-L "\$STAGED"'
-assert_contains "install-staged-splash.sh drops old-format volunteer slides (one slide, latest wins)" \
-    "$REPO_ROOT/install/install-staged-splash.sh" '00-volunteer\.\*'
-assert_contains "install-staged-splash.sh restarts kiosk so new splash shows" \
-    "$REPO_ROOT/install/install-staged-splash.sh" 'systemctl --machine=kiosk@.host --user restart kiosk.service'
-
-assert_file_exists "install/splash-updater-setup.sh exists" \
+assert_file_absent "install/splash-updater-setup.sh is gone" \
     "$REPO_ROOT/install/splash-updater-setup.sh"
-assert_executable  "install/splash-updater-setup.sh is executable" \
-    "$REPO_ROOT/install/splash-updater-setup.sh"
-# Restricted authorized_keys: ForceCommand + every "no-" hardening flag we
-# can use, plus 'restrict' as a belt-and-suspenders default-deny.
-assert_contains "splash-updater-setup.sh sets ForceCommand to accept-splash" \
-    "$REPO_ROOT/install/splash-updater-setup.sh" 'command="/usr/local/libexec/accept-splash"'
-assert_contains "splash-updater-setup.sh adds restrict flag to authorized_keys" \
-    "$REPO_ROOT/install/splash-updater-setup.sh" 'restrict'
-assert_contains "splash-updater-setup.sh sudoers entry is no-args specific" \
-    "$REPO_ROOT/install/splash-updater-setup.sh" 'NOPASSWD: /usr/local/libexec/install-staged-splash$'
-# sshd's ForceCommand invokes the user's login shell, so we can't use
-# nologin (would refuse to exec anything). Lockdown lives in
-# authorized_keys (restrict + ForceCommand) + locked password instead.
-assert_contains "splash-updater-setup.sh creates user with a real shell (ForceCommand uses it)" \
-    "$REPO_ROOT/install/splash-updater-setup.sh" 'useradd .*--shell /bin/bash'
-assert_contains "splash-updater-setup.sh locks the password (no interactive login)" \
-    "$REPO_ROOT/install/splash-updater-setup.sh" 'passwd -l "\$SU_USER"'
-
-# Makefile bundles the volunteer artifacts (scripts + README + key from
-# the Pi) into a single zip so the admin can hand-deliver it without
-# manually scripting the copy-pull-zip dance every time.
-assert_contains "Makefile has volunteer-bundle target" \
-    "$REPO_ROOT/Makefile" "^volunteer-bundle:"
-assert_contains "Makefile .PHONY includes volunteer-bundle" \
-    "$REPO_ROOT/Makefile" '\.PHONY:.* volunteer-bundle'
-assert_contains "Makefile help mentions volunteer-bundle" \
-    "$REPO_ROOT/Makefile" "volunteer-bundle "
-assert_contains "volunteer-bundle target pulls private key from Pi" \
-    "$REPO_ROOT/Makefile" "splash-updater_ed25519"
-assert_contains "volunteer-bundle target ships the README" \
-    "$REPO_ROOT/Makefile" "volunteer-splash-update.md"
-assert_contains "volunteer-bundle target produces a zip" \
-    "$REPO_ROOT/Makefile" "volunteer-bundle.zip"
-
-# CRITICAL: the zip contains a live SSH private key. Must be gitignored
-# so a stray `git add -A` doesn't commit it to a public repo.
-assert_file_exists ".gitignore exists (volunteer key safety)" \
-    "$REPO_ROOT/.gitignore"
-assert_contains ".gitignore covers volunteer-bundle.zip" \
-    "$REPO_ROOT/.gitignore" "volunteer-bundle.zip"
-assert_contains ".gitignore covers stray splash-updater key files" \
-    "$REPO_ROOT/.gitignore" "^splash-updater\$"
-
-assert_file_exists "dev/splash-replace.sh exists" \
+assert_file_absent "dev/splash-replace.sh is gone" \
     "$REPO_ROOT/dev/splash-replace.sh"
-assert_executable  "dev/splash-replace.sh is executable" \
-    "$REPO_ROOT/dev/splash-replace.sh"
-assert_contains "splash-replace.sh client validates PNG magic before upload" \
-    "$REPO_ROOT/dev/splash-replace.sh" '89504e470d0a1a0a'
-assert_contains "splash-replace.sh client recognises JPEG magic" \
-    "$REPO_ROOT/dev/splash-replace.sh" 'ffd8ff'
-assert_contains "splash-replace.sh client recognises GIF magic" \
-    "$REPO_ROOT/dev/splash-replace.sh" '474946383'
-assert_contains "splash-replace.sh client recognises WebP magic (RIFF....WEBP)" \
-    "$REPO_ROOT/dev/splash-replace.sh" '57454250'
-assert_contains "splash-replace.sh client validates 1920x1080 before upload" \
-    "$REPO_ROOT/dev/splash-replace.sh" '1920'
-assert_contains "splash-replace.sh client pipes file via ssh stdin" \
-    "$REPO_ROOT/dev/splash-replace.sh" 'splash-updater@'
-
-assert_file_exists "dev/splash-replace.ps1 exists" \
+assert_file_absent "dev/splash-replace.ps1 is gone" \
     "$REPO_ROOT/dev/splash-replace.ps1"
-assert_contains "splash-replace.ps1 checks PNG magic" \
-    "$REPO_ROOT/dev/splash-replace.ps1" '89504E470D0A1A0A'
-assert_contains "splash-replace.ps1 recognises JPEG magic" \
-    "$REPO_ROOT/dev/splash-replace.ps1" 'FFD8FF'
-assert_contains "splash-replace.ps1 recognises GIF magic" \
-    "$REPO_ROOT/dev/splash-replace.ps1" '474946383'
-assert_contains "splash-replace.ps1 recognises WebP magic" \
-    "$REPO_ROOT/dev/splash-replace.ps1" '57454250'
-assert_contains "splash-replace.ps1 checks 1920x1080" \
-    "$REPO_ROOT/dev/splash-replace.ps1" '1920'
-assert_contains "splash-replace.ps1 sends file to splash-updater" \
-    "$REPO_ROOT/dev/splash-replace.ps1" 'splash-updater@'
-# Right-click "Run with PowerShell" opens a fresh window that vanishes
-# on script exit. If the script errors before the volunteer reads the
-# message, they see nothing. Try/finally + IsInputRedirected check
-# pauses for Enter ONLY when stdin is interactive (no pipe), so
-# automation isn't affected.
-assert_contains "splash-replace.ps1 wraps body in try/finally" \
-    "$REPO_ROOT/dev/splash-replace.ps1" '^finally {'
-assert_contains "splash-replace.ps1 pauses for Enter on interactive exit" \
-    "$REPO_ROOT/dev/splash-replace.ps1" 'IsInputRedirected'
+assert_file_absent "docs/admin-splash-update.md is gone" \
+    "$REPO_ROOT/docs/admin-splash-update.md"
 
-# Behavior test: accept-splash validation against canned inputs.
-splash_validation_behavior_test() {
-    local script="$REPO_ROOT/install/accept-splash.sh"
-    if [[ ! -x "$script" ]]; then
-        FAIL=$((FAIL + 1))
-        ERRORS+=("accept-splash behavior: script missing")
-        printf "${RED}  FAIL${RESET} accept-splash behavior (script missing)\n"
-        return
-    fi
-    local tmpdir
-    tmpdir=$(mktemp -d)
-    mkdir -p "$tmpdir/staging"
+assert_not_contains "Makefile has no volunteer-bundle target" \
+    "$REPO_ROOT/Makefile" '^volunteer-bundle:'
+assert_not_contains "Makefile .PHONY drops volunteer-bundle" \
+    "$REPO_ROOT/Makefile" '\.PHONY:.* volunteer-bundle'
+assert_not_contains "Makefile never pulls the splash-updater private key" \
+    "$REPO_ROOT/Makefile" 'splash-updater'
+assert_not_contains "Makefile help no longer offers volunteer-bundle" \
+    "$REPO_ROOT/Makefile" 'volunteer-bundle'
 
-    # Stub `sudo` so the validator doesn't actually try to invoke the
-    # privileged installer.
-    cat > "$tmpdir/sudo" <<'SUDO'
-#!/bin/bash
-# Stub: pretend the install-staged-splash succeeded.
-echo "[stub-sudo] $*" >&2
-exit 0
-SUDO
-    chmod +x "$tmpdir/sudo"
+# The volunteer-facing guide stays — rewritten around the web manager, which
+# is now the only way a volunteer changes a slide.
+assert_file_exists "docs/volunteer-splash-update.md still exists (web-manager guide)" \
+    "$REPO_ROOT/docs/volunteer-splash-update.md"
+assert_not_contains "volunteer guide no longer hands out an SSH key" \
+    "$REPO_ROOT/docs/volunteer-splash-update.md" 'splash-updater'
+assert_not_contains "volunteer guide no longer references the replace scripts" \
+    "$REPO_ROOT/docs/volunteer-splash-update.md" 'splash-replace'
+assert_contains "volunteer guide points at the web manager" \
+    "$REPO_ROOT/docs/volunteer-splash-update.md" 'web manager'
 
-    # A python with Pillow drives both fixture generation and the identify
-    # stub, so the stub reports REAL dimensions/format (a magic-only stub
-    # that hardcodes 1920x1080 would silently pass wrong-dimension inputs).
-    # The kiosk-web venv is created by the pytest section below; on a
-    # first-ever run fall back to system python3 + PIL, else skip the
-    # fixture-driven cases.
-    local pybin=""
-    if [[ -x "$SCRIPT_DIR/kiosk-web-venv/bin/python" ]] && \
-       "$SCRIPT_DIR/kiosk-web-venv/bin/python" -c 'import PIL' 2>/dev/null; then
-        pybin="$SCRIPT_DIR/kiosk-web-venv/bin/python"
-    elif python3 -c 'import PIL' 2>/dev/null; then
-        pybin="python3"
-    fi
-
-    # Stub `identify` (like `identify -format '%w %h %m' file[0]`) so the
-    # validator is exercised deterministically whether or not ImageMagick
-    # is installed locally. Strips the [0] frame selector; exits nonzero
-    # when the file can't be parsed, pushing the script to its `file -b`
-    # fallback exactly like the real identify does.
-    if [[ -n "$pybin" ]]; then
-        cat > "$tmpdir/identify" <<ID
-#!/bin/bash
-f="\${!#}"; f="\${f%\\[0\\]}"
-exec "$pybin" -c 'import sys
-from PIL import Image
-im = Image.open(sys.argv[1])
-print(im.width, im.height, im.format)' "\$f" 2>/dev/null
-ID
-    else
-        cat > "$tmpdir/identify" <<'ID'
-#!/bin/bash
-f="${!#}"; f="${f%\[0\]}"
-magic=$(od -An -N8 -tx1 "$f" 2>/dev/null | tr -d ' \n')
-if [[ "$magic" == "89504e470d0a1a0a" ]]; then
-    echo "1920 1080 PNG"
-    exit 0
-fi
-exit 1
-ID
-    fi
-    chmod +x "$tmpdir/identify"
-
-    local out rc
-    run_accept() {  # $1 = input file → sets out/rc
-        out=$(PATH="$tmpdir:$PATH" \
-              SPLASH_STAGING_DIR="$tmpdir/staging" \
-              "$script" < "$1" 2>&1) && rc=0 || rc=$?
-    }
-    behavior_case() {  # $1 = description, $2 = pass/fail condition result
-        if [[ "$2" == "0" ]]; then
-            PASS=$((PASS + 1))
-            printf "${GREEN}  PASS${RESET} %s\n" "$1"
-        else
-            FAIL=$((FAIL + 1))
-            ERRORS+=("$1: rc=$rc out=$out")
-            printf "${RED}  FAIL${RESET} %s (rc=%s out=%s)\n" "$1" "$rc" "$out"
-        fi
-    }
-
-    # Case 0: truncated 1920x1080 PNG (first 100 bytes of a valid file).
-    # Header parsers still report full dimensions — the IEND-chunk check
-    # is what catches it.
-    head -c 100 "$REPO_ROOT/images/splash.png" > "$tmpdir/truncated.png"
-    run_accept "$tmpdir/truncated.png"
-    [[ $rc -eq 2 ]] && echo "$out" | grep -qi 'iend\|truncat'
-    behavior_case "accept-splash rejects truncated PNG (IEND check)" "$?"
-
-    # Case 1: not an image (random bytes) — should reject with exit 2
-    head -c 200 /dev/urandom > "$tmpdir/not-image.bin"
-    run_accept "$tmpdir/not-image.bin"
-    [[ $rc -eq 2 ]] && echo "$out" | grep -qi 'png\|image'
-    behavior_case "accept-splash rejects non-image input" "$?"
-
-    if [[ -n "$pybin" ]]; then
-        "$pybin" - "$tmpdir" <<'PY'
-import sys
-from PIL import Image
-d = sys.argv[1]
-Image.new('RGB', (640, 480), (255, 0, 0)).save(f'{d}/wrong-dim.png', 'PNG')
-for fmt, ext in [('PNG', 'png'), ('JPEG', 'jpg'), ('GIF', 'gif'), ('WEBP', 'webp')]:
-    Image.new('RGB', (1920, 1080), (0, 0, 255)).save(f'{d}/good.{ext}', fmt)
-PY
-
-        # Case 2: wrong-dimension PNG — should reject with exit 2
-        run_accept "$tmpdir/wrong-dim.png"
-        [[ $rc -eq 2 ]] && echo "$out" | grep -qE '1920|dimension|size'
-        behavior_case "accept-splash rejects 640x480 PNG" "$?"
-
-        # Case 3: correct image in each supported format — should succeed
-        # (sudo stubbed) and stage under the format's extension, clearing
-        # the previous format's staged file (installer expects exactly one).
-        local ext staged_count
-        for ext in png jpg gif webp; do
-            run_accept "$tmpdir/good.$ext"
-            staged_count=$(find "$tmpdir/staging" -maxdepth 1 -name 'staged.*' | wc -l)
-            [[ $rc -eq 0 && -f "$tmpdir/staging/staged.$ext" && "$staged_count" == "1" ]]
-            behavior_case "accept-splash accepts 1920x1080 .$ext and stages staged.$ext (only)" "$?"
-        done
-
-        # Case 4: truncated JPEG/GIF/WebP — the per-format end-marker checks
-        # catch these. A truncated WebP can also die earlier (identify/PIL
-        # decode eagerly and fail; without file(1) the format is unknown) —
-        # either way it must be rejected with exit 2.
-        local size
-        for ext in jpg gif webp; do
-            size=$(stat -c %s "$tmpdir/good.$ext")
-            head -c $((size / 2)) "$tmpdir/good.$ext" > "$tmpdir/trunc.$ext"
-            run_accept "$tmpdir/trunc.$ext"
-            [[ $rc -eq 2 ]] && echo "$out" | grep -qi 'truncat\|not a'
-            behavior_case "accept-splash rejects truncated .$ext" "$?"
-        done
-    else
-        printf "${RED}  SKIP${RESET} accept-splash fixture cases (no python with Pillow)\n"
-    fi
-
-    rm -rf "$tmpdir"
-}
-splash_validation_behavior_test
+assert_not_contains "README no longer advertises the SSH bundle" \
+    "$REPO_ROOT/README.md" 'volunteer-bundle'
+assert_not_contains ".gitignore no longer carries bundle artifacts" \
+    "$REPO_ROOT/.gitignore" 'volunteer-bundle.zip'
+assert_not_contains ".gitignore no longer carries splash-updater keys" \
+    "$REPO_ROOT/.gitignore" 'splash-updater'
 
 # ============================================================================
 echo ""
@@ -1968,7 +1721,6 @@ echo "=== Splash rotation Tests ==="
 # SPLASH_IMAGE fallback and the /home/kiosk/splash.d symlink are both gone.
 PLAYER="$REPO_ROOT/install/player.sh"
 DEPLOY="$REPO_ROOT/dev/deploy.sh"
-STAGED_INSTALL="$REPO_ROOT/install/install-staged-splash.sh"
 
 assert_contains "player.sh defaults SPLASH_DIR to the canonical store" \
     "$PLAYER" 'SPLASH_DIR:-/var/lib/kiosk-splash'
@@ -2007,11 +1759,6 @@ assert_contains "deploy.sh migrates legacy /home/kiosk splash paths" \
     "$DEPLOY" 'splash-store.sh migrate'
 assert_contains "deploy.sh excludes the volunteer drop-in from --delete (survives deploy, any format)" \
     "$DEPLOY" "exclude='\\*-volunteer\\.\\*'"
-
-assert_contains "install-staged-splash.sh defaults to the canonical splash store" \
-    "$STAGED_INSTALL" 'SPLASH_DIR=/var/lib/kiosk-splash'
-assert_not_contains "install-staged-splash.sh no longer defaults to /home/kiosk/splash.d" \
-    "$STAGED_INSTALL" 'SPLASH_DIR=/home/kiosk/splash.d'
 
 assert_file_exists "repo ships a splash.d rotation folder (seed image)" \
     "$REPO_ROOT/images/splash.d/01-rcc.png"

@@ -131,12 +131,14 @@ make deploy       # push code changes + restart the player
 make diag         # full diagnostics dump
 ```
 
-### Splash images — offline fallback
+### Splash images
 
-Where a browser or HTTPS isn't available, `make volunteer-bundle` builds a
-hand-delivered SSH-key bundle (`splash-replace.sh` / `.ps1`) a volunteer can use
-to push a slide over SSH. This is the secondary path — see the
-[offline splash guide](https://dmcbane.github.io/display-pi/volunteer-splash-update.html).
+Volunteers change the splash slides in the web manager — upload, delete, and
+reorder from a phone or laptop, then **Restart Service**. Hand them the link
+from `make volunteer-web-url` and the
+[splash guide](https://dmcbane.github.io/display-pi/volunteer-splash-update.html).
+Admins can also work the store directly over SSH with `make splash-ls` and
+`become-kiosk-web`.
 
 ## Security model
 
