@@ -1637,6 +1637,91 @@ assert_not_contains ".gitignore no longer carries splash-updater keys" \
 
 # ============================================================================
 echo ""
+echo "=== test-stream preflight Tests ==="
+# ============================================================================
+# Two misconfigurations make `make test-stream` fail in ways that name neither
+# cause:
+#
+#   1. nginx's `allow publish <cidr>; deny publish all;` drops the connection
+#      when the workstation is outside the allow-list. ffmpeg reports only
+#      "Broken pipe".
+#   2. The stream key the script publishes under differs from the one
+#      player.sh watches. nginx accepts any key inside the app, so the publish
+#      SUCCEEDS and the display simply never switches — no error at all.
+#
+# The preflight reads both values off the Pi and refuses to burn 60 seconds on
+# a run that cannot work.
+TS="$REPO_ROOT/dev/test-stream.sh"
+
+assert_contains "test-stream.sh reads the Pi's publish allow-list" \
+    "$TS" 'RTMP_ALLOW_PUBLISH_CIDRS'
+assert_contains "test-stream.sh reads the Pi's stream key" \
+    "$TS" 'STREAM_KEY'
+assert_contains "test-stream.sh determines the workstation's source IP toward the Pi" \
+    "$TS" 'ip route get'
+assert_contains "test-stream.sh has a cidr_contains helper" \
+    "$TS" '^cidr_contains()'
+assert_contains "test-stream.sh has an ip_to_int helper" \
+    "$TS" '^ip_to_int()'
+# An unreachable Pi must degrade the CHECK, not abort the run: ffmpeg may still
+# reach an RTMP server this workstation can't SSH into.
+assert_contains "test-stream.sh warns rather than dies when the Pi config can't be read" \
+    "$TS" 'preflight skipped'
+
+# Behavior test: extract the CIDR helpers and exercise the boundaries. An
+# off-by-one in the mask silently authorizes (or blocks) an entire subnet, and
+# a static grep cannot see that.
+cidr_behavior_test() {
+    local fns tmp rc pass=1
+    fns=$(sed -n '/^ip_to_int()/,/^}/p;/^cidr_contains()/,/^}/p' "$TS")
+    if [[ -z "$fns" ]]; then
+        FAIL=$((FAIL + 1))
+        ERRORS+=("cidr behavior: helpers not found in test-stream.sh")
+        printf "${RED}  FAIL${RESET} cidr_contains behavior (helpers missing)\n"
+        return
+    fi
+    tmp=$(mktemp)
+    printf '%s\n' "$fns" > "$tmp"
+
+    # ip / cidr / expected(0=in, 1=out)
+    local -a cases=(
+        "192.168.0.106 192.168.0.0/24 0"   # the Pi itself — allowed
+        "192.168.1.131 192.168.0.0/24 1"   # the workstation — the real failure
+        "192.168.0.1   192.168.0.0/24 0"   # first host in range
+        "192.168.0.255 192.168.0.0/24 0"   # broadcast address is still in-range
+        "192.168.1.0   192.168.0.0/24 1"   # first address past the boundary
+        "10.0.0.5      10.0.0.5/32    0"   # single-host CIDR matches
+        "10.0.0.6      10.0.0.5/32    1"   # ...and only that host
+        "10.0.0.6      10.0.0.5       1"   # bare IP behaves as /32
+        "8.8.8.8       0.0.0.0/0      0"   # match-everything
+        "172.16.5.9    172.16.0.0/12  0"   # non-octet-aligned mask
+        "172.32.5.9    172.16.0.0/12  1"   # ...just outside it
+    )
+    local c ip cidr want
+    for c in "${cases[@]}"; do
+        read -r ip cidr want <<<"$c"
+        rc=0
+        bash -c "source '$tmp'; cidr_contains '$ip' '$cidr'" || rc=$?
+        if [[ "$rc" != "$want" ]]; then
+            pass=0
+            ERRORS+=("cidr_contains $ip in $cidr: expected rc=$want got rc=$rc")
+            printf "${RED}  FAIL${RESET} cidr_contains %s in %s (expected %s, got %s)\n" \
+                "$ip" "$cidr" "$want" "$rc"
+        fi
+    done
+    rm -f "$tmp"
+
+    if (( pass )); then
+        PASS=$((PASS + 1))
+        printf "${GREEN}  PASS${RESET} cidr_contains handles %s boundary cases\n" "${#cases[@]}"
+    else
+        FAIL=$((FAIL + 1))
+    fi
+}
+cidr_behavior_test
+
+# ============================================================================
+echo ""
 echo "=== Documentation Tests ==="
 # ============================================================================
 # Provisioning several Pis is the workflow most likely to be done from memory

@@ -4,6 +4,33 @@ All notable changes to display-pi are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.31.0] - 2026-08-12
+
+### Added
+- **`dev/test-stream.sh` preflight.** Two misconfigurations made
+  `make test-stream` fail without naming a cause, and the script now catches
+  both in under a second instead of burning the full 60:
+
+  1. **Publish denied by the ACL.** nginx restricts publishing to
+     `RTMP_ALLOW_PUBLISH_CIDRS`; from outside that range it accepts the TCP
+     connection and drops it, which ffmpeg reports only as `Broken pipe`,
+     forty lines of libx264 statistics later. The preflight reads the Pi's
+     allow-list, asks the routing table which source address nginx will
+     actually see (not `hostname -I`, which lists interfaces that can't reach
+     the Pi), and refuses the run with both values and the fix.
+  2. **Stream-key mismatch.** nginx accepts any key inside the app, so
+     publishing under the wrong one *succeeds* while the display never
+     switches — no error anywhere. The Pi's key is now read over SSH and wins
+     over the local default, announced rather than silently substituted.
+
+  A Pi that can't be reached over SSH degrades the check to a warning; the
+  stream still runs, since the RTMP port may be reachable where SSH isn't.
+
+- A behavior test exercising `cidr_contains` across 11 boundary cases —
+  network and broadcast addresses, `/32`, `/0`, a bare address with no mask,
+  and non-octet-aligned masks. An off-by-one there would silently authorize or
+  block an entire subnet, which no static grep can see.
+
 ## [0.30.4] - 2026-08-11
 
 ### Added
