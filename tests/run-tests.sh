@@ -1655,6 +1655,21 @@ TS="$REPO_ROOT/dev/test-stream.sh"
 
 assert_contains "test-stream.sh reads the Pi's publish allow-list" \
     "$TS" 'RTMP_ALLOW_PUBLISH_CIDRS'
+
+# nginx.conf is the authority, NOT /etc/default/kiosk. Editing the config store
+# with kiosk-config does nothing until `make deploy` re-renders and reloads
+# nginx, so the two disagree for as long as that gap lasts. Checking the
+# intended value produces a FALSE GREEN — the preflight says "you're allowed",
+# nginx denies the publish anyway, and the operator gets the bare Broken pipe
+# the preflight exists to prevent, with suspicion pointed away from the ACL.
+assert_contains "test-stream.sh checks the ACL nginx is actually running" \
+    "$TS" '/etc/nginx/nginx.conf'
+assert_contains "test-stream.sh parses nginx's allow publish directives" \
+    "$TS" 'allow publish'
+assert_contains "test-stream.sh has a parse_nginx_allow helper" \
+    "$TS" '^parse_nginx_allow()'
+assert_contains "test-stream.sh warns when the config store and nginx disagree" \
+    "$TS" 'not yet applied'
 assert_contains "test-stream.sh reads the Pi's stream key" \
     "$TS" 'STREAM_KEY'
 assert_contains "test-stream.sh determines the workstation's source IP toward the Pi" \
@@ -1720,6 +1735,42 @@ cidr_behavior_test() {
 }
 cidr_behavior_test
 
+# Behavior test: the nginx directive parser. This is what stands between the
+# preflight and a false green, so it has to cope with the real file's
+# indentation, a comment line that mentions the directive, and several allows.
+parse_nginx_allow_behavior_test() {
+    local fn tmp got want
+    fn=$(sed -n '/^parse_nginx_allow()/,/^}/p' "$TS")
+    if [[ -z "$fn" ]]; then
+        FAIL=$((FAIL + 1))
+        ERRORS+=("parse_nginx_allow behavior: function not found")
+        printf "${RED}  FAIL${RESET} parse_nginx_allow behavior (function missing)\n"
+        return
+    fi
+    tmp=$(mktemp); printf '%s\n' "$fn" > "$tmp"
+
+    # Shaped like the real rendered nginx.conf, comment line included.
+    got=$(bash -c "source '$tmp'; parse_nginx_allow" <<'NGINX'
+            # Publish is restricted to the wired 192.168.0.0/24 the ATEM
+            allow publish 192.168.0.0/24;
+            allow publish 192.168.1.131/32;
+            deny publish all;
+            allow play 127.0.0.1;
+NGINX
+)
+    want="192.168.0.0/24 192.168.1.131/32"
+    if [[ "$got" == "$want" ]]; then
+        PASS=$((PASS + 1))
+        printf "${GREEN}  PASS${RESET} parse_nginx_allow extracts only the allow-publish CIDRs\n"
+    else
+        FAIL=$((FAIL + 1))
+        ERRORS+=("parse_nginx_allow: expected '$want' got '$got'")
+        printf "${RED}  FAIL${RESET} parse_nginx_allow (expected '%s', got '%s')\n" "$want" "$got"
+    fi
+    rm -f "$tmp"
+}
+parse_nginx_allow_behavior_test
+
 # ============================================================================
 echo ""
 echo "=== Documentation Tests ==="
@@ -1768,7 +1819,9 @@ docs_match_preflight_test() {
     local -a phrases=(
         "cannot publish to"
         "your source address"
-        "Pi allows publish from"
+        "nginx allows publish from"
+        "not yet applied"
+        "nginx is enforcing"
         "Broken pipe"
         "Narrow it again"
         "preflight skipped"

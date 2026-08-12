@@ -4,6 +4,31 @@ All notable changes to display-pi are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.31.1] - 2026-08-12
+
+### Fixed
+- **The `test-stream.sh` preflight checked the wrong source of truth.** It read
+  `RTMP_ALLOW_PUBLISH_CIDRS` from `/etc/default/kiosk` — what the config store
+  *intends* — when the authority is `/etc/nginx/nginx.conf`, which is what
+  actually accepts or denies the publish. `kiosk-config` writes the first; only
+  `make deploy` re-renders the second. In the gap between those two moments the
+  preflight reported a **false green**: it blessed the run, nginx denied it, and
+  the operator got the bare `Broken pipe` the check exists to prevent — with
+  suspicion pointed away from the ACL, which is worse than no check at all.
+
+  The preflight now parses nginx's live `allow publish` directives and checks
+  against those. When the config store and nginx disagree it says so explicitly,
+  naming both values and the `make deploy` that reconciles them, rather than
+  silently preferring one.
+
+  Found by running `make test-stream` against a Pi whose allow-list had been
+  widened in the config store but never deployed.
+
+### Added
+- A behavior test for `parse_nginx_allow` covering the real file's
+  indentation, a comment line that mentions the directive, and multiple
+  `allow publish` entries alongside `deny`/`allow play`.
+
 ## [0.31.0] - 2026-08-12
 
 ### Added

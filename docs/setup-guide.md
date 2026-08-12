@@ -646,8 +646,8 @@ wrong it stops in about a second rather than burning the full 60.
 **"this workstation cannot publish to …"**
 
 ```
-  your source address:  192.168.1.131
-  Pi allows publish from: 192.168.0.0/24
+  your source address:       192.168.1.131
+  nginx allows publish from: 192.168.0.0/24
 ```
 
 Your workstation is outside `RTMP_ALLOW_PUBLISH_CIDRS`, so nginx accepts the
@@ -677,6 +677,24 @@ Makefile defaults `STREAM_KEY` to `restoration`, and nginx accepts *any* key
 inside the `live` app, so publishing under the wrong one succeeds while the
 display never switches and nothing logs an error. The preflight prevents that
 silent non-event, and says so rather than substituting quietly.
+
+**"the Pi's configured allow-list is not yet applied to nginx"**
+
+```
+  /etc/default/kiosk:      192.168.0.0/16
+  nginx is enforcing:      192.168.0.0/24
+```
+
+You edited the config store — with `kiosk-config`, or by hand — but never
+re-rendered nginx, so the change hasn't reached the server that actually
+decides. `kiosk-config` writes `/etc/default/kiosk`; only `make deploy`
+regenerates `/etc/nginx/nginx.conf` from it and reloads. Run `make deploy` and
+the two agree again.
+
+The preflight checks the **running** list, not the intended one, so it tells
+you the truth about whether this publish can succeed. Checking the intended
+value instead would bless a run that nginx then denies — a false green ending
+in exactly the bare `Broken pipe` this check exists to prevent.
 
 **"couldn't read /etc/default/kiosk … preflight skipped"**
 

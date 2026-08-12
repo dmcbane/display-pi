@@ -62,15 +62,47 @@ cidr_contains() {
     (( ($(ip_to_int "$ip") & mask) == ($(ip_to_int "$net") & mask) ))
 }
 
-# Read the three values that decide whether this run can possibly work. A Pi we
-# can't SSH into is not fatal — the RTMP port may still be reachable — so the
-# preflight degrades to a warning rather than blocking the stream.
-PI_CIDRS=""; PI_KEY=""; PI_APP=""
-if pi_conf=$(timeout 10 ssh -o BatchMode=yes "$HOST" \
-        'sudo grep -hE "^(RTMP_ALLOW_PUBLISH_CIDRS|STREAM_KEY|RTMP_APP)=" /etc/default/kiosk' 2>/dev/null); then
-    PI_CIDRS=$(sed -n 's/^RTMP_ALLOW_PUBLISH_CIDRS=//p' <<<"$pi_conf" | tr -d '"')
-    PI_KEY=$(sed -n 's/^STREAM_KEY=//p' <<<"$pi_conf" | tr -d '"')
-    PI_APP=$(sed -n 's/^RTMP_APP=//p' <<<"$pi_conf" | tr -d '"')
+# Pull the allow-publish CIDRs out of a rendered nginx.conf. Anchored on the
+# directive so a comment line that merely mentions "allow publish" is ignored.
+parse_nginx_allow() {
+    sed -n 's/^[[:space:]]*allow[[:space:]]\+publish[[:space:]]\+\([^;]*\);.*/\1/p' | tr '\n' ' ' | sed 's/ *$//'
+}
+
+# Read what decides whether this run can work. Two sources, and the difference
+# between them matters:
+#
+#   /etc/nginx/nginx.conf   what nginx is enforcing RIGHT NOW — the authority,
+#                           because this is what accepts or denies the publish
+#   /etc/default/kiosk      what the config store INTENDS
+#
+# `kiosk-config` writes the second; only `make deploy` re-renders the first.
+# Between those two moments they disagree, and checking the intended value
+# there yields a false green — the preflight blesses the run and nginx denies
+# it anyway. So: check nginx, and report the gap when there is one.
+#
+# A Pi we can't SSH into is not fatal — the RTMP port may still be reachable —
+# so the preflight degrades to a warning rather than blocking the stream.
+PI_CIDRS=""; PI_KEY=""; PI_APP=""; NGINX_CIDRS=""
+if pi_conf=$(timeout 10 ssh -o BatchMode=yes "$HOST" '
+        sudo grep -hE "^(RTMP_ALLOW_PUBLISH_CIDRS|STREAM_KEY|RTMP_APP)=" /etc/default/kiosk
+        echo "@@NGINX@@"
+        sudo grep -hE "^[[:space:]]*allow[[:space:]]+publish" /etc/nginx/nginx.conf
+    ' 2>/dev/null); then
+    kiosk_part=${pi_conf%%@@NGINX@@*}
+    nginx_part=${pi_conf#*@@NGINX@@}
+    PI_CIDRS=$(sed -n 's/^RTMP_ALLOW_PUBLISH_CIDRS=//p' <<<"$kiosk_part" | tr -d '"')
+    PI_KEY=$(sed -n 's/^STREAM_KEY=//p' <<<"$kiosk_part" | tr -d '"')
+    PI_APP=$(sed -n 's/^RTMP_APP=//p' <<<"$kiosk_part" | tr -d '"')
+    NGINX_CIDRS=$(parse_nginx_allow <<<"$nginx_part")
+
+    # Drift: someone edited the config store and never re-rendered nginx.
+    if [[ -n "$NGINX_CIDRS" && -n "$PI_CIDRS" && "$NGINX_CIDRS" != "$PI_CIDRS" ]]; then
+        warn "the Pi's configured allow-list is not yet applied to nginx:"
+        warn "  /etc/default/kiosk:      $PI_CIDRS"
+        warn "  nginx is enforcing:      $NGINX_CIDRS"
+        warn "Run 'make deploy' to re-render nginx.conf and reload. Checking"
+        warn "against what nginx is actually enforcing."
+    fi
 else
     warn "couldn't read /etc/default/kiosk on $HOST — preflight skipped."
     warn "If the stream fails with 'Broken pipe', this workstation is probably"
@@ -85,10 +117,16 @@ if [[ -n "$PI_KEY" && "$PI_KEY" != "$STREAM_KEY" ]]; then
 fi
 [[ -n "$PI_APP" && "$PI_APP" != "$RTMP_APP" ]] && RTMP_APP="$PI_APP"
 
+# Check against what nginx enforces; fall back to the config store only if the
+# nginx read came back empty (unexpected layout, or an older Pi).
+ACL_CIDRS="${NGINX_CIDRS:-$PI_CIDRS}"
+ACL_SOURCE="nginx.conf"
+[[ -n "$NGINX_CIDRS" ]] || ACL_SOURCE="/etc/default/kiosk (nginx.conf unreadable)"
+
 # Which of our addresses will nginx actually see? Ask the routing table for the
 # source it would pick for this destination, rather than guessing at `hostname
 # -I`, which lists every interface including ones that can't reach the Pi.
-if [[ -n "$PI_CIDRS" ]] && command -v ip >/dev/null; then
+if [[ -n "$ACL_CIDRS" ]] && command -v ip >/dev/null; then
     probe="$RTMP_TARGET"
     if [[ ! "$probe" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
         probe=$(getent ahostsv4 "$probe" 2>/dev/null | awk 'NR==1 {print $1}')
@@ -99,15 +137,15 @@ if [[ -n "$PI_CIDRS" ]] && command -v ip >/dev/null; then
         warn "couldn't determine this host's source address toward $probe — publish-ACL check skipped."
     else
         allowed=0
-        for cidr in $PI_CIDRS; do
+        for cidr in $ACL_CIDRS; do
             if cidr_contains "$src_ip" "$cidr"; then allowed=1; break; fi
         done
         if (( ! allowed )); then
             die "$(cat <<EOF
 this workstation cannot publish to $HOST.
 
-  your source address:  $src_ip
-  Pi allows publish from: $PI_CIDRS
+  your source address:      $src_ip
+  nginx allows publish from: $ACL_CIDRS
 
 nginx will accept the TCP connection and then drop it, which ffmpeg reports
 only as "Broken pipe". Fix it on the Pi — the persisted value in
@@ -122,7 +160,7 @@ control on who can push to the display.
 EOF
 )"
         fi
-        log "Publish ACL: $src_ip is inside '$PI_CIDRS'."
+        log "Publish ACL: $src_ip is inside '$ACL_CIDRS' (per $ACL_SOURCE)."
     fi
 fi
 
