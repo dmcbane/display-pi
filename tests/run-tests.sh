@@ -1661,6 +1661,15 @@ assert_contains "setup-guide warns the site script must stay out of git" \
 assert_contains "docs index points at the batch-provisioning section" \
     "$REPO_ROOT/docs/index.html" 'setup-guide.html#batch-provisioning'
 
+# docs/_config.yml excludes dev-journal from the Jekyll build on purpose — the
+# notes stay readable as plain Markdown on github.com. A site-relative link to
+# one therefore 404s for every visitor to the published guide, while looking
+# perfectly fine in the repo. Link to the GitHub blob URL instead.
+assert_contains "_config.yml still excludes dev-journal from the site build" \
+    "$REPO_ROOT/docs/_config.yml" '^  - dev-journal'
+assert_not_contains "setup-guide has no site-relative dev-journal links (they 404 when published)" \
+    "$REPO_ROOT/docs/setup-guide.md" '](dev-journal/'
+
 # ============================================================================
 echo ""
 echo "=== Splash creation Tests ==="

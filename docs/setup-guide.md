@@ -333,8 +333,9 @@ seconds, you should hear a 440 Hz tone, and `make test-stream-long`
 gives you 5 minutes if you need more time at the receiver.
 
 If you can't hear audio:
-[`docs/dev-journal/2026-04-25-hdmi-audio-routing.md`](dev-journal/2026-04-25-hdmi-audio-routing.md)
-walks through the diagnosis.
+[`docs/dev-journal/2026-04-25-hdmi-audio-routing.md`](https://github.com/dmcbane/display-pi/blob/main/docs/dev-journal/2026-04-25-hdmi-audio-routing.md)
+walks through the diagnosis. (The dev journal isn't part of the published
+site — the notes live on GitHub as plain Markdown.)
 
 ## Batch provisioning (re-flashed cards and spare Pis)
 
