@@ -22,9 +22,15 @@ log "Testing SSH to ${HOST}..."
 ssh -o ConnectTimeout=5 "${HOST}" true || die "Cannot reach ${HOST}"
 
 # Sync files (exclude .git and dev/ — dev tools stay on workstation)
+# --filter=':- .gitignore' makes rsync read .gitignore as a per-directory
+# exclude list, so anything not fit to commit is not fit to ship either. Before
+# this, every local artifact in the repo root rode along to the Pi: the pytest
+# cache, the fetched root CA, and volunteer-kiosk.webloc/.url — which carry the
+# live auth token. One list, in .gitignore, instead of two that drift.
 log "Syncing to ${HOST}:${REMOTE_DIR}..."
 rsync -avz --delete \
     --rsync-path="sudo -u ${KIOSK_USER} rsync" \
+    --filter=':- .gitignore' \
     --exclude='.git/' \
     --exclude='.claude/' \
     --exclude='dev/' \

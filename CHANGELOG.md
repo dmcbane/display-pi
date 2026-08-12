@@ -4,6 +4,33 @@ All notable changes to display-pi are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.30.3] - 2026-08-11
+
+### Fixed
+- **`make deploy` no longer ships local artifacts to the Pi.** The rsync sent
+  everything in the repo root, so whatever a workflow left lying around rode
+  along into `/home/kiosk/display-pi` — the pytest cache, the root CA fetched
+  by `make web-ca`, a personal setup script, and both
+  `volunteer-kiosk.webloc` / `.url` shortcut files, which carry the live
+  volunteer auth token. `/home/kiosk` is mode 0700 so exposure was limited,
+  but none of it belonged in the deployed tree. The rsync now reads
+  `.gitignore` as a dir-merge filter (`--filter=':- .gitignore'`): not fit to
+  commit, not fit to ship, and one list instead of two that drift apart.
+
+  Excluded files are *protected* from `--delete`, so copies already on a Pi
+  are not removed automatically. To clear them:
+
+  ```sh
+  ssh displaypi 'D=/home/kiosk/display-pi; sudo rm -rf \
+      "$D/display-pi-rootCA.crt" "$D/volunteer-kiosk.url" \
+      "$D/volunteer-kiosk.webloc" "$D/.pytest_cache" "$D/kiosk_home.txt"'
+  ```
+
+### Added
+- A behavior test that runs the real `--filter` string from `deploy.sh`
+  against a temp tree — a static grep cannot tell a working filter from a
+  typo'd one, and rsync ignores a merge file it cannot parse.
+
 ## [0.30.2] - 2026-08-11
 
 ### Fixed

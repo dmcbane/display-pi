@@ -451,6 +451,53 @@ assert_contains "deploy.sh sets DBUS_SESSION_BUS_ADDRESS for systemctl --user" \
     "$REPO_ROOT/dev/deploy.sh" "DBUS_SESSION_BUS_ADDRESS"
 assert_contains "deploy.sh installs nginx config" "$REPO_ROOT/dev/deploy.sh" "nginx.conf"
 
+# Anything sitting in the repo root rides the rsync to /home/kiosk/display-pi.
+# That swept up local artifacts the operator never meant to ship — the
+# .pytest_cache, the fetched root CA, and (worse) volunteer-kiosk.webloc /
+# .url, which carry the live auth token. They are all already listed in
+# .gitignore, so the deploy honors it as a dir-merge filter rather than
+# maintaining a second, drifting copy of the same list.
+assert_contains "deploy.sh honors .gitignore so local artifacts never reach the Pi" \
+    "$REPO_ROOT/dev/deploy.sh" "filter=':- .gitignore'"
+
+# Behavior test: run the REAL filter string from deploy.sh against a temp tree.
+# A static grep can't tell a working filter from a typo'd one — rsync silently
+# ignores a merge file it can't parse, and the token files would ship again.
+deploy_gitignore_filter_test() {
+    local filter tmp
+    # `|| true`: no match is a test failure reported below, not a reason for
+    # set -e to kill the whole runner mid-suite.
+    filter=$(grep -o -- "--filter=':- .gitignore'" "$REPO_ROOT/dev/deploy.sh" | head -1 || true)
+    if [[ -z "$filter" ]]; then
+        FAIL=$((FAIL + 1))
+        ERRORS+=("deploy gitignore filter: no --filter argument found in deploy.sh")
+        printf "${RED}  FAIL${RESET} deploy.sh gitignore filter behavior (no filter arg)\n"
+        return
+    fi
+
+    tmp=$(mktemp -d)
+    mkdir -p "$tmp/src" "$tmp/dst"
+    printf 'volunteer-kiosk.url\n.pytest_cache/\n' > "$tmp/src/.gitignore"
+    : > "$tmp/src/volunteer-kiosk.url"
+    : > "$tmp/src/player.sh"
+    mkdir -p "$tmp/src/.pytest_cache"
+    : > "$tmp/src/.pytest_cache/junk"
+
+    # Word-split the filter exactly as the shell does in deploy.sh.
+    eval "rsync -a $filter '$tmp/src/' '$tmp/dst/'" >/dev/null 2>&1
+
+    if [[ -e "$tmp/dst/player.sh" && ! -e "$tmp/dst/volunteer-kiosk.url" && ! -e "$tmp/dst/.pytest_cache" ]]; then
+        PASS=$((PASS + 1))
+        printf "${GREEN}  PASS${RESET} deploy.sh rsync filter drops gitignored files, keeps tracked ones\n"
+    else
+        FAIL=$((FAIL + 1))
+        ERRORS+=("deploy gitignore filter: token file or cache dir was transferred (or player.sh was not)")
+        printf "${RED}  FAIL${RESET} deploy.sh rsync filter drops gitignored files, keeps tracked ones\n"
+    fi
+    rm -rf "$tmp"
+}
+deploy_gitignore_filter_test
+
 # `make restart` bounces the kiosk service without a full deploy — used during
 # testing to advance the splash rotation (player.sh re-enters the splash loop
 # on restart and picks the next image). Same password-free path as deploy.
