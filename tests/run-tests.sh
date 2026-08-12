@@ -1758,6 +1758,49 @@ assert_contains "troubleshooting names the Broken pipe symptom the preflight rep
 assert_contains "troubleshooting says to narrow the allow-list again afterwards" \
     "$GUIDE" 'Narrow it again'
 
+# The guide quotes the preflight's output verbatim so an operator can match
+# what's on their screen to the right section. Nothing else stops those two
+# copies from drifting: reword a message in test-stream.sh and the guide
+# silently starts quoting a string the script no longer prints, which is worse
+# than no quote at all — the reader concludes they're looking at a different
+# problem. Every phrase below must appear in BOTH files.
+docs_match_preflight_test() {
+    local -a phrases=(
+        "cannot publish to"
+        "your source address"
+        "Pi allows publish from"
+        "Broken pipe"
+        "Narrow it again"
+        "preflight skipped"
+        "Using the Pi's stream key"
+        "RTMP_ALLOW_PUBLISH_CIDRS"
+    )
+    local p missing=0
+    for p in "${phrases[@]}"; do
+        local in_script=1 in_guide=1
+        grep -Fq -- "$p" "$TS"    || in_script=0
+        grep -Fq -- "$p" "$GUIDE" || in_guide=0
+        if (( ! in_script || ! in_guide )); then
+            missing=1
+            local where
+            if (( ! in_script && ! in_guide )); then where="neither file"
+            elif (( ! in_script ));            then where="dev/test-stream.sh (guide quotes it)"
+            else                                    where="docs/setup-guide.md (script prints it)"
+            fi
+            ERRORS+=("preflight/docs drift: \"$p\" missing from $where")
+            printf "${RED}  FAIL${RESET} preflight phrase %-28s missing from %s\n" "\"$p\"" "$where"
+        fi
+    done
+    if (( missing )); then
+        FAIL=$((FAIL + 1))
+    else
+        PASS=$((PASS + 1))
+        printf "${GREEN}  PASS${RESET} all %s preflight phrases appear in both the script and the guide\n" \
+            "${#phrases[@]}"
+    fi
+}
+docs_match_preflight_test
+
 # docs/_config.yml excludes dev-journal from the Jekyll build on purpose — the
 # notes stay readable as plain Markdown on github.com. A site-relative link to
 # one therefore 404s for every visitor to the published guide, while looking
